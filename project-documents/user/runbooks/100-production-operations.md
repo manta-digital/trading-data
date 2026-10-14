@@ -917,6 +917,67 @@ an older range:
 There is no `backfill` verb, just as the minute tier has none (`pull` plays
 that role there).
 
+### Adding a futures product (slice 232)
+
+A new product is configuration plus a calendar, never surface code. GC was
+added this way. Each step is a commit or a command; nothing is bought until
+the PM sets the ceilings.
+
+1. **Calendar.** Decide whether the product trades an existing CME schedule.
+   Check it against CME's documents, not by assumption: GC needed its own
+   (`CME_METALS`), because metals hours and holiday closes differ from equity
+   and change from year to year. For a new schedule:
+   - add a seed module beside `src/manta_trading/market/schema/seed_cme_metals_calendar.py`:
+     the calendar row, `SEED_START`, `HOLIDAYS_SEEDED_THROUGH`, and every dated
+     exception from 2020, each under a `# source:` comment naming the CME document.
+     Read the product's own row in CME's holiday spreadsheets, PDFs or the
+     trading-hours JSON (via Wayback; cmegroup.com refuses automated reads).
+     Never copy another product's rows or extrapolate a year;
+   - check every past row against Databento trade counts (free
+     `metadata.get_record_count`: trades before each early close, none after it,
+     none on a closed day), and cross-check against `pandas_market_calendars` from
+     a scratch directory (`uv run --no-project --with pandas_market_calendars`,
+     never a project dependency). Resolve each difference from a CME document;
+   - add a `CmeCalendarSeed` instance and a minute-track migration that inserts
+     through `cme_calendar_insert(seed)` / `cme_holidays_insert(seed)` and
+     extends sessions (model: `_seed_cme_metals_calendar` in
+     `market/schema/migrations/minute.py`).
+2. **Mapping.** Add `"<ROOT>": <CALENDAR_ID>` to `FUTURES_PRODUCT_CALENDAR`
+   (`src/manta_trading/data/tick/constants.py`).
+3. **Universe entry.** Add a `TickUniverseEntry` to `TICK_UNIVERSE`: parent
+   symbol, tier, range. Measure the spread share first with two free estimates
+   (parent against the outright raw symbols); drop spreads only above a quarter
+   of the rows.
+4. **Tests.** Run the unit and integration tiers. A test that counted products
+   or assumed one product changes on the test side; a failure that needs a src
+   change is a leaked product assumption and goes to the PM.
+5. **Apply the migration** (PM go): `mt data migrate status` shows only the new
+   migration pending; then `mt data migrate apply`; then
+   `mt data calendars sessions --calendar <ID> --from D --to D` around an
+   exception date shows the sourced close. An applied migration is frozen: a
+   correction is a new migration.
+6. **Estimate (free).** `mt data tick pass --estimate-only`: only the new
+   product's days are planned, and the printed bundle cost is the figure of
+   record. Report it to the PM.
+7. **Ceilings (PM).** The PM sets `MT_TICK_SPEND_CEILING_USD` and
+   `MT_TICK_SPEND_30D_CEILING_USD` at or above the figure. No agent edits them.
+8. **Pass, then ingest.** `mt data tick pass`, then `mt data tick ingest`. Every
+   unit must end *ingested*; a `session_boundary:` failure is a calendar finding
+   (the calendar is too narrow), never a reason to loosen the check. Afterwards
+   the PM restores the per-pass ceiling.
+9. **Session check, too-wide direction.** The boundary check cannot see an
+   early close seeded too late. For each exception session in the bought range,
+   `mt data tick get 1m --product <ROOT> --start D --end D+1` (session dates)
+   must end on the bar just before the seeded close, with no bars on a closed
+   day.
+10. **Roll.** `mt data tick active --product <ROOT> --start D --end D`, then
+    `uv run python scripts/record_229_roll_fixture.py --product <ROOT>` and add
+    the product to `PRODUCTS` in `test/unit/data/tick/test_roll_provider_equivalence.py`.
+    A disagreement at `VOLUME_RANK_LAG_SESSIONS` goes to the PM; there is no
+    per-product lag.
+11. **Surfaces.** `mt data tick status`, `mt data tick coverage --start D --end D`
+    and `mt data overview` show the product with no code change.
+
 ### Exit codes (the read verbs)
 
 | Code | `get` | `status` / `coverage` / `active` | `debug` |
