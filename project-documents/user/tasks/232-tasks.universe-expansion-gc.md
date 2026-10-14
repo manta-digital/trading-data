@@ -111,8 +111,8 @@ integration flakes, migration 051/052, load tier).
   - [ ] Expected patterns to confirm per year (not to assume): US holidays halt
         at 13:30 CT from 2022; day after Thanksgiving closes 12:45 CT; Good
         Friday is closed in years equities trade an abbreviated session
-  - [ ] Success: a scratch list of (date, name, closed/early_close, time, source
-        URL) for every weekday GC did not trade the regular session. Any year
+  - [ ] Success: a list of (date, name, closed/early_close, time, source
+        URL), written to Implementation Findings in the LLD, for every weekday GC did not trade the regular session. Any year
         that cannot be sourced is reported to the PM, not guessed
 
 - [ ] **2.2 Create `seed_cme_metals_calendar.py`** (effort 3)
@@ -166,8 +166,13 @@ integration flakes, migration 051/052, load tier).
         TRADING_SESSIONS_EXTENSION_YEARS)`. Use the seed-taking builders
   - [ ] Append `059_seed_cme_metals_calendar` after 058, with a `description`
         in the style of 058's. Do not edit 058
+  - [ ] In the same task, move the chain-tail test that 059 breaks: in
+        `test/unit/test_schema_migrations.py` rename `test_chain_ends_at_058` to
+        `..._059` and expect `059_seed_cme_metals_calendar`; if the stubbed
+        session-extension helper (line ~102) names only 058, stub 059's callable too
   - [ ] Success: callable has a docstring stating idempotence and that NYSE,
-        NASDAQ and CME_EQUITY are untouched
+        NASDAQ and CME_EQUITY are untouched; `test_schema_migrations.py` passes with
+        the other 058 assertions unedited
 
 - [ ] **3.2 Integration test for 059** (effort 3)
   - [ ] New `test/integration/test_migration_059_cme_metals_calendar.py`, modelled
@@ -181,15 +186,7 @@ integration flakes, migration 051/052, load tier).
   - [ ] Assert idempotence: running the callable twice changes nothing
   - [ ] Success: all pass on the test cluster
 
-- [ ] **3.3 Move the migration-chain tail test** (effort 1)
-  - [ ] In `test/unit/test_schema_migrations.py` rename `test_chain_ends_at_058`
-        to `..._059` and expect `059_seed_cme_metals_calendar`; update the
-        stubbed-session-extension helper's docstring/stub if it names only 058
-        (line ~102) so 059's callable is also stubbed
-  - [ ] Success: `test_schema_migrations.py` passes; the other 058 assertions
-        are unedited
-
-- [ ] **3.4 Commit checkpoint** — `feat: add migration 059 seeding the CME_METALS calendar`
+- [ ] **3.3 Commit checkpoint** — `feat: add migration 059 seeding the CME_METALS calendar`
 
 ---
 
@@ -279,6 +276,8 @@ integration flakes, migration 051/052, load tier).
 ## Section 7 — Production Calendar and Free Estimate
 
 - [ ] **7.1 Apply 059 to production** (effort 2)
+  - [ ] Production is outward-facing: ask the PM for an explicit go for this apply
+        and proceed only on their yes
   - [ ] `uv run mt data migrate status` shows `059_seed_cme_metals_calendar`
         pending, nothing else. Then `uv run mt data migrate apply`
   - [ ] Snapshot `CME_EQUITY`, `NYSE`, `NASDAQ` session counts before and after;
@@ -326,15 +325,12 @@ confirmed TD6. If not, stop at 7.2.*
   - [ ] Success: every GC unit is *ingested* with all three checks (counts,
         resolution, session-boundary) passing. Slowest unit ≤ 120 s and the whole
         range ≤ 2 h; a miss fails the slice and is reported to the PM
+  - [ ] Report completion to the PM so they can restore the per-pass ceiling; the
+        agent does not edit the ceilings
   - [ ] If a boundary check fails, record the unit and check name and stop: it
         is a calendar-table finding, not a reason to loosen the check
 
-- [ ] **8.3 Ask the PM to restore the per-pass ceiling** (effort 1)
-  - [ ] Report that the purchase is complete so the PM can restore the per-pass
-        ceiling to its prior value
-  - [ ] Success: the report is sent and the ceilings are not edited by the agent
-
-- [ ] **8.4 Commit checkpoint** — `docs: record GC purchase and ingest timings`
+- [ ] **8.3 Commit checkpoint** — `docs: record GC purchase and ingest timings`
 
 ---
 
@@ -394,6 +390,7 @@ confirmed TD6. If not, stop at 7.2.*
         estimate, PM ceilings, pass, ingest, and the two-direction session check
   - [ ] Do not hard-code job IDs. Refer to commands, not remembered output
   - [ ] Success: a reader can follow it for a third product without the LLD
+  - [ ] Commit: `docs: add adding-a-futures-product runbook and contract rows`
 
 - [ ] **10.3 Update the slice plan** (effort 1)
   - [ ] In `user/architecture/220-slices.*.md`: set slice 232's effort to 3/5; update
@@ -409,6 +406,7 @@ confirmed TD6. If not, stop at 7.2.*
         serves ES and GC; the 232 open-interest decision against "Active contract
         and roll methods"; GC's measured spread share
   - [ ] Success: the entry is dated and names all three
+  - [ ] Commit: `docs: record slice 232 plan and architecture revisions`
 
 - [ ] **10.5 Final gate** (effort 1)
   - [ ] Re-run ruff, mypy (one invocation), the three test tiers separately and the
