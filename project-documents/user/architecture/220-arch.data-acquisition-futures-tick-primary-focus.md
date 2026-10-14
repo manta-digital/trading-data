@@ -379,6 +379,33 @@ Follows this initiative, not part of it: realtime capture (streaming form, own i
     get`, where `/api/v1/bars` is inclusive in UTC days. The tick routes add
     `from`/`until`, UTC instants, half-open `[from, until)`, which is how a
     client pages through a session larger than the row ceiling.
+- **2026-10-14** (slice 232, GC; the slice design is authoritative in detail):
+  - **Separate CME calendars supersede "Session model".** That section says
+    one calendar row serves ES and GC. It does not: regular hours match, but
+    holiday closes differ, and differ by year. Calendars are keyed per
+    schedule: `CME_EQUITY` (221) and `CME_METALS` (232, migration 059, every
+    exception from 2020 sourced from CME and checked against Databento
+    trades). Metals halt 12:00 CT on US holidays through 2021 and 13:30 from
+    2022, close the day after Thanksgiving at 12:45 through 2023 and 13:45
+    from 2024, and close Good Friday where equities trade an abbreviated
+    session. A new product gets its own calendar decision.
+  - **Open interest, against "Active contract and roll methods": revisited
+    and deferred again (PM, 2026-10-14).** For GC the rule would differ:
+    Databento's `GC.n.0` rolled on 2024-11-21, `GC.v.0` on 11-29. It still
+    needs a new archived schema, migration, table and projection, and no
+    consumer has asked. The trigger is in the slice plan (Future Work 2).
+  - **Volume lag holds for the front contract only.** At
+    `VOLUME_RANK_LAG_SESSIONS = 2`, GC's `v.0`, `c.0` and `c.1` match
+    Databento on every held session; `v.1` misses 3 of 40 sessions where
+    rank-2 volume is in the low thousands. No lag fits both. `v.0` (and the
+    calendar rules) are relied on; `v.1` is noted for later use (PM).
+  - **GC's measured spread share is 6.57%** of tbbo records (264,922 of
+    4,031,298), against 2.35% for ES. Spreads stay in the parent request;
+    a product drops them only above a quarter of its rows.
+  - **Coverage's raw count is per product.** With two products stored,
+    `raw_counts` counted every instrument in the session windows; it now
+    counts the product's own instruments. The one leaked single-product
+    assumption 232 found in src.
 
 ## Related Work
 
