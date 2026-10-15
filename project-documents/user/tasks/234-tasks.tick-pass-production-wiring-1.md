@@ -43,9 +43,9 @@ part: 1
   field and `_copy` in `ingest_worker.py` reports nothing per batch. Task 3.3
   adds both ends. The LLD's Excluded list bars changes to "the tick pass
   logic"; the callback is an optional, additive reporting hook that LLD Data
-  Flow step 2 requires, and Task 3.3 may not change what is loaded, checked or
-  committed. This reading is flagged for the Project Manager's confirmation
-  before Task 3.3 starts.
+  Flow step 2 requires, so Task 3.3 may not change what is loaded, checked or
+  committed. If the work shows it cannot be done without such a change, stop
+  and raise it then.
 - Constraints that bind every task:
   - Nothing is bought. No test or script may call the provider's purchase path.
   - Destructive SQL only against a database the process created (CLAUDE.md).
@@ -198,8 +198,7 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
   - [ ] Success: tests pass.
   - [ ] Commit — `feat: add tick outcome severity fold and pass-run outcome map`
 
-- [ ] **3.3 Ingest per-batch progress callback** (after the Project Manager
-  confirms the scope reading in the Context Summary)
+- [ ] **3.3 Ingest per-batch progress callback**
   - [ ] Add an optional thread-safe callback field to `IngestInputs`
     (`data/tick/ingest_pass.py`) that receives the row count of each `COPY`
     batch a worker commits. Default is "none"; the existing `mt data tick
@@ -244,32 +243,36 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
   - [ ] Success: tests pass.
   - [ ] Commit — `feat: add throttled ingest heartbeat reporter`
 
-- [ ] **3.7 Implement `mt data tick run`**
+- [ ] **3.7 `mt data tick run`: core flow**
   - [ ] Add the verb beside the other tick verbs (a sibling module of
     `tick_store_cmds.py` if that file would exceed ~300 lines) and register it
     in `cli/commands/tick.py`. No options (LLD CLI Contract).
   - [ ] Flow, per LLD Data Flow: `pass_run_recorder(settings)`; `recorder.open(
     PassKind.TICK)`; run the acquisition pass over the full universe with the
-    same entry the `pass` verb uses; run the ingest pass with the heartbeat
-    reporter; fold the two outcomes; close the row with the mapped outcome, the
-    exit code `EXIT_BY_OUTCOME[combined]`, and the detail `acquire=<o>
-    ingest=<o>`. Report phase progress through `recorder.progress` for the five
-    acquisition phases and `ingest`.
-  - [ ] Ingest always runs after the acquisition pass, whatever its outcome. A
-    preflight refusal or lock-held refusal of either pass still attempts the
-    other, then exits `EXIT_PREFLIGHT` (1) and closes the row `FAILED` with the
-    refusal text.
-  - [ ] An unexpected exception closes the row `FAILED` with the exception type
-    and re-raises (logged with `logger.exception`). The recorder is best-effort:
-    a down primary database loses the row and nothing else.
+    same entry the `pass` verb uses; then run the ingest pass, always, whatever
+    the acquisition outcome; fold the two outcomes; close the row with the
+    mapped outcome, the exit code `EXIT_BY_OUTCOME[combined]`, and the detail
+    `acquire=<o> ingest=<o>`.
   - [ ] Reuse the existing pass entry points. Copy no pass logic; no new spend
-    path; no new exit code.
-  - [ ] Print one concise summary line per pass using the existing renderers;
-    no new `--json` shape.
+    path; no new exit code. Print one concise summary line per pass using the
+    existing renderers; no new `--json` shape.
   - [ ] Success: `uv run mt data tick run --help` shows the verb with no
     options.
 
-- [ ] **3.8 Test: `run` with mocked passes**
+- [ ] **3.8 `mt data tick run`: failure paths and progress**
+  - [ ] A preflight refusal or lock-held refusal of either pass still attempts
+    the other, then exits `EXIT_PREFLIGHT` (1) and closes the row `FAILED` with
+    the refusal text.
+  - [ ] An unexpected exception closes the row `FAILED` with the exception type
+    and re-raises (logged with `logger.exception`). The recorder is best-effort:
+    a down primary database loses the row and nothing else.
+  - [ ] Report phase progress through `recorder.progress` for the five
+    acquisition phases and `ingest`, and attach the Task 3.5 heartbeat reporter
+    to the ingest pass.
+  - [ ] Success: each path above is reachable from a fake-pass harness (the
+    tests in Task 3.9 exercise them).
+
+- [ ] **3.9 Test: `run` with mocked passes**
   - [ ] Unit tests with fake acquisition and ingest passes and a fake recorder:
     ingest runs after each of `REFUSED`, `PROVIDER_ABORT` and `IN_FLIGHT`
     (Success Criteria Functional 3); exit code equals
@@ -280,7 +283,7 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
     the exit code.
   - [ ] Success: tests pass.
 
-- [ ] **3.9 Test: `run` integration, and the orphaned row**
+- [ ] **3.10 Test: `run` integration, and the orphaned row**
   - [ ] One integration run on the test cluster (throwaway primary + tick
     databases, empty universe or fixture units, no provider calls): the verb
     exits 0 and one `TICK` row closes `COMPLETE`.
@@ -291,7 +294,7 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
   - [ ] Success: both tests pass on the test cluster. If the run test hits a
     known integration flake, re-run it in isolation first.
 
-- [ ] **3.10 Commit** — `feat: add mt data tick run verb`
+- [ ] **3.11 Commit** — `feat: add mt data tick run verb`
 
 ---
 

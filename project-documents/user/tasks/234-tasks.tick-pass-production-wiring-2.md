@@ -108,17 +108,17 @@ part: 2
 
 - [ ] **7.1 Generalise `cutover_common.migrate` to take the track**
   - [ ] In `scripts/cutover_common.py`, change `migrate(migration_id)` (hard
-    wired to the Kalshi track) to take the track name, and update every caller
-    (`cutover_922_overview.py`, `cutover_265_trades.py`, others found by grep)
-    to pass `kalshi` explicitly. Check how `verify_migrate_target` and
+    wired to the Kalshi track) to take the track name. Its only caller is
+    `scripts/cutover_267_historical.py` (`migrate(MIGRATION_ID)`); pass `kalshi`
+    explicitly there. `cutover_922_overview.py` and `cutover_265_trades.py` define
+    their own `migrate` and are not touched. Check how `verify_migrate_target` and
     `_migrate_status` pick the track and parameterise them too.
   - [ ] Add a test that the track parameter reaches the `mt data migrate apply
     --track` call for both `kalshi` and `minute`.
-  - [ ] Success: that test and the existing cutover tests (`test_cutover_267.py`,
-    `test_cutover_921.py`, `test_cutover_227.py`) pass.
+  - [ ] Success: that test and `test_cutover_267.py` pass.
   - [ ] Commit — `refactor: make cutover_common.migrate take the track`
 
-- [ ] **7.2 Cutover scaffolding and steps 1–5**
+- [ ] **7.2 Cutover scaffolding**
   - [ ] Create `scripts/cutover_234_tick_wiring.py` (split helpers into a
     `cutover_234_*.py` sibling to stay near 300 lines each), following the 227
     pattern in `cutover_227_tick_backup.py` and its helpers: `STEPS` of title,
@@ -127,10 +127,17 @@ part: 2
     step passes; check-then-act so a re-run changes nothing already done.
   - [ ] Holds the acquisition timers and waits out any running pass; releases in
     `finally` (use `cutover_common` hold/release).
-  - [ ] Takes a required `--pm-designation <reference>` argument, recorded in
-    the report. Step 3 refuses to run without it (CLAUDE.md: migration 060
-    drops and re-adds a constraint on the production database, which only a
-    Project Manager designation permits).
+  - [ ] Success: the module imports; with an empty `STEPS` it writes a report
+    and exits 0.
+
+- [ ] **7.3 Test: scaffolding**
+  - [ ] New `test/unit/test_cutover_234.py` modelled on `test_cutover_227.py`:
+    step order; stop at first failure and still write the report; timers
+    released in `finally` on failure.
+  - [ ] Success: tests pass; ruff and mypy clean.
+  - [ ] Commit — `feat: add 234 cutover scaffolding`
+
+- [ ] **7.4 Steps 1–5**
   - [ ] Step 1 preconditions: runs from the checkout root as `manta`; the ref
     exists locally and on origin; the five env keys are present **by name**
     (read `/etc/manta-trading.env` the way existing cutovers do; never print
@@ -146,19 +153,17 @@ part: 2
     equals the ref and `mt --version`.
   - [ ] Step 5 restart `mt-serve` if active. Check: `/health` reports the tick
     pool reachable.
-  - [ ] Success: the module imports; a dry listing shows steps 1–5.
+  - [ ] Success: a dry listing shows steps 1–5.
 
-- [ ] **7.3 Test: scaffolding and steps 1–5**
-  - [ ] New `test/unit/test_cutover_234.py` modelled on `test_cutover_227.py`:
-    step list and order; stop at first failure and still write the report;
-    timers released in `finally` on failure; a missing env key stops at step 1
-    naming the add-tick-env command and printing no value; step 3 refuses
-    without `--pm-designation` and the report records it when given; step 2's
-    check fails on an entry outside the group.
+- [ ] **7.5 Test: steps 1–5**
+  - [ ] Extend `test/unit/test_cutover_234.py`: a missing env key stops at
+    step 1 naming the add-tick-env command and printing no value; step 2's
+    check fails on an entry outside the group; step 3 runs only after
+    `verify_migrate_target` passes.
   - [ ] Success: tests pass; ruff and mypy clean.
-  - [ ] Commit — `feat: add 234 cutover scaffolding and steps 1-5`
+  - [ ] Commit — `feat: add 234 cutover steps 1-5`
 
-- [ ] **7.4 Steps 6–9**
+- [ ] **7.6 Steps 6–9**
   - [ ] Step 6 connections: the installed `mt-serve` `ExecStart` has no
     `--workers` (fail otherwise). Tick cluster: 231 API budget (pool constants
     in `src`, `TICK_API_POOL_MAX` ×2 pools per worker) + 1 +
@@ -180,7 +185,7 @@ part: 2
     shows `tick database` OK and `tick retention` OK.
   - [ ] Success: all nine steps defined; the report names no secret values.
 
-- [ ] **7.5 Test: steps 6–9**
+- [ ] **7.7 Test: steps 6–9**
   - [ ] Extend `test/unit/test_cutover_234.py`: the purchase guard refuses when
     anything is wanted; step 7 is adjacent to step 8; the memory-bound
     comparison parses a G-suffixed `MemoryMax` into bytes (1024-based) and
@@ -244,7 +249,8 @@ part: 2
     run in one invocation over the src paths plus `kalshi_support` and tests as
     the project memory describes; `shellcheck` on `deploy/mt-run`,
     `deploy/install-production.sh`, `deploy/add-tick-env.sh`.
-  - [ ] `git diff main` shows no deletions of pre-existing lines caused by
+  - [ ] `git diff <target>` (the branch from `cf config get git.integration_branch`,
+    `main` if empty) shows no deletions of pre-existing lines caused by
     formatting.
   - [ ] Success: all clean.
 
@@ -254,7 +260,7 @@ part: 2
     pre-existing list in the Context Summary are acceptable; re-run any other
     failure in isolation before investigating, and fix real ones.
   - [ ] Success: no new failures. The known failures seen are listed in the body
-    of the Task 9.3 commit if one is made, otherwise in the Task 10.4 commit.
+    of the Task 10.4 commit.
 
 - [ ] **9.3 Commit any fixes** — `fix: resolve 234 validation findings`. If
   Tasks 9.1–9.2 needed no fixes, make no commit.
@@ -270,15 +276,14 @@ part: 2
     ref the Project Manager names; create no tag unless the Project Manager
     confirms.
   - [ ] Obtain the Project Manager's explicit designation that the cutover may
-    apply migration 060 to the production database; its reference is the
-    cutover's `--pm-designation` value. With no designation, stop and ask.
+    apply migration 060 to the production database, and quote it in the Task
+    10.4 commit body. With no designation, stop and ask.
   - [ ] Success: `git rev-parse` of the ref matches `git ls-remote origin`, and
-    a designation reference is in hand.
+    the designation is in hand.
 
 - [ ] **10.2 Run the cutover**
   - [ ] From the checkout root as `manta`: `uv run python
-    scripts/cutover_234_tick_wiring.py <ref>
-    --pm-designation <reference>`.
+    scripts/cutover_234_tick_wiring.py <ref>`.
   - [ ] If Step 1 stops because the five tick keys are absent from
     `/etc/manta-trading.env`, that is the single Project Manager host act: the
     script prints the one `sudo …/deploy/add-tick-env.sh --from …/.env`
@@ -294,6 +299,9 @@ part: 2
   - [ ] Immediately before each manual `sudo mt-run tick` below, run `mt-run
     data tick pass --estimate-only --json` and proceed only if nothing is
     wanted and cost is 0; otherwise stop and report what is wanted.
+  - [ ] While that run is active, confirm `mt-run follow tick` tails its
+    journal and `mt-run data overview` shows the run's current phase
+    (Functional 1 and 2).
   - [ ] Run the LLD Verification Walkthrough steps 2–3 as far as the agent can
     (`mt-run` is covered by the narrow sudo list). Confirm `mt-run status`, `mt-run data overview`,
     `mt-run data health`, and the `/api/v1/overview` tick entry (confirm the
