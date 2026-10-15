@@ -249,7 +249,6 @@ def _daily_calendar(times: tuple[time, ...]) -> set[str]:
     }
 
 
-
 class TestMinutePassTimerMatchesTheConstant:
     """``MINUTE_PASS_FIRING_TIMES_UTC`` and ``mt-minute-pass.timer`` state the
     same firing times, and this test fails if either moves alone.
@@ -441,3 +440,40 @@ class TestAccountingTimerMatchesTheConstant:
         accounting = min(ACCOUNTING_PASS_FIRING_TIMES_UTC)
         assert accounting > max(MINUTE_PASS_FIRING_TIMES_UTC)
         assert accounting > max(DAILY_PASS_FIRING_TIMES_UTC)
+
+
+ACQUISITION_SLICE = _SYSTEMD / "manta-acquisition.slice"
+
+
+def _slice_memory_max_gib(path: Path) -> int:
+    """The slice's ``MemoryMax`` in GiB; fails unless it is ``<integer>G`` > 0."""
+    value = _parse(path).get("Slice", "MemoryMax", fallback="")
+    match = re.fullmatch(r"\s*(\d+)G\s*", value)
+    assert match, f"{path.name}: MemoryMax must be <integer>G, got {value!r}"
+    gib = int(match.group(1))
+    assert gib > 0, f"{path.name}: MemoryMax must be > 0"
+    return gib
+
+
+class TestAcquisitionSlice:
+    """233: the slice carries a derived bound and holds only oneshot passes."""
+
+    def test_declares_memory_max(self):
+        _slice_memory_max_gib(ACQUISITION_SLICE)
+
+    def test_a_slice_without_memory_max_is_rejected(self, tmp_path):
+        bare = tmp_path / "manta-acquisition.slice"
+        bare.write_text("[Unit]\nDescription=x\n\n[Slice]\n", encoding="utf-8")
+        with pytest.raises(AssertionError, match="MemoryMax"):
+            _slice_memory_max_gib(bare)
+
+    def test_every_member_is_oneshot(self):
+        units = {path.name: _parse(path) for path in _SYSTEMD.glob("*.service")}
+        members = {
+            name: unit
+            for name, unit in units.items()
+            if unit.get("Service", "Slice", fallback=None) == ACQUISITION_SLICE.name
+        }
+        assert members, "no service names manta-acquisition.slice"
+        for name, unit in members.items():
+            assert unit["Service"]["Type"] == "oneshot", name
