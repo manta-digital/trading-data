@@ -389,3 +389,10 @@ TICK_API_POOL_MAX = 4
 #: than ``TICK_DB_CONNECT_TIMEOUT_SECONDS``, so a tick ``503`` never outwaits
 #: a roll connect.
 TICK_API_CHECKOUT_TIMEOUT_SECONDS = 5
+
+
+# -- Slice 234: production wiring --------------------------------------------------
+
+#: Least interval between two ingest heartbeats ``mt data tick run`` writes to its
+#: ``pass_runs`` row; ``progress_updated_at`` moving is the run's liveness signal.
+TICK_HEARTBEAT_SECONDS = 30
