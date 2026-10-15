@@ -46,8 +46,8 @@ This slice does three things:
 The plan asks for the measurement to be repeated with the chosen setting in
 force. With no weights chosen, that re-run has nothing to show, so the
 design replaces it with a verify-only check at install. Both this and the
-dropped weights are plan scope, and they need the PM's confirmation
-(Technical Decision 6).
+dropped weights are plan scope, and the PM confirmed both on 2026-10-14
+(Technical Decision 1).
 
 **Cutover timing (decided):** the install is held for the release that
 follows 234. 233 closes with the measurement, the unit file, the drift
@@ -98,10 +98,8 @@ Decision 7).
    `CPUWeight` and `IOWeight` are absent, replacing the current "deliberately
    carries no resource settings" text.
 4. **A drift guard** in `test/unit/deploy/test_units.py`. The slice declares
-   a parseable `MemoryMax` and no `CPUWeight`/`IOWeight`. Every unit in
-   `deploy/systemd/` that names the slice is a `Type=oneshot` pass. The
-   guard's comment says the weight assertion is intentional: taking up a
-   reopen trigger (Technical Decision 5) means editing this test on purpose.
+   a parseable `MemoryMax`, and every unit in `deploy/systemd/` that names
+   the slice is a `Type=oneshot` pass.
 5. **Documents**:
    - Runbook 100: the unit table row; a new add-a-source step to re-derive
      the bound when a unit joins the slice; and the "two limits" bullet,
@@ -279,19 +277,13 @@ the API's tick reads, and the installer's unit list does not carry it. The
 reopen trigger is a "measurable contention" verdict from this run, or from
 234's run once a tick pass unit exists.
 
-**What decides it.** The table above is the pre-measurement baseline, and
-226 measured Kalshi only. The minute run in this slice is the deciding
-evidence:
-- **"None measured":** the omission stands, and Technical Decision 6
-  records it.
-- **"Measurable contention":** the omission is not taken. The slice stops
-  at the report, and the PM chooses a placement for a weight (Technical
-  Decision 5).
-
-**PM confirmation required, not yet given.** Dropping plan-assigned
-`CPUWeight`/`IOWeight` and the post-setting re-run is plan scope.
-Implementation stops at a PM gate before the unit file is written
-(Development Approach, step 5).
+**PM decision (2026-10-14): no weights, and no re-run.** The weights came
+from 916, which left the slice empty and named all three settings as the
+standard knobs to add once contention was measured. Nobody had checked
+whether this host could use them. The plan and architecture inherited "set
+all three" as the assumed outcome. If the minute run shows measurable
+contention, the PM decides the response then (Technical Decision 5). Weights
+are not pre-built for that case.
 
 #### Technical Decision 2: the tick load runs on a scratch server, not on `17/tick`
 
@@ -462,9 +454,8 @@ verdict.
   repeated to show the chosen setting works" becomes "the install is
   verified in place". With no weight chosen, a re-run under the bound would
   repeat weekday walks that peak at 75–144 M against a bound of about
-  14 GiB, which shows nothing. If a weight is ever set (a reopen trigger),
-  the re-run comes back with it. Both changes need the PM's confirmation at
-  slice review.
+  14 GiB, which shows nothing. The PM confirmed both changes on
+  2026-10-14.
 - **Architecture Revision Log, entry for 233:** "Cross-source arbitration".
   The weights are not set, for the reasons above. The mechanism is calendar
   stagger, kept. The tick load runs on a scratch server because `17/tick`
@@ -707,11 +698,8 @@ Run from the checkout root on manta9000, on a Tuesday to Friday after the
    the "tick alone" rate.
 4. **Entry and report:** the `--check` and `--memory-bound` modes, then the
    full run on a weekday afternoon. Commit after each section.
-5. **PM gate.** The PM confirms the two plan-scope changes (Technical
-   Decision 6) before the unit file is written. Without that confirmation,
-   implementation stops here.
-6. **Unit file and drift guard** from the report's numbers.
-7. **Documents:** runbook, plans, architecture, CHANGELOG.
+5. **Unit file and drift guard** from the report's numbers.
+6. **Documents:** runbook, plans, architecture, CHANGELOG.
 
 ### Special Considerations
 
