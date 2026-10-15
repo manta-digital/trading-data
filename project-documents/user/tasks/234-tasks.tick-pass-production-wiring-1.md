@@ -206,11 +206,13 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
   - [ ] Thread it through to `_copy` in `data/tick/ingest_worker.py` and call it
     once per batch with the batch's row count. Only a count crosses the worker
     boundary (LLD Data Flow step 2).
-  - [ ] Decide and implement how the callback is carried to worker processes or
-    threads by reading `ingest_pass.py` and the worker launch path; use the
-    existing worker model, and add no new concurrency primitive beyond a
-    thread-safe counter. If workers are processes and a callback cannot cross,
-    stop and raise it with the Project Manager rather than polling the database.
+  - [ ] Workers are threads: `ingest_pass.py` runs `ingest_unit` through
+    `asyncio.to_thread` (confirmed at design time). The callback is passed
+    straight through; the reporter it feeds (3.5) is the only shared state and
+    is thread-safe. Add no other concurrency primitive.
+  - [ ] Counts are rows `COPY`'d inside the unit's open transaction, not yet
+    committed. They are a liveness signal only; a unit that rolls back still
+    reported its rows. Document this on the field.
   - [ ] Success: with a counting callback, a unit fixture load reports batch
     counts that sum to the unit's loaded row count; with no callback, behaviour
     and existing tests are unchanged.
@@ -358,6 +360,9 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
     out, asserting `FAIL tick retention` naming job id, deadline and
     `mt-run tick`, and exit 1; holed and reopened units never fail it.
   - [ ] Test that a primary outage still exits 2 with the tick lines printed.
+  - [ ] Assert the shared health output for an informational check: the
+    `--json` shape (the check present, marked informational, not counted) and
+    the `verdict_line` text (unchanged by an informational check).
   - [ ] Success: tests pass; existing health tests unchanged.
 
 - [ ] **4.6 Commit** — `feat: add tick database and tick retention health checks`

@@ -118,7 +118,7 @@ part: 2
   - [ ] Success: that test and `test_cutover_267.py` pass.
   - [ ] Commit — `refactor: make cutover_common.migrate take the track`
 
-- [ ] **7.2 Cutover scaffolding**
+- [ ] **7.2 Cutover script: scaffolding and steps 1–9**
   - [ ] Create `scripts/cutover_234_tick_wiring.py` (split helpers into a
     `cutover_234_*.py` sibling to stay near 300 lines each), following the 227
     pattern in `cutover_227_tick_backup.py` and its helpers: `STEPS` of title,
@@ -127,17 +127,6 @@ part: 2
     step passes; check-then-act so a re-run changes nothing already done.
   - [ ] Holds the acquisition timers and waits out any running pass; releases in
     `finally` (use `cutover_common` hold/release).
-  - [ ] Success: the module imports; with an empty `STEPS` it writes a report
-    and exits 0.
-
-- [ ] **7.3 Test: scaffolding**
-  - [ ] New `test/unit/test_cutover_234.py` modelled on `test_cutover_227.py`:
-    step order; stop at first failure and still write the report; timers
-    released in `finally` on failure.
-  - [ ] Success: tests pass; ruff and mypy clean.
-  - [ ] Commit — `feat: add 234 cutover scaffolding`
-
-- [ ] **7.4 Steps 1–5**
   - [ ] Step 1 preconditions: runs from the checkout root as `manta`; the ref
     exists locally and on origin; the five env keys are present **by name**
     (read `/etc/manta-trading.env` the way existing cutovers do; never print
@@ -153,24 +142,18 @@ part: 2
     equals the ref and `mt --version`.
   - [ ] Step 5 restart `mt-serve` if active. Check: `/health` reports the tick
     pool reachable.
-  - [ ] Success: a dry listing shows steps 1–5.
-
-- [ ] **7.5 Test: steps 1–5**
-  - [ ] Extend `test/unit/test_cutover_234.py`: a missing env key stops at
-    step 1 naming the add-tick-env command and printing no value; step 2's
-    check fails on an entry outside the group; step 3 runs only after
-    `verify_migrate_target` passes.
-  - [ ] Success: tests pass; ruff and mypy clean.
-  - [ ] Commit — `feat: add 234 cutover steps 1-5`
-
-- [ ] **7.6 Steps 6–9**
   - [ ] Step 6 connections: the installed `mt-serve` `ExecStart` has no
-    `--workers` (fail otherwise). Tick cluster: 231 API budget (pool constants
-    in `src`, `TICK_API_POOL_MAX` ×2 pools per worker) + 1 +
-    `TICK_INGEST_WORKERS` fits in `max_connections` −
-    `superuser_reserved_connections` − live `pg_stat_activity`. Primary: 231's
-    recorded extra + 1 under the same check. Read pool sizes from constants; no
-    new worker arithmetic.
+    `--workers` (fail otherwise). Inputs, each from one named source:
+    - Tick API budget: `TICK_API_POOL_MAX` (`src/manta_trading/data/tick/constants.py`)
+      × 2 pools per worker (`src/manta_trading/api_server/tick_access.py`) = 8.
+    - Pass on the tick cluster: 1 + `TICK_INGEST_WORKERS` (same constants file).
+    - Primary extra from 231: 4, recorded in the 231 slice design's "Dev values"
+      table ("Added by 231" column). If a `src` constant defines it, use the
+      constant; otherwise define one constant in the cutover module citing that
+      table. Never invent a figure: if the table and code disagree, stop and raise.
+    - Pass on the primary: 1 (the `pass_runs` recorder).
+    - Check per cluster: budget fits in `max_connections` −
+      `superuser_reserved_connections` − live `pg_stat_activity`.
   - [ ] Step 7 purchase guard: `mt-run data tick pass --estimate-only --json`;
     pass only if nothing wanted and cost 0, else stop and report what is
     wanted. It runs immediately before step 8's firing with no step between.
@@ -182,18 +165,23 @@ part: 2
     purchase count (expected 0). After: `memory.events` `oom_kill` is 0.
   - [ ] Step 9 surfaces: `mt-run status` has a `tick` row; `mt-run data
     overview` shows a tick pass line and `tick manual`; `mt-run data health`
-    shows `tick database` OK and `tick retention` OK.
-  - [ ] Success: all nine steps defined; the report names no secret values.
+    shows a `tick database` OK line and `tick retention` OK.
+  - [ ] Success: the module imports and lists nine steps; the report names no
+    secret values.
 
-- [ ] **7.7 Test: steps 6–9**
-  - [ ] Extend `test/unit/test_cutover_234.py`: the purchase guard refuses when
-    anything is wanted; step 7 is adjacent to step 8; the memory-bound
-    comparison parses a G-suffixed `MemoryMax` into bytes (1024-based) and
-    fails on a mismatch; connection arithmetic passes and fails at the
-    boundary; `--workers` present fails step 6; the report omits secret values.
-  - [ ] Success: tests pass; ruff, mypy and shellcheck (if shell is invoked)
-    clean.
-  - [ ] Commit — `feat: add 234 cutover steps 6-9`
+- [ ] **7.3 Test: cutover pure logic**
+  - [ ] New `test/unit/test_cutover_234.py`, modelled on `test_cutover_227.py`.
+    Test only the logic the real cutover run (Task 10.2) would not exercise
+    cleanly; do not restate the `STEPS` list:
+    - a G-suffixed `MemoryMax` parses to bytes (1024-based), and a mismatch fails;
+    - connection arithmetic passes and fails at the boundary; `--workers`
+      present fails step 6;
+    - the purchase guard refuses when anything is wanted;
+    - a missing env key stops step 1 naming the add-tick-env command and
+      printing no value;
+    - timers are released in `finally` when a step fails.
+  - [ ] Success: tests pass; ruff and mypy clean.
+  - [ ] Commit — `feat: add 234 cutover script`
 
 ---
 
@@ -259,8 +247,9 @@ part: 2
     `MT_TIMESCALE_TEST_URL` exported from `.env`. Failures limited to the known
     pre-existing list in the Context Summary are acceptable; re-run any other
     failure in isolation before investigating, and fix real ones.
-  - [ ] Success: no new failures. The known failures seen are listed in the body
-    of the Task 10.4 commit.
+  - [ ] Success: no new failures. List the known failures seen in the Task 9.3
+    commit body if there is one, otherwise in the cutover report's preamble
+    (Task 10.2).
 
 - [ ] **9.3 Commit any fixes** — `fix: resolve 234 validation findings`. If
   Tasks 9.1–9.2 needed no fixes, make no commit.
@@ -276,8 +265,8 @@ part: 2
     ref the Project Manager names; create no tag unless the Project Manager
     confirms.
   - [ ] Obtain the Project Manager's explicit designation that the cutover may
-    apply migration 060 to the production database, and quote it in the Task
-    10.4 commit body. With no designation, stop and ask.
+    apply migration 060 to the production database, and record it (who, when,
+    the words) in the cutover report's preamble. With no designation, stop and ask.
   - [ ] Success: `git rev-parse` of the ref matches `git ls-remote origin`, and
     the designation is in hand.
 
@@ -289,6 +278,9 @@ part: 2
     script prints the one `sudo …/deploy/add-tick-env.sh --from …/.env`
     command. Report it to the Project Manager, and re-run the whole script
     after the keys exist. Every other step needs no Project Manager action.
+  - [ ] Any other failed step (memory check, connection budget, a surface): read
+    the report, diagnose, fix on the slice branch, re-run Task 9's checks, and
+    re-run the whole script. It is check-then-act, so completed steps are no-ops.
   - [ ] Success: exit 0 and `project-documents/user/notes/<date>-234-cutover.md`
     shows every step PASS, including `memory.max` equal to the declared
     `MemoryMax`, `oom_kill` 0, both clusters within their connection budget,

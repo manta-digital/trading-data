@@ -58,7 +58,7 @@ One cutover script installs all of it and verifies it.
 **Excluded**
 - Any timer or `OnCalendar` for tick, and any cadence constant.
 - A `pass_runs` row for by-hand `mt data tick pass` / `ingest`. These stay operator tools; the production entry point is `run`.
-- Changes to `env_add_keys.sh`, the tick pass logic, the spend guards, or the universe.
+- Changes to `env_add_keys.sh`, the tick pass logic, the spend guards, or the universe. The one exception is the optional per-batch progress hook on ingest (Data Flow, step 2): it is additive and changes no pass behaviour.
 - Any purchase. The cutover refuses to fire if the universe wants anything.
 - Open interest (Future Work item 2). Deferred: no Standard-plan date is set (Special Considerations).
 
@@ -102,8 +102,9 @@ mt data health (hourly) ─► primary checks (unchanged)
 1. `mt-run tick` → the unit runs `mt data tick run`, with environment from `/etc/manta-trading.env` as `manta-trading`.
 2. `run` opens a `TICK` row. Phase progress goes through `recorder.progress`: the acquisition phases (`reconcile`, `availability`, `purchase`, `await`, `definitions`), then `ingest`.
 
-   **The per-batch heartbeat (handed over by 225).**
-   - Each ingest worker reports the rows of every `COPY` batch it commits through a thread-safe callback that the ingest pass accepts.
+   **The per-batch heartbeat (requirement handed over by 225; the hook is added here).**
+   - 225 left no callback in the code. This slice adds one optional field to `IngestInputs` and one call per batch in `ingest_worker._copy`. With no callback, `mt data tick ingest` behaves exactly as today. Workers are threads (`asyncio.to_thread`), so the callback passes straight through.
+   - Each ingest worker reports the rows of every `COPY` batch through that thread-safe callback. The rows are inside the unit's open transaction, so the count is a liveness signal, not a committed total.
    - `run` writes `recorder.progress(phase="ingest", done=rows loaded, total=rows the provider reported for the pass's units)` at most once every `TICK_HEARTBEAT_SECONDS = 30`. That sets `pass_runs.progress_updated_at`.
    - Only counts cross the worker boundary, so the architecture's "only progress returns to the loop" holds.
    - The heartbeat is the run's liveness signal. A run whose `done` and `progress_updated_at` stop moving is hung, and the overview shows it. TD2's wall-clock bound ends it.
