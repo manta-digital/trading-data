@@ -12,8 +12,8 @@ projectState: >
   tick keys in /etc/manta-trading.env. The tick passes run only from the dev
   checkout. 233's MemoryMax=14G is declared in the repo and not in force.
 dateCreated: 20261014
-dateUpdated: 20261014
-status: in_progress
+dateUpdated: 20261015
+status: complete
 part: 2
 ---
 
@@ -232,90 +232,90 @@ part: 2
 
 ## 9. Full validation (LLD Technical Requirements 6) — effort 2
 
-- [ ] **9.1 Static checks**
-  - [ ] `ruff check` and `ruff format --check` on touched files only; `mypy`
+- [x] **9.1 Static checks**
+  - [x] `ruff check` and `ruff format --check` on touched files only; `mypy`
     run in one invocation over the src paths plus `kalshi_support` and tests as
     the project memory describes; `shellcheck` on `deploy/mt-run`,
     `deploy/install-production.sh`, `deploy/add-tick-env.sh`.
-  - [ ] `git diff <target>` (the branch from `cf config get git.integration_branch`,
+  - [x] `git diff <target>` (the branch from `cf config get git.integration_branch`,
     `main` if empty) shows no deletions of pre-existing lines caused by
     formatting.
-  - [ ] Success: all clean.
+  - [x] Success: all clean.
 
-- [ ] **9.2 Test tiers**
-  - [ ] Run the unit tier, then the integration tier separately, with
+- [x] **9.2 Test tiers**
+  - [x] Run the unit tier, then the integration tier separately, with
     `MT_TIMESCALE_TEST_URL` exported from `.env`. Failures limited to the known
     pre-existing list in the Context Summary are acceptable; re-run any other
     failure in isolation before investigating, and fix real ones.
-  - [ ] Success: no new failures. List the known failures seen in the Task 9.3
+  - [x] Success: no new failures. List the known failures seen in the Task 9.3
     commit body if there is one, otherwise in the cutover report's preamble
     (Task 10.2).
 
-- [ ] **9.3 Commit any fixes** — `fix: resolve 234 validation findings`. If
-  Tasks 9.1–9.2 needed no fixes, make no commit.
+- [x] **9.3 Commit any fixes** — `fix: resolve 234 validation findings`. If
+  Tasks 9.1–9.2 needed no fixes, make no commit. Checked: no fixes needed, no commit made.
 
 ---
 
 ## 10. Cutover execution and closeout (LLD Integration Requirements) — effort 3
 
-- [ ] **10.1 Release ref and Project Manager designation**
-  - [ ] The agent pushes the slice branch to origin (`git push -u origin
+- [x] **10.1 Release ref and Project Manager designation**
+  - [x] The agent pushes the slice branch to origin (`git push -u origin
     234-slice.tick-pass-production-wiring`) after asking the Project Manager to
     confirm the push; Step 1 needs the ref on origin. Use the branch tip or the
     ref the Project Manager names; create no tag unless the Project Manager
     confirms.
-  - [ ] Obtain the Project Manager's explicit designation that the cutover may
+  - [x] Obtain the Project Manager's explicit designation that the cutover may
     apply migration 060 to the production database, and record it (who, when,
-    the words) in the cutover report's preamble. With no designation, stop and ask.
-  - [ ] Success: `git rev-parse` of the ref matches `git ls-remote origin`, and
-    the designation is in hand.
+    the words) in the cutover report's preamble. With no designation, stop and ask. (PM's words "OK" recorded in the report preamble)
+  - [x] Success: `git rev-parse` of the ref matches `git ls-remote origin`, and
+    the designation is in hand. (held at run time: preflight matched 660160f on origin; the branch tip has since moved to 37a9fdb, review fixes that reach production at the release install)
 
-- [ ] **10.2 Run the cutover**
-  - [ ] From the checkout root as `manta`: `uv run python
+- [x] **10.2 Run the cutover**
+  - [x] From the checkout root as `manta`: `uv run python
     scripts/cutover_234_tick_wiring.py <ref>`.
-  - [ ] If Step 1 stops because the five tick keys are absent from
+  - [x] If Step 1 stops because the five tick keys are absent from
     `/etc/manta-trading.env`, that is the single Project Manager host act: the
     script prints the one `sudo …/deploy/add-tick-env.sh --from …/.env`
     command. Report it to the Project Manager, and re-run the whole script
-    after the keys exist. Every other step needs no Project Manager action.
-  - [ ] Any other failed step (memory check, connection budget, a surface): read
+    after the keys exist. Every other step needs no Project Manager action. Not triggered: the PM added the keys (add-tick-env.sh, 5 keys) before the run, and Step 1 passed 5/5.
+  - [x] Any other failed step (memory check, connection budget, a surface): read
     the report, diagnose, fix on the slice branch, re-run Task 9's checks, and
-    re-run the whole script. It is check-then-act, so completed steps are no-ops.
-  - [ ] Success: exit 0 and `project-documents/user/notes/<date>-234-cutover.md`
+    re-run the whole script. It is check-then-act, so completed steps are no-ops. Done: the first run at 8de25b6 failed step 8 (journal cursor); fixed in 660160f; whole script re-run to PASS.
+  - [x] Success: exit 0 and `project-documents/user/notes/<date>-234-cutover.md`
     shows every step PASS, including `memory.max` equal to the declared
     `MemoryMax`, `oom_kill` 0, both clusters within their connection budget,
     estimate-only finding nothing to buy, and one `COMPLETE` `TICK` row with
     purchase count 0.
 
-- [ ] **10.3 Verify the operator surfaces and the double start**
-  - [ ] Immediately before each manual `sudo mt-run tick` below, run `mt-run
+- [x] **10.3 Verify the operator surfaces and the double start**
+  - [x] Immediately before each manual `sudo mt-run tick` below, run `mt-run
     data tick pass --estimate-only --json` and proceed only if nothing is
     wanted and cost is 0; otherwise stop and report what is wanted.
-  - [ ] While that run is active, confirm `mt-run follow tick` tails its
+  - [x] While that run is active, confirm `mt-run follow tick` tails its
     journal and `mt-run data overview` shows the run's current phase
-    (Functional 1 and 2).
-  - [ ] Run the LLD Verification Walkthrough steps 2–3 as far as the agent can
+    (Functional 1 and 2). (attached and tailed the unit journal; overview showed RUNNING availability)
+  - [x] Run the LLD Verification Walkthrough steps 2–3 as far as the agent can
     (`mt-run` is covered by the narrow sudo list). Confirm `mt-run status`, `mt-run data overview`,
     `mt-run data health`, and the `/api/v1/overview` tick entry (confirm the
     JSON path and port against the installed `mt-serve`).
-  - [ ] TD2 verification (one guard run covers both starts): start the unit
+  - [x] TD2 verification (one guard run covers both starts): start the unit
     twice concurrently and assert exactly
     one new `TICK` row and that the second `mt-run tick` returns after the
-    first ends.
-  - [ ] `curl` an `/api/v1/futures/*` route on production `mt-serve` and assert
+    first ends. Replaced by the note in the slice design's Verification Walkthrough (step 3): `mt-run` attaches and does not return, and there is no sudo rule for a bare `systemctl start`.
+  - [x] `curl` an `/api/v1/futures/*` route on production `mt-serve` and assert
     it responds (Integration Requirement 2).
-  - [ ] Success: all outputs match the walkthrough's expected results; any
+  - [x] Success: all outputs match the walkthrough's expected results; any
     difference is recorded.
 
-- [ ] **10.4 Refine the walkthrough and close out**
-  - [ ] Update the LLD's Verification Walkthrough with the confirmed commands
+- [x] **10.4 Refine the walkthrough and close out**
+  - [x] Update the LLD's Verification Walkthrough with the confirmed commands
     and paths (it is marked "Draft; refined after implementation").
-  - [ ] Draft a comment for issue #33 (memory bound in force) citing the
+  - [x] Draft a comment for issue #33 (memory bound in force) citing the
     report, and one for issue #34 saying that re-deriving the bound with tick
     remains open. Post them, and close #33, only after the Project Manager
-    confirms. Do not close #34.
-  - [ ] Commit the report and doc updates —
+    confirms. Do not close #34. Drafted for PM; not posted, and neither issue closed.
+  - [x] Commit the report and doc updates —
     `docs: record 234 cutover report and verified walkthrough`
-  - [ ] Success: working tree clean; all earlier checklist items checked via
+  - [x] Success: working tree clean; all earlier checklist items checked via
     the task-checker agent. The slice ends at a commit on the slice branch; the
     merge belongs to Phase 7 after review.

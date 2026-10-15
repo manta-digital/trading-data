@@ -10,8 +10,8 @@ projectState: >
   (PassKind.TICK, manual schedule, migration 060, `mt data tick run`, ingest
   heartbeat, tick health rows); Tasks 5–10 in part 2 remain.
 dateCreated: 20261014
-dateUpdated: 20261014
-status: in_progress
+dateUpdated: 20261015
+status: complete
 part: 1
 ---
 

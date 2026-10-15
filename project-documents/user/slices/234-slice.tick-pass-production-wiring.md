@@ -7,7 +7,7 @@ dependencies: [225-slice.ingest-pass-and-proof-parity, 230-slice.operator-surfac
 interfaces: []
 dateCreated: 20261014
 dateUpdated: 20261015
-status: not_started
+status: complete
 ---
 
 # Slice Design: Tick Pass Production Wiring
@@ -317,18 +317,18 @@ These go in the architecture's Revision Log, with the Cadence text updated to ma
 
 ### Verification Walkthrough
 
-Draft; refined after implementation. The commands run on manta9000.
+Verified 2026-10-15 on manta9000; report `user/notes/2026-10-15-234-cutover.md`. The commands run on manta9000.
 
 **0. PM, once:** add the tick settings to the service environment.
 ```
 sudo /home/manta/source/repos/manta/trading-data/deploy/add-tick-env.sh \
      --from /home/manta/source/repos/manta/trading-data/.env
 ```
-Expected: a count of keys added (5 on first run, 0 after), and no values printed.
+Expected: a count of keys added (5 on first run, 0 after), and no values printed. Seen: "5 keys added".
 
-**1. Agent: run the cutover** from the release ref.
+**1. Agent: run the cutover** from a ref on origin.
 ```
-uv run python scripts/cutover_234_tick_wiring.py <ref>
+uv run python scripts/cutover_234_tick_wiring.py <ref> [--note TEXT ...]
 ```
 Expected: exit 0, and `project-documents/user/notes/<date>-234-cutover.md` shows every step PASS:
 - `memory.max` is 15032385536 bytes for 14G;
@@ -337,26 +337,32 @@ Expected: exit 0, and `project-documents/user/notes/<date>-234-cutover.md` shows
 - estimate-only found nothing to buy;
 - the `TICK` row is COMPLETE.
 
-**2. Run tick by hand**, the way the operator will from now on.
+Seen: all 9 steps PASS at `660160f`; the unit exited 0 with a 100 MB memory peak. The first run, at `8de25b6`, stopped at step 8 before firing: a never-logged unit has no unit-scoped journal cursor. `660160f` reads the cursor from the whole journal.
+
+**2. Run tick by hand**, the way the operator will from now on. Run the purchase guard first.
 ```
+sudo mt-run data tick pass --estimate-only --json   # outcome ok, nothing wanted
 sudo mt-run tick
 ```
-Expected: the journal streams the acquisition phases, then ingest, and the run exits 0. With nothing wanted and nothing pending, both passes report zero units.
+Expected: the journal streams the acquisition phases, then ingest, and the run exits 0. With nothing wanted and nothing pending, both passes report zero units. While it runs, `mt-run data overview` shows `tick … RUNNING <phase>` (seen: `RUNNING availability`).
 
 **3. See it from the operator surfaces.**
 ```
-mt-run status            # a "tick" row: last run Result=success, exit=0
-mt-run data overview     # pass line "tick … complete", next line includes "tick manual"
+mt-run status            # "== tick: not running (state=inactive)" + last journal lines
+mt-run data overview     # "tick  manual (no timer)  idle … complete"; next line "tick manual"
 mt-run data health       # "OK   tick database" and "OK   tick retention"
-curl -s localhost:8000/api/v1/overview | jq '.passes[] | select(.pass=="tick")'
+curl -s localhost:8100/api/v1/overview | jq '.passes[] | select(.pass=="tick")'
+curl -s localhost:8100/api/v1/futures/products   # 200, ES and GC
 ```
-The JSON path and port are confirmed against the installed `mt-serve` at implementation.
+The overview entry has `cadence "manual (no timer)"`, `next_firing null`, and `last_run` with outcome COMPLETE, exit 0, detail `acquire=ok ingest=ok`. `mt-serve` listens on 8100, its default port.
 
-**4. Prove the failure lines** in the dev checkout, not production.
+A second `sudo mt-run tick` while one runs is not shown here: `mt-run` attaches with `journalctl -f` and does not return, and a bare second `systemctl start` has no sudo rule. systemd starts no second instance of a running oneshot unit.
+
+**4. Prove the failure lines** in the dev checkout, not production. Settings read `.env`, so blank the variable; `env -u` does not unset it.
 ```
-env -u MT_TICK_DB_URL uv run mt data health
+MT_TICK_DB_URL= uv run mt data health
 ```
-Expected: an informational `tick database: not configured (MT_TICK_DB_URL unset)` line, the minute, daily and Kalshi rows still printed, and the exit code the primary checks alone give (0 on a healthy dev database). The unreachable case is covered by an integration test that points the URL at a closed port.
+Expected: an informational `INFO tick database  not configured (MT_TICK_DB_URL unset)` line, the minute, daily and Kalshi rows still printed, and the exit code the primary checks alone give. The unreachable case is covered by an integration test that points the URL at a closed port.
 
 **5. Prove the retention finding** in an integration test, not production. Seed a `SUBMITTED` unit with a deadline 3 days out. Health reports `FAIL tick retention: GLBX-… deadline <date> (run: mt-run tick)`.
 

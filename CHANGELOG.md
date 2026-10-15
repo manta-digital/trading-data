@@ -17,12 +17,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Tick pass in production: `sudo mt-run tick`** (slice 234). One command
+  runs the tick acquisition pass over the full universe, then ingest, as the
+  `mt-tick-pass.service` oneshot unit under `manta-acquisition.slice`. There
+  is no timer; tick runs only when started by hand. The underlying verb is
+  `mt data tick run`, and its exit code is the worse of the two passes'
+  outcomes.
+- **Tick runs on every operator surface.** A run is recorded as one
+  `pass_runs` row of kind `tick` (migration 060), with its phase and an
+  ingest row-count heartbeat while it runs. `mt-run data overview`,
+  `mt-run status` and `/api/v1/overview` show it, with cadence
+  "manual (no timer)".
+- **Tick health checks.** `mt data health` adds `tick database` (informational,
+  never fails the check) and `tick retention`, which fails when a submitted
+  download is within 7 days of its deadline and names `mt-run tick` as the fix.
+- **`deploy/add-tick-env.sh`**: adds the five tick settings to
+  `/etc/manta-trading.env` by name, printing no values.
 - **Memory bound on acquisition passes** (slice 233). `manta-acquisition.slice`
   declares `MemoryMax=14G`, derived from 30-day journal peaks by
   `scripts/acquisition_memory_bound.py`. A runaway acquisition pass is then
   killed inside its own slice instead of the host's OOM killer choosing
-  among PostgreSQL backends. The bound takes effect at the release that
-  follows 234.
+  among PostgreSQL backends. In force since the 234 cutover (2026-10-15):
+  the slice cgroup's `memory.max` reads 15032385536.
 - **COMEX gold (GC) futures ticks** (slice 232). GC is the second product in
   the tick universe: tbbo for 2024-11-02 → 2025-01-01 (Thanksgiving closes and
   the December → February roll), on every tick surface (`status`,
