@@ -14,58 +14,48 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261014
 dateUpdated: 20261014
-reviewedSha: 93bce99489682c7994e49d043e7973873063350c
-revision_number: 1
+reviewedSha: 23f17c7b629c019da98a99c7a058c4c839193c1e
+revision_number: 2
 toolsGiven: [read_file, list_files, grep]
 toolCallsMade: 2
-durationSeconds: 51.4
+durationSeconds: 18.6
 runId: run-20261015-p5-e1391d71
 squadronVersion: 0.21.7
 findings:
   - id: F001
     severity: pass
     category: coverage
-    summary: "Success-criteria coverage is complete"
+    summary: "Success criteria coverage"
     location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md"
   - id: F002
     severity: concern
-    category: test-design
-    summary: "Discovery test pins the exact member set and will fail when 234 adds its unit"
-    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:108-110"
+    category: sequencing
+    summary: "Task 2.2 puts the commit before its own success check, and the failure-injection step is awkward"
+    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:172-185"
   - id: F003
     severity: concern
-    category: commits
-    summary: "Commit checkpoints are batched; tasks 1.1, 1.2, 2.1, 3.1 and 4.1 have no commit"
-    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:87-144"
+    category: coverage
+    summary: "Drift guard does not check that the value matches the derivation"
+    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:172-180"
   - id: F004
     severity: concern
-    category: prompt-hygiene
-    summary: "Expected values sit next to retrieval instructions (hallucination trap)"
-    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:76-77, 138-140"
+    category: scope
+    summary: "Task 1.1 is on the heavy side and bundles four functions with a test file"
+    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:91-122"
   - id: F005
     severity: concern
-    category: scope
-    summary: "Drift guard asserts absence of `CPUWeight`/`IOWeight`, beyond the design and at odds with the reopen path"
-    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:167-170"
+    category: proportionality
+    summary: "Task 4.1 is largely repeated verification already done per task"
+    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:239-252"
   - id: F006
-    severity: concern
-    category: git-workflow
-    summary: "Branch target hard-coded as `main`; no step creates the slice branch"
-    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:45-46, 231-233, 257"
+    severity: note
+    category: sequencing
+    summary: "Baseline task 0.1 depends on host state and on the design's facts being unchanged"
+    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:61-82"
   - id: F007
     severity: note
-    category: clarity
-    summary: "Task 3.1 success line references text its steps never mention"
-    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:200"
-  - id: F008
-    severity: note
-    category: clarity
-    summary: "4.1 diff list is slightly miscounted"
-    location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md:231-233"
-  - id: F009
-    severity: pass
-    category: structure
-    summary: "Sequencing, sizing and proportionality fit an effort-1 slice"
+    category: process
+    summary: "Commit checkpoints and load tests"
     location: "project-documents/user/tasks/233-tasks.cross-source-acquisition-arbitration.md"
 ---
 
@@ -76,58 +66,46 @@ findings:
 
 ## Findings
 
-### [PASS] Success-criteria coverage is complete
+### [PASS] Success criteria coverage
 
-- **Functional 1 (script output):** tasks 0.1, 1.1, 1.2 and 1.3.
-- **Functional 2 (`MemoryMax` plus comment):** task 2.1.
-- **Functional 3 (declared, not in force):** the Context Summary, the CHANGELOG wording in 3.2, and the explicit statement in 4.2.
-- **Functional 4 (stagger, evidence, triggers):** tasks 3.1 and 3.2.
-- **Unit tests:** parser, rule, discovery and drift guard map to 1.1 and 2.2.
-- **Lint, mypy and unit tier:** task 4.1.
-- **Standing 220 obligations:** the Kalshi diff, realtime and data-correctness items are recorded in 4.2.
-- **Walkthrough:** steps 1–3 appear in 1.3, 2.2, 2.1 and 4.2.
+Every slice success criterion maps to a task.
+- **SC1** (script output, three members, about 14 GiB): tasks 1.1–1.3.
+- **SC2** (`MemoryMax` plus comment): task 2.1.
+- **SC3** (declared, not installed): the context summary, the runbook and CHANGELOG wording in 3.1 and 3.2, and the 4.2 statement.
+- **SC4** (stagger, evidence and triggers recorded): 3.1 and 3.2.
+- **Technical Requirements**: the unit tests are in 1.1, 1.2 and 2.2, the unit tier run is in 4.1, and the three standing 220 obligations are in 4.2.
 
-No task lacks a traceable criterion. Beyond the design's drift-guard spec, 2.2 adds assertions on `CPUWeight`/`IOWeight` and on at least one service naming the slice. I flag the `CPUWeight`/`IOWeight` assertion in its own finding below. No load-test or NFR obligation is restated in the slice, so none is required.
+### [CONCERN] Task 2.2 puts the commit before its own success check, and the failure-injection step is awkward
 
-### [CONCERN] Discovery test pins the exact member set and will fail when 234 adds its unit
+The 2.2 success check requires deleting the `MemoryMax` line to prove the guard fails, then restoring it. That is a manual mutation of a committed file, and it has no recorded outcome. The item order also lists "Success" before "Commit". This is minor, but a junior could commit the mutated file. Reword it to say explicitly that the line is restored and `git diff` on the slice file is clean before committing. Alternatively, drop the mutation and rely on a `tmp_path` negative test inside `TestAcquisitionSlice`. The `tmp_path` test would also be repeatable.
 
-Task 1.1 asserts that discovery against the real `deploy/systemd/` returns "exactly the minute, daily and Kalshi services". The slice design says 234's tick pass unit will set `Slice=manta-acquisition.slice` and join the slice through the add-a-source step. That step is a supported path. The exact-set assertion would fail the moment 234 does it, and 234 would have to edit a 233 test to ship. Assert that those three are members (a subset check). Keep the `tmp_path` test for exclusion of units with no `Slice=` or another slice.
+### [CONCERN] Drift guard does not check that the value matches the derivation
 
-### [CONCERN] Commit checkpoints are batched; tasks 1.1, 1.2, 2.1, 3.1 and 4.1 have no commit
+SC2 says `MemoryMax` equals the script's result. The drift guard checks only that the value is a positive integer followed by `G`. The slice design deliberately keeps the guard standalone, since the journal needs the host. The equality check therefore lives only in 4.2, as a manual re-run. That is acceptable, but 2.1 has no step that reconciles the file value with 1.3's output beyond "N being the script's result". It is also not clear what the junior does when the 1.3 output and the current window differ (the window moves daily). Task 4.2 handles this. No change is required, but 2.1 should point to 4.2 for the final reconciliation.
 
-Project rules say to commit at least once per task. Tasks 1.1 and 1.2 (the script and its tests) go uncommitted until 1.3. Task 2.1 is committed only in 2.2, and 3.1 only in 3.2. Task 4.1 has no commit, though it may produce none. Add a commit at the end of 1.1, and one at the end of 1.2 or fold 1.2 into the 1.3 commit with a stated reason. Add a commit to 3.1. This slice is small, so the fix is cheap.
+### [CONCERN] Task 1.1 is on the heavy side and bundles four functions with a test file
 
-### [CONCERN] Expected values sit next to retrieval instructions (hallucination trap)
+Task 1.1 covers constants, discovery, the parser, max-peak and the rule, plus a new test package with four test groups, all for Effort 2. This is still completable. However, two items are more detailed than the slice requires:
+- The "6.2 G + 426 M + 317 M gives 14" rule test hard-codes today's host inputs. Once production data changes, the numbers in the test remain valid only because they are fixtures, so this is fine.
+- The "exact-GiB sum is not rounded up" case is a boundary test that the success criteria do not name.
 
-Task 0.1 tells the implementer to record the max peak from the journal, then puts "minute about 6.2 G" in the same success line. Task 1.3 puts "about 6.2 G, about 14 GiB" beside the run instruction. If a journal read returns nothing or something different, the nearest plausible value is the one written there. The 0.1 fixture step already handles missing journal lines, but the maxima step has no divergence rule. Remove the expected numbers from the success lines, or add an explicit rule. For example: "record what the journal shows; if a maximum differs materially from the design's inputs, stop and tell the Project Manager before 2.1."
+Consider trimming the boundary case, or accept it as cheap. This is a NOTE-level proportionality point.
 
-### [CONCERN] Drift guard asserts absence of `CPUWeight`/`IOWeight`, beyond the design and at odds with the reopen path
+### [CONCERN] Task 4.1 is largely repeated verification already done per task
 
-The design's drift guard covers a parseable `MemoryMax` and every slice-naming unit being `Type=oneshot`. Task 2.2 adds "declares neither `CPUWeight` nor `IOWeight`" and "at least one `*.service` names the slice". The absence assertion will block a legitimate later change. For example, a reopened decision could add weights on a host that can enforce them. The design says the file's comment, not a test, is what keeps a reader from "fixing" it. Cut the absence assertion, or have the PM confirm it. The "at least one service" check is harmless but also beyond the design.
+Tasks 1.2, 1.3 and 2.x already require ruff, mypy and test passes before each commit. 4.1 repeats those checks. The unit-tier run (`scripts/run_tests.py unit`) and the diff-scope check are the parts that add value. Merge the repeated lint and mypy items into one line, or keep only the unit tier and the diff-scope check. Task 4.1 and 4.2 could also be merged, since both are small close-out steps with a single commit.
 
-### [CONCERN] Branch target hard-coded as `main`; no step creates the slice branch
+### [NOTE] Baseline task 0.1 depends on host state and on the design's facts being unchanged
 
-The conventions and 4.1 use `git diff main --stat`, and 4.2 claims "committed on the slice branch". Project rules say the target comes from `cf config get git.integration_branch`, falling back to `main`. If an integration branch is configured, the diff against `main` will list unrelated files and the "only these files" check fails. No task creates the `233-slice.…` branch from the target, even though 4.2 assumes it exists. Replace `main` with "the target (read from `cf config get git.integration_branch`, else `main`)". Add a one-line branch step to 0.1, or state that the branch is created before the tasks start.
+Task 0.1 sensibly stops on any difference from the design's host facts and requires synthetic fixture lines to be marked as such. This respects the project rule against silent fallbacks. No change is needed. The `{YYYY-MM-DD}` placeholder is clear and has no example value, so it is not a hallucination trap.
 
-### [NOTE] Task 3.1 success line references text its steps never mention
+### [NOTE] Commit checkpoints and load tests
 
-The Success line requires that "does not exist yet" be gone, but no step edits a phrase by that name. It presumably belongs to the second "limit of the pattern" bullet being rewritten. Say so, or drop the phrase. The "stop if a phrase is not found" rule in the section header covers a mismatch, but the intent is unclear.
-
-### [NOTE] 4.1 diff list is slightly miscounted
-
-The expected diff lists "the three documents, the runbook, the CHANGELOG". 3.1 and 3.2 touch four files: runbook, 900 plan, architecture and CHANGELOG. Reword it to name them, so a reviewer can match the diff without guessing which are the three.
-
-### [PASS] Sequencing, sizing and proportionality fit an effort-1 slice
-
-- **Dependencies:** they run in a clean line with no cycles. 0.1's fixture lines feed 1.1. 1.3's output feeds 2.1's comment and `N`. 2.1 precedes the drift guard in 2.2. Documents follow, then validation.
-- **Test-with pattern:** 1.1 and 1.2 carry their tests, and 2.2 pairs the guard with the file change.
-- **Size:** one task file with nine tasks across five sections is proportionate. Task 1.1 is the heaviest, but it is cohesive and under the design's size limits.
-- **Test count:** it stays near what the criteria need.
-- **No merge step:** the file correctly leaves out a merge, per the Phase 7 rule.
+Commits are spread across every task except 4.1, which commits only if a fix is needed. The test-with pattern holds: tests accompany the implementation in 1.1, 1.2 and 2.2. The slice restates no NFR, so no `tests/load/` task or CI gating task is needed. The task list contains no merge step, which follows the Git Rules. The single task file for a one-effort slice is proportionate.
 
 ### Run Digest
 
-- Response length: 7008 chars
+- Response length: 4827 chars
 - Response is newline-free: no
 - Tool calls made: 2
 - Tool calls failed: 0
@@ -139,10 +117,10 @@ The expected diff lists "the three documents, the runbook, the CHANGELOG". 3.1 a
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 51.4 s
+- Duration: 18.6 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 9
+- Finding-shaped matches — whole response: 7
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 9
-- Finding-shaped matches — surviving validation: 9
+- Finding-shaped matches — in findings section: 7
+- Finding-shaped matches — surviving validation: 7
