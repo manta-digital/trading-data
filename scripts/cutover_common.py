@@ -270,8 +270,11 @@ def migrate(track: str, migration_id: str) -> None:
     print(f"    {track} track: 0 pending")
 
 
-def journal_cursor(unit: str = PASS_UNIT) -> str:
-    text = out(["journalctl", "-u", unit, "-n", "0", "--show-cursor", "-q"])
+def journal_cursor() -> str:
+    """Current end of the whole journal. Cursors are global positions, so a
+    unit-filtered ``--after-cursor`` read works from it — and a unit that has
+    never logged (a first firing) still yields one."""
+    text = out(["journalctl", "-n", "0", "--show-cursor", "-q"])
     match = re.search(r"-- cursor: (\S+)", text)
     if not match:
         raise CutoverError(f"could not read a journal cursor from: {text!r}")
@@ -358,7 +361,7 @@ def fire_unit_until(
     alone when it ends before the line appears — the journal then explains
     why. Sibling of ``fire_unit``, which waits for the unit itself to end.
     """
-    cursor = journal_cursor(unit)
+    cursor = journal_cursor()
     started = datetime.now(UTC).isoformat(timespec="seconds")
     # NOT ``mt-run``: it streams the journal and returns only when the unit
     # ENDS, which for a backfill-bound minute firing is days — the 0.14.1
@@ -380,7 +383,7 @@ def fire_unit(unit: str, mt_run_args: list[str]) -> tuple[str, str]:
     and daily acquisition units rather than the Kalshi one. Returns the
     journal cursor taken before the firing and the start instant.
     """
-    cursor = journal_cursor(unit)
+    cursor = journal_cursor()
     started = datetime.now(UTC).isoformat(timespec="seconds")
     print(
         f"    sudo mt-run {' '.join(mt_run_args)} — streaming; Ctrl-C only "
