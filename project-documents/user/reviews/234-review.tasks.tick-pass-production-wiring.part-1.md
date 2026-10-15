@@ -14,53 +14,54 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261014
 dateUpdated: 20261014
-reviewedSha: 6cc42bcd731b61d42aaa1332807792d4119e0645
+reviewedSha: e0da9e17ed546c8f40e100c41d928bf79e3b4797
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
 toolCallsMade: 4
-durationSeconds: 36.9
+durationSeconds: 53.5
 runId: run-20261015-p5-7ef29d51
 squadronVersion: 0.21.9
 findings:
   - id: F001
     severity: concern
-    category: scope-alignment
-    summary: "Task 3.3 changes ingest pass code that the slice design excludes"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md:61"
+    category: scope
+    summary: "Task 3.3 changes code the LLD excludes, and a PM gate blocks Tasks 3.5–3.10 behind it"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:40-48"
   - id: F002
     severity: concern
     category: task-sizing
-    summary: "Task 3 is oversized and its only commit comes after ten sub-items"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:159-276"
+    summary: "Task 3.7 is too large for one junior-completable task"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:247-270"
   - id: F003
     severity: concern
-    category: coverage-gap
-    summary: "No test covers `tick` appearing in the API overview response"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:101-103"
+    category: git-process
+    summary: "`git diff main` ignores the configured integration branch"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:247"
   - id: F004
-    severity: concern
-    category: sequencing
-    summary: "`PassKind.TICK` is committed before migration 060, so tests that seed every kind can break in between"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:73-123"
+    severity: note
+    category: coverage
+    summary: "Two success criteria have no explicit verification step"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:293-308"
   - id: F005
     severity: note
-    category: task-placement
-    summary: "`TICK_RETENTION_WARN_DAYS` is defined in Task 3.5 but only used from Task 4.1"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:209-211"
+    category: scope
+    summary: "`--pm-designation` is an addition to the cutover script that the LLD does not mention"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:130-133"
   - id: F006
     severity: note
     category: proportionality
-    summary: "Test volume and the two-file split are heavy for an effort-3 slice"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:1"
+    summary: "Proportionality is acceptable but on the heavy side"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md"
   - id: F007
     severity: note
-    category: scope-creep
-    summary: "The CHANGELOG entry in Task 8.5 is not in the slice design"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:223-226"
+    category: commit-checkpoints
+    summary: "Tasks 1 and 2 share one commit at 2.4"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:133-134"
   - id: F008
     severity: pass
     category: coverage
-    summary: "Success criteria trace to tasks, and test-with ordering holds"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md:70-340"
+    summary: "Success-criteria coverage and sequencing"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-1.md"
 ---
 
 # Review: tasks — slice 234
@@ -70,56 +71,82 @@ findings:
 
 ## Findings
 
-### [CONCERN] Task 3.3 changes ingest pass code that the slice design excludes
+### [CONCERN] Task 3.3 changes code the LLD excludes, and a PM gate blocks Tasks 3.5–3.10 behind it
 
-The slice design's "Excluded" list says "Changes to … the tick pass logic". It also says (line 106) that the ingest pass already "accepts" a per-batch callback handed over by 225. Task 3.3 adds the field to `IngestInputs` and wires it into `_copy` in `ingest_worker.py`, because the callback does not exist. The task file's Context Summary notes this mismatch. No task corrects the slice design: Task 8.4 only fixes the architecture text, and Task 10.4 only refines the walkthrough. The design and the tasks will contradict each other after closeout. Add a sub-item to Task 8.4 or 10.4 that corrects the slice design's Data Flow step 2 and Excluded list to match what shipped. Task 3.3's own "stop and raise it with the PM" branch for worker processes is a sound guard.
+The LLD's Excluded list bars changes to "the tick pass logic". It also says the ingest pass already "accepts" a per-batch callback handed over by 225. The task file found that this is false in the code (`IngestInputs` has no such field and `_copy` reports nothing). Task 3.3 therefore adds the hook to the ingest pass and worker.
 
-### [CONCERN] Task 3 is oversized and its only commit comes after ten sub-items
+The task file handles this honestly by flagging it for PM confirmation before 3.3 starts. Three things are still unresolved:
+- Tasks 3.5 to 3.10 and the `pass_runs` heartbeat criterion (Technical Requirement 4) all depend on 3.3. If the PM declines, or the workers turn out to be processes, no fallback is written.
+- The LLD still carries the incorrect claim, and no task corrects it.
+- The confirmation is buried in the Context Summary rather than being an explicit first step.
 
-Task 3 (effort 4) combines three separable pieces: the outcome fold and map (3.1–3.2), the ingest callback and heartbeat (3.3–3.6), and the verb itself with its tests (3.7–3.9). It has one commit, at 3.10. The callback change touches ingest worker code from slice 225. It deserves its own checkpoint, because it is the riskiest sub-item. Add commits after 3.2 and after 3.6, or split the task. This follows the instruction to distribute commit checkpoints.
+Recommendation: make the PM confirmation an explicit pre-implementation checkbox, ideally before Task 1. Add a sub-item to 3.3 or 8.4 that corrects the LLD's Data Flow step 2 and Excluded wording once the reading is confirmed. State what happens to 3.5 to 3.10 if the PM declines.
 
-### [CONCERN] No test covers `tick` appearing in the API overview response
+### [CONCERN] Task 3.7 is too large for one junior-completable task
 
-Functional Requirement 4 says `/api/v1/overview` lists `tick` with a next firing of `manual`. Task 1.3 only "confirms" the API model can carry the value. Task 1.4 tests the CLI overview and `render_next_firings`. Task 2.3 checks only the schema enum. The only check on the API's tick entry is the manual walkthrough in Task 10.3. Add a unit test in Task 1.4 for the API `_pass_line` or the overview response with a tick pass.
+Task 3.7 bundles several separable behaviours:
+- verb registration;
+- the recorder open/progress/close flow;
+- ingest always following acquisition;
+- the preflight and lock-held refusal path, where the other pass is still attempted and the exit is 1 with `FAILED`;
+- exception handling that re-raises after closing the row;
+- best-effort recorder behaviour;
+- summary rendering.
 
-### [CONCERN] `PassKind.TICK` is committed before migration 060, so tests that seed every kind can break in between
+Task 3.8 then tests all of them in one pass. The effort-4 rating reflects this. A junior would be better served by two steps, each tested straight after it:
+- **Happy path:** open, run both passes, fold, close, and the exit code.
+- **Failure semantics:** the refusal paths, unexpected exceptions and the down-primary case.
 
-The slice design notes that `test_922_overview_nfr.py` seeds a row for every `PassKind`. After the Task 1 commit, `TICK` exists but the test cluster's constraint does not accept it until migration 060 lands in Task 2. Task 1.1 asks the implementer to grep for every `for kind in PassKind` loop. It does not mention integration tests that insert rows for each kind. State in Task 1.1 that these will fail between commits 1 and 2, or reorder so 060 comes first, and record the intermediate state in the commit message.
+The two steps can still share one commit at 3.10.
 
-### [NOTE] `TICK_RETENTION_WARN_DAYS` is defined in Task 3.5 but only used from Task 4.1
+### [CONCERN] `git diff main` ignores the configured integration branch
 
-Task 3.5 adds the constant "used by Task 4.1" alongside the heartbeat constant, which splits one feature across two tasks. Move it into Task 4.1. It is a minor point and does not block progress.
+Task 9.1 says `git diff main` to check for swept formatting changes. CLAUDE.md says the target is whatever `cf config get git.integration_branch` returns, and `main` only when that is empty. Branches fork from the target, so diffing against `main` could show unrelated changes, or hide them, when an integration branch is set. The Context Summary in part 1 also says the branch is "created from the target". Replace `main` with the target, read from config.
 
-### [NOTE] Test volume and the two-file split are heavy for an effort-3 slice
+### [NOTE] Two success criteria have no explicit verification step
 
-Ten tasks across two files give about 45 sub-items, with a separate test sub-item after almost every implementation sub-item. Most of the tests trace to a Technical Requirement. Candidates to merge are 3.4 into 3.3 and 3.6 into 3.5, and 9.3 and 10.1, which are commit or ref housekeeping. The split into two files is defensible at roughly 700 lines combined. I would not cut test content, only fold the test sub-items into their implementation items.
+Functional Requirement 1 includes "`mt-run follow tick` tails it". Task 5.2 adds `tick` to `KINDS`, but neither 5.3 nor 10.3 checks `follow tick`. Functional Requirement 2 says phases appear in `mt data overview` while the run is in progress. Task 3.8 uses a fake recorder, and 10.3 checks the overview only after the firing. Adding `mt-run follow tick` to 10.3, and an overview read during the supervised firing, would close both.
 
-### [NOTE] The CHANGELOG entry in Task 8.5 is not in the slice design
+### [NOTE] `--pm-designation` is an addition to the cutover script that the LLD does not mention
 
-The slice design lists no changelog deliverable. It is a small convention-driven item and does no harm. It is flagged only because it traces to no success criterion.
+The required argument is not in LLD TD4. It is justified by the CLAUDE.md rule on destructive statements against production, since migration 060 drops and re-adds a constraint. Treat it as a deliberate addition and fold it into the LLD's TD4 step list during 10.4, so the design and the script do not drift apart.
 
-### [PASS] Success criteria trace to tasks, and test-with ordering holds
+### [NOTE] Proportionality is acceptable but on the heavy side
 
-Each slice design criterion maps to a task:
+The slice is rated effort 3/5 and the breakdown has 10 tasks, about 45 sub-items, and two task files. Most of that weight comes from items the LLD requires: the heartbeat, the orphan-row test, the migration test, the cutover tests, and the three standing 220 obligations. Trim where possible:
+- The "ruff and mypy clean on touched files" success lines repeat in nearly every task and are also covered by Task 9.1.
+- Task 1.3's grep-and-handle bullets over-specify how to find callers.
 
-| Slice design criterion | Task |
-|---|---|
-| Schedule, manual-iff-no-timer, `PassKind` | 1.x |
-| Migration 060 and `openapi.json` | 2.x |
-| Fold, map, heartbeat, `run`, orphan test, ingest after `REFUSED`/`PROVIDER_ABORT`/`IN_FLIGHT` | 3.x |
-| Health INFO semantics, retention, primary outage with exit 2 | 4.x |
-| Unit, `KINDS`, deploy tests | 5.x |
-| `add-tick-env.sh` | 6.x |
-| Cutover steps 1–9 | 7.x |
-| Runbook, contract diff, mapping rows, architecture Revision Log | 8.x |
-| Static checks and test tiers | 9.x |
-| Cutover run, double-start check, `/api/v1/futures` check, issues #33 and #34 | 10.x |
+Nothing here needs to change before work starts.
 
-The `_pass_line` and `render_next_firings` callers are covered in 1.3. Tests follow their implementations in every task, and the sequencing has no circular dependencies. Commits fall at the end of each task and are not batched at the end. The slice design restates no load-test NFR, so no `tests/load/` task is needed.
+### [NOTE] Tasks 1 and 2 share one commit at 2.4
+
+The note explains why: `PassKind.TICK` without migration 060 breaks the every-kind seeding tests. A dozen sub-items land in one checkpoint, which is acceptable. After that, commits come roughly every task or two (3.2, 3.4, 3.6, 3.10, 4.6, 5.4, 6.3, 7.1, 7.3, 7.5, 8.5, and so on).
+
+### [PASS] Success-criteria coverage and sequencing
+
+- **Functional criteria 1–7:**
+  - Tasks 3.7 and 5.2 cover `mt-run tick` and the `pass_runs` row.
+  - Task 3.8 covers ingest after `REFUSED`, `PROVIDER_ABORT` and `IN_FLIGHT`.
+  - Tasks 1.3 and 1.4 cover the overview and API.
+  - Tasks 4.3 to 4.5 cover both health rows.
+  - Task 6 covers `add-tick-env.sh`.
+- **Technical requirements:**
+  - Task 2.2 covers migration 060.
+  - Task 1.4 covers the manual-iff-no-timer test.
+  - Task 5.3 covers the deploy tests.
+  - Task 3.2 covers the fold and map exhaustiveness.
+  - Task 3.6 covers the heartbeat.
+  - Task 3.9 covers the orphaned row.
+  - Task 2.3 covers `openapi.json`.
+  - Tasks 9.1 and 9.2 cover static checks and the test tiers.
+  - Tasks 8.1 to 8.4 cover the runbook, the standing obligations and the architecture revisions.
+- **Integration requirements:** Tasks 10.2 and 10.3 cover the cutover report and the `/api/v1/futures/*` check.
+- **Dependencies:** all run forward and none are circular. The `PassKind.TICK` and migration 060 ordering, the deferred tick-service half of the manual-iff-no-timer test (1.4 then 5.3), and `cutover_common.migrate(track)` (7.1) before the cutover steps (7.2) are all handled. No task merges a branch, which matches the Phase 7 rule. No NFR is restated in the slice, so no load-test or CI-gating task is needed.
 
 ### Run Digest
 
-- Response length: 5934 chars
+- Response length: 7005 chars
 - Response is newline-free: no
 - Tool calls made: 4
 - Tool calls failed: 0
@@ -131,7 +158,7 @@ The `_pass_line` and `render_next_firings` callers are covered in 1.3. Tests fol
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 36.9 s
+- Duration: 53.5 s
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 8
