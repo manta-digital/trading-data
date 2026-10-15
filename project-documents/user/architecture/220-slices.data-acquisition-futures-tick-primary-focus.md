@@ -4,7 +4,7 @@ parent: user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.m
 project: trading
 dateCreated: 20260923
 dateUpdated: 20261015
-status: complete
+status: in_progress
 ---
 
 # Slice Plan: Futures Tick Data Acquisition
@@ -124,6 +124,12 @@ status: complete
    - A check of production `max_connections` on both clusters against 231's per-worker connection budget (8 tick, 4 extra primary, on top of the API's existing primary pools) for the configured `--workers`. 231 recorded the dev values: one worker fits; four would exceed the tick cluster's 30.
 
    It also adds the second connection pool from `MT_TICK_DB_URL` to the health check, reusing the tick line states (`data/tick/line_state.py`: `TickLineState`, `TickUnavailable`, `unavailable_text`) and the composed-surface opener (`cli/tick_composed.connect`) that 230 introduced (230 is the first tick composing surface: accounting and overview). The check gains a retention-deadline finding for any in-flight unit whose deadline falls before the next scheduled firing, or, with a manual-only pass, within a fixed number of days. When the setting is absent, health prints a loud "not configured" line and continues, so minute, daily, and Kalshi monitoring are never silenced. When the tick database is unreachable, health reports "unreachable" rather than omitting the line. The minute, daily, and Kalshi passes never read the tick setting. Cutover is a script per the PM-host-step convention. **Realtime:** nothing forecloses either path; a streaming unit would be its own `Type=simple` unit, and a delayed-historical path adds a timer at the `FiringSchedule.manual()` seam. **API:** `/api/v1/overview`'s `pass` enum gains `tick`; the retention finding is not served (no source has a health-findings endpoint). Dependencies: [225]. Risk: Medium. Effort: 3/5
+16. [ ] **(235) Acquisition Memory Bound Kept Current** — 233's `MemoryMax` rule (2 × the sum of each member's 30-day peak, rounded up to whole GiB) is applied today by a person: someone runs `scripts/acquisition_memory_bound.py` and copies the result into `deploy/systemd/manta-acquisition.slice`. The tick unit joined the slice in 234 with no representative peak (issue #34). This slice removes the person from that loop:
+   - Each acquisition pass reads its own cgroup `memory.peak` at close and records it on its `pass_runs` row (minute-track migration). The source becomes the database, because the service user cannot read the system journal; the cgroup file is world-readable.
+   - `mt data health` gains an "acquisition memory bound" check. It derives the bound from `pass_runs` over the window and compares it with the live slice cgroup's `memory.max`. It FAILs when the live value is below the derived one, and when a member of the slice has no recorded peak in the window. The health timer surfaces a failure with no one watching.
+   - The release install re-derives the bound from `pass_runs` and writes it to the slice unit, so every release ships the current value with no hand step. The derivation script reads `pass_runs` instead of the journal, and its rule stays in one place.
+   - Issue #34 closes when a real tick run is recorded and the next release installs the derived value.
+   **API:** the per-run peak belongs on `/api/v1/overview`'s `last_run`; the bound check is not served (no source has a health-findings endpoint). Dependencies: [233, 234]. Risk: Low. Effort: 2/5
 
 ## Notes
 
