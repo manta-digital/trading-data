@@ -106,43 +106,43 @@ part: 2
 
 ## 7. Cutover script (LLD TD4) — effort 4
 
-- [ ] **7.1 Generalise `cutover_common.migrate` to take the track**
-  - [ ] In `scripts/cutover_common.py`, change `migrate(migration_id)` (hard
+- [x] **7.1 Generalise `cutover_common.migrate` to take the track**
+  - [x] In `scripts/cutover_common.py`, change `migrate(migration_id)` (hard
     wired to the Kalshi track) to take the track name. Its only caller is
     `scripts/cutover_267_historical.py` (`migrate(MIGRATION_ID)`); pass `kalshi`
     explicitly there. `cutover_922_overview.py` and `cutover_265_trades.py` define
     their own `migrate` and are not touched. Check how `verify_migrate_target` and
     `_migrate_status` pick the track and parameterise them too.
-  - [ ] Add a test that the track parameter reaches the `mt data migrate apply
+  - [x] Add a test that the track parameter reaches the `mt data migrate apply
     --track` call for both `kalshi` and `minute`.
-  - [ ] Success: that test and `test_cutover_267.py` pass.
-  - [ ] Commit — `refactor: make cutover_common.migrate take the track`
+  - [x] Success: that test and `test_cutover_267.py` pass.
+  - [x] Commit — `refactor: make cutover_common.migrate take the track`
 
-- [ ] **7.2 Cutover script: scaffolding and steps 1–9**
-  - [ ] Create `scripts/cutover_234_tick_wiring.py` (split helpers into a
+- [x] **7.2 Cutover script: scaffolding and steps 1–9**
+  - [x] Create `scripts/cutover_234_tick_wiring.py` (split helpers into a
     `cutover_234_*.py` sibling to stay near 300 lines each), following the 227
     pattern in `cutover_227_tick_backup.py` and its helpers: `STEPS` of title,
     expected, action; stops at the first failure; always writes the report to
     `project-documents/user/notes/<date>-234-cutover.md`; exit 0 only if every
     step passes; check-then-act so a re-run changes nothing already done.
-  - [ ] Holds the acquisition timers and waits out any running pass; releases in
+  - [x] Holds the acquisition timers and waits out any running pass; releases in
     `finally` (use `cutover_common` hold/release).
-  - [ ] Step 1 preconditions: runs from the checkout root as `manta`; the ref
+  - [x] Step 1 preconditions: runs from the checkout root as `manta`; the ref
     exists locally and on origin; the five env keys are present **by name**
     (read `/etc/manta-trading.env` the way existing cutovers do; never print
     values). If any key is absent, stop and print the exact
     `sudo …/deploy/add-tick-env.sh --from …/.env` command.
-  - [ ] Step 2 archive directory: as `manta`, `chgrp -R manta-trading`,
+  - [x] Step 2 archive directory: as `manta`, `chgrp -R manta-trading`,
     `chmod -R g+w`, `g+s` on directories under `MT_TICK_ARCHIVE_DIR`. Check:
     every entry has group `manta-trading` and is group-writable.
-  - [ ] Step 3 migrate: `cutover_common.migrate` for minute track
+  - [x] Step 3 migrate: `cutover_common.migrate` for minute track
     `060_pass_kind_tick` after `verify_migrate_target`. Check:
     `pass_runs_pass_check` accepts `tick`.
-  - [ ] Step 4 install the ref (installer, `daemon-reload`). Check: `/opt` HEAD
+  - [x] Step 4 install the ref (installer, `daemon-reload`). Check: `/opt` HEAD
     equals the ref and `mt --version`.
-  - [ ] Step 5 restart `mt-serve` if active. Check: `/health` reports the tick
+  - [x] Step 5 restart `mt-serve` if active. Check: `/health` reports the tick
     pool reachable.
-  - [ ] Step 6 connections: the installed `mt-serve` `ExecStart` has no
+  - [x] Step 6 connections: the installed `mt-serve` `ExecStart` has no
     `--workers` (fail otherwise). Inputs, each from one named source:
     - Tick API budget: `TICK_API_POOL_MAX` (`src/manta_trading/data/tick/constants.py`)
       × 2 pools per worker (`src/manta_trading/api_server/tick_access.py`) = 8.
@@ -154,23 +154,23 @@ part: 2
     - Pass on the primary: 1 (the `pass_runs` recorder).
     - Check per cluster: budget fits in `max_connections` −
       `superuser_reserved_connections` − live `pg_stat_activity`.
-  - [ ] Step 7 purchase guard: `mt-run data tick pass --estimate-only --json`;
+  - [x] Step 7 purchase guard: `mt-run data tick pass --estimate-only --json`;
     pass only if nothing wanted and cost 0, else stop and report what is
     wanted. It runs immediately before step 8's firing with no step between.
-  - [ ] Step 8 supervised firing: `fire_unit("mt-tick-pass.service", ["tick"])`.
+  - [x] Step 8 supervised firing: `fire_unit("mt-tick-pass.service", ["tick"])`.
     While the unit is active, read the slice cgroup `memory.max` and compare it
     to the byte value parsed from the installed `manta-acquisition.slice`
     `MemoryMax`; no literal byte value in the script. Check: exit 0, newest
     `TICK` row `COMPLETE`, a `memory peak` journal line; the report records the
     purchase count (expected 0). After: `memory.events` `oom_kill` is 0.
-  - [ ] Step 9 surfaces: `mt-run status` has a `tick` row; `mt-run data
+  - [x] Step 9 surfaces: `mt-run status` has a `tick` row; `mt-run data
     overview` shows a tick pass line and `tick manual`; `mt-run data health`
     shows a `tick database` OK line and `tick retention` OK.
-  - [ ] Success: the module imports and lists nine steps; the report names no
+  - [x] Success: the module imports and lists nine steps; the report names no
     secret values.
 
-- [ ] **7.3 Test: cutover pure logic**
-  - [ ] New `test/unit/test_cutover_234.py`, modelled on `test_cutover_227.py`.
+- [x] **7.3 Test: cutover pure logic**
+  - [x] New `test/unit/test_cutover_234.py`, modelled on `test_cutover_227.py`.
     Test only the logic the real cutover run (Task 10.2) would not exercise
     cleanly; do not restate the `STEPS` list:
     - a G-suffixed `MemoryMax` parses to bytes (1024-based), and a mismatch fails;
@@ -180,8 +180,8 @@ part: 2
     - a missing env key stops step 1 naming the add-tick-env command and
       printing no value;
     - timers are released in `finally` when a step fails.
-  - [ ] Success: tests pass; ruff and mypy clean.
-  - [ ] Commit — `feat: add 234 cutover script`
+  - [x] Success: tests pass; ruff and mypy clean.
+  - [x] Commit — `feat: add 234 cutover script`
 
 ---
 

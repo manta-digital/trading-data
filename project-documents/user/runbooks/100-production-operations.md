@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20261012
+dateUpdated: 20261014
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -31,6 +31,9 @@ production tooling.
 | `mt-kalshi-pass.service` | one bounded Kalshi collection pass | timer: **hourly at :20 UTC** | next timer firing resumes it |
 | `mt-serve.service` | API server (port 8100) | always on, starts at boot | auto-restart in 10s |
 
+`mt-tick-pass.service` is **not** in this table: it has no timer and runs only
+when an operator starts it (`sudo mt-run tick`).
+
 A reboot needs **no operator action**: everything above comes back, and
 `Persistent=true` fires any pass schedule missed while the host was down.
 
@@ -39,15 +42,16 @@ A reboot needs **no operator action**: everything above comes back, and
 | I want to… | Command | sudo? |
 |---|---|---|
 | See what's running + latest output | `mt-run status` | no |
-| Run a pass now, watch it live | `mt-run daily` / `mt-run minute` / `mt-run kalshi` | yes |
-| Watch a running pass | `mt-run follow daily` (also `follow minute`, `follow kalshi`; Ctrl-C detaches, pass unaffected) | no |
+| Run a pass now, watch it live | `mt-run daily` / `mt-run minute` / `mt-run kalshi` / `mt-run tick` | yes |
+| Collect and load futures ticks (manual only) | `mt-run tick` — acquisition then ingest, one `pass_runs` row; run `mt-run data tick pass --estimate-only` first | yes |
+| Watch a running pass | `mt-run follow daily` (also `follow minute`, `follow kalshi`, `follow tick`; Ctrl-C detaches, pass unaffected) | no |
 | Check the API server | `systemctl status mt-serve` · `curl localhost:8100/api/v1/health` | no |
 | See timer schedule | `systemctl list-timers 'mt-*'` | no |
 | Run ANY production `mt` command | `mt-run <mt args>`, e.g. `mt-run data caggs status` | no¹ |
 | Check the Kalshi catalog | `mt-run data kalshi status` | no¹ |
-| See what the tick tier holds | `mt data tick status` (also `coverage`, `active`) — see *Operating the tick tier* | no² |
-| Pull ES ticks or bars | `mt data tick get 1m --product ES --start D --end D` (`--csv > file` for bulk) | no² |
-| Investigate a tick unit, job or contract | `mt data tick debug units --state verified` (also `requests`, `definitions`) | no² |
+| See what the tick tier holds | `mt-run data tick status` (also `coverage`, `active`) — see *Operating the tick tier* | no¹ |
+| Pull ES ticks or bars | `mt-run data tick get 1m --product ES --start D --end D` (`--csv > file` for bulk) | no¹ |
+| Investigate a tick unit, job or contract | `mt-run data tick debug units --state verified` (also `requests`, `definitions`) | no¹ |
 | Read a pass's full log | `journalctl -u mt-daily-pass.service -e` | no |
 | Pause a source (survives reboot) | `systemctl disable --now mt-minute-pass.timer` | yes |
 | Resume it (fires catch-up at once) | `systemctl enable --now mt-minute-pass.timer` | yes |
@@ -56,7 +60,6 @@ A reboot needs **no operator action**: everything above comes back, and
 | Update production code | see *Update procedure* below | yes |
 
 ¹ after a one-time `sudo usermod -aG manta-trading <user>` (new shell); otherwise prefix `sudo`.
-² from the dev checkout (`uv run mt …`) until slice 234 puts `MT_TICK_DB_URL` in `/etc/manta-trading.env`; then `mt-run data tick …`.
 
 Things to know before touching anything: **`mt-run` is the production front
 door — there is never a reason to operate production from the dev checkout.** a completed pass shows
@@ -100,8 +103,9 @@ would either do nothing or install a second, unrelated copy.
 | `mt-health.timer` | timer | fires the health check **hourly at :50 UTC** |
 | `mt-accounting-pass.service` | oneshot pass | `mt data accounting` — counts expected vs covered minute symbol-sessions; records the universe line `mt data overview` prints |
 | `mt-accounting-pass.timer` | timer | fires the accounting pass **daily at 16:30 UTC**, after the day's collecting firings |
+| `mt-tick-pass.service` | oneshot pass, **no timer** | `mt data tick run` — the acquisition pass over the full universe, then the ingest pass whatever acquisition did; one `pass_runs` row (kind `tick`). Started only by `sudo mt-run tick`. `TimeoutStartSec=4h` ends a hung run; a killed run loses nothing (units commit one at a time). `UMask=0002` keeps the shared archive group-writable |
 | `mt-serve.service` | long-running | the API server; `Restart=on-failure` |
-| `manta-acquisition.slice` | grouping | home for acquisition passes; bounded by `MemoryMax`, derived by `scripts/acquisition_memory_bound.py` (slice 233); in force from the release that follows 234 |
+| `manta-acquisition.slice` | grouping | home for acquisition passes (minute, daily, kalshi, tick); bounded by `MemoryMax`, derived by `scripts/acquisition_memory_bound.py` (slice 233); in force from the 234 cutover, which checks the live `memory.max` against it |
 
 ### Adding a source or pass
 
@@ -179,6 +183,14 @@ configuration source for the units — no `.env` file exists in
   commented out at their defaults — see *Kalshi* below
 - `MT_KALSHI_TRADES_EXCLUDED_CATEGORIES` (slice 268) — the trades-tape
   category filter, commented out (empty = off); production intent `Crypto`
+- the tick pass's five keys (slice 234): `MT_TICK_DB_URL` (the DML-only
+  `tick_app` credential), `MT_DATABENTO_API_KEY`, `MT_TICK_SPEND_CEILING_USD`,
+  `MT_TICK_SPEND_30D_CEILING_USD`, `MT_TICK_ARCHIVE_DIR`. Added once by
+  `sudo deploy/add-tick-env.sh --from <checkout>/.env`, which copies exactly
+  these five, never changes a key already present, never prints a value, and
+  re-asserts mode 0640 `root:manta-trading`. The ceilings are the dev
+  `.env`'s: both sides buy against one account and one manifest, so the
+  rolling 30-day cap is one sum
 
 **Where the Kalshi private key goes.** The pass units set `ProtectHome=true`,
 so a PEM anywhere under `/home` is invisible to the service. Put it beside the
@@ -186,8 +198,9 @@ environment file: `/etc/manta-trading-kalshi.pem`, mode `0640`
 `root:manta-trading`, installed by hand — never by the install script, never
 in the repository.
 
-`MT_TIMESCALE_MAINTENANCE_URL` is **deliberately absent**: the DDL credential
-stays out of service environments (slice 913). Migrations remain an operator
+`MT_TIMESCALE_MAINTENANCE_URL` and `MT_TICK_MAINTENANCE_URL` are
+**deliberately absent**: the DDL credentials stay out of service environments
+(slice 913). Migrations remain an operator
 action from an interactive shell.
 
 Edit with `sudoedit /etc/manta-trading.env`; the skeleton comes from
@@ -317,6 +330,20 @@ mt-run data health                 # run it now, same output
 
 `OK` means nothing needs a human. `FAILING` names exactly one measured value
 and its limit per failing check; fix the cause, and the next firing clears it.
+
+**The tick rows (slice 234).** Two lines follow the primary checks:
+
+- `tick database` is **informational**: it prints `OK`, or `INFO` with the
+  tick line's state (`not configured`, `unreachable: …`, `migrations
+  pending`), and never changes the exit code or the verdict count. A tick
+  outage does not fail health.
+- `tick retention` runs only when the tick database answered. It fails when
+  a unit is `submitted` or `delivered` (not a provider hole, not reopened)
+  and its job's download deadline is less than `TICK_RETENTION_WARN_DAYS`
+  (7) away, or already past. The line names each job and deadline. **Action:
+  `sudo mt-run tick`** — the pass downloads, verifies and ingests what is in
+  flight. A deadline that passes first expires and reopens the unit, and the
+  next pass buys that day again — a second purchase.
 
 ### `minute session mass` (slice 921)
 
@@ -821,12 +848,17 @@ signal to watch.
 
 ## Operating the tick tier (slice 230)
 
-**Where the tick commands run.** Until slice 234 adds `MT_TICK_DB_URL` to
-`/etc/manta-trading.env`, the tick commands run from the dev checkout, whose
-`.env` holds the tick URL: `uv run mt data tick …`. Production's
-`mt-run data overview` prints `futures ticks    not configured
-(MT_TICK_DB_URL unset)` until then. That line is correct and explicit, and
-it is not a fault. After 234, `mt-run data tick …` runs the same commands.
+**Where the tick commands run.** Since slice 234, `/etc/manta-trading.env`
+holds the tick keys, so `mt-run data tick …` runs every tick command in
+production, and `sudo mt-run tick` runs the production pass. The dev
+checkout's `uv run mt data tick …` still works (`manta` is in group
+`manta-trading`, and the archive is group-writable), but `mt-run` is the
+production path.
+
+**Stage a source under `/data`.** `manta-trading` cannot read `/home/manta`
+(the units set `ProtectHome=true`). To adopt a job held under your home
+directory, copy it under `/data` first, then `mt-run data tick adopt
+--source /data/…`.
 
 Every read below is provider-free: no Databento key, no lock, and no
 archive directory. All of them refuse with exit 1 while a tick migration is
@@ -845,7 +877,7 @@ pending (`mt data migrate apply --track tick`).
 On `accounting` and `overview`, a tick database that is unset, unreachable or
 has pending migrations shows up as that line's text, and the command's exit
 code is unchanged. A tick outage never turns the minute screen red. The tick
-alarm is `health`'s, in slice 234.
+alarm is `health`'s `tick retention` row (see the health check section).
 
 ### Reading data: `mt data tick get`
 
@@ -914,6 +946,9 @@ mt data tick debug definitions --symbol ESZ4 --spreads --json
   rows), 1 or 4, and never 3.
 
 ### Running passes by hand
+
+The production run is `sudo mt-run tick` (both passes, recorded; see *The
+units*). The verbs below run one step at a time.
 
 | Step | Command | Note |
 |---|---|---|
@@ -1061,3 +1096,10 @@ the Kalshi timer leaves the EODHD timers untouched.
 Rolling back code does **not** undo applied schema migrations — there are no
 down-migrations (see the migrations note under *Update procedure*). Older code
 runs unchanged against a newer additive schema.
+
+## Revision Log
+
+- 2026-10-14 (slice 234): the tick pass unit `mt-tick-pass.service` (manual,
+  `mt-run tick`), its five environment keys and `deploy/add-tick-env.sh`, the
+  `tick database` and `tick retention` health rows, `mt-run data tick …` as
+  the production path, and staging sources under `/data`.

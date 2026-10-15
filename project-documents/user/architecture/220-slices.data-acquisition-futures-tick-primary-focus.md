@@ -3,7 +3,7 @@ docType: slice-plan
 parent: user/architecture/220-arch.data-acquisition-futures-tick-primary-focus.md
 project: trading
 dateCreated: 20260923
-dateUpdated: 20260930
+dateUpdated: 20261014
 status: in_progress
 ---
 
@@ -111,18 +111,19 @@ status: in_progress
 
 14. [x] **(233) Cross-Source Acquisition Arbitration** — Sets `MemoryMax` on `manta-acquisition.slice`, derived from the journal's 30-day memory peaks of the slice's units, and keeps calendar stagger among the 900 plan's three mechanisms (a resource-class lock, a scheduler inside `mt`, or stagger) on existing evidence: 226's Kalshi × tick result and production's Kalshi × heavy-minute overlaps. **Scope cut (PM, 2026-10-14):** no `IOWeight`/`CPUWeight` (inert on this host: the slice has no sibling, and neither NVMe device runs an I/O controller that honours weights), no minute × tick contention run (moved here from 226 on 2026-10-03; stagger keeps those passes apart), and no re-run under the setting. The install rides 234's cutover. This closes 900 Future Work item 4. Dependencies: [226]. Risk: Low. Effort: 1/5
 
-15. [ ] **(234) Tick Pass Production Wiring** — **Deferred until the cadence decision** (PM direction 2026-09-27: no schedule code yet), which depends on the realtime initiative. When it is built, it deploys the passes in the 916 production form and adds:
-   - The minute-track migration adding `PassKind.TICK` and re-rendering the `pass_runs` CHECK constraint, and the `PassKind.TICK` branch in `schedule_for`.
-   - The pass unit under `manta-acquisition.slice`, and a timer only if the cadence decision calls for one.
+15. [ ] **(234) Tick Pass Production Wiring** — Deploys the passes in the 916 production form, **manual only**: no timer, because the cadence decision still waits on the realtime initiative (PM direction 2026-09-27). It adds:
+   - The minute-track migration adding `PassKind.TICK` and re-rendering the `pass_runs` CHECK constraint, and the `PassKind.TICK` branch in `schedule_for`, which returns the explicit "no timer" answer `FiringSchedule.manual()`.
+   - The verb `mt data tick run`: the acquisition pass, then the ingest pass whatever acquisition did, recorded as one `pass_runs` row, with an ingest heartbeat.
+   - The pass unit `mt-tick-pass.service` under `manta-acquisition.slice` running `mt data tick run`, with no timer.
    - `mt-run tick`, `mt-run follow tick`, and the `mt-run status` row.
    - The install-script entry.
-   - `MT_TICK_DB_URL`, `MT_DATABENTO_API_KEY`, and `MT_TICK_SPEND_CEILING_USD` in the service environment files of every process with a tick duty.
+   - Five keys in `/etc/manta-trading.env`, added once by `deploy/add-tick-env.sh`: `MT_TICK_DB_URL`, `MT_DATABENTO_API_KEY`, `MT_TICK_SPEND_CEILING_USD`, `MT_TICK_SPEND_30D_CEILING_USD`, `MT_TICK_ARCHIVE_DIR` (the 30-day ceiling and the archive directory are required by the pass's own preflight).
    - The tick archive directory on the host.
    - The runbook's add-a-source entries.
    - From 233 (issue #33): the cutover installs 233's `MemoryMax` on `manta-acquisition.slice` and verifies it is in force. It reads the slice cgroup's `memory.max` and `memory.events`, and fails on a value that differs from the declared one or on any `oom_kill`. Until this runs, 233's bound is declared in the repo but not applied in production.
    - A check of production `max_connections` on both clusters against 231's per-worker connection budget (8 tick, 4 extra primary, on top of the API's existing primary pools) for the configured `--workers`. 231 recorded the dev values: one worker fits; four would exceed the tick cluster's 30.
 
-   It also adds the second connection pool from `MT_TICK_DB_URL` to the health check, reusing the tick line states (`data/tick/line_state.py`: `TickLineState`, `TickUnavailable`, `unavailable_text`) and the composed-surface opener (`cli/tick_composed.connect`) that 230 introduced (230 is the first tick composing surface: accounting and overview). The check gains a retention-deadline finding for any in-flight unit whose deadline falls before the next scheduled firing, or, with a manual-only pass, within a fixed number of days. When the setting is absent, health prints a loud "not configured" line and continues, so minute, daily, and Kalshi monitoring are never silenced. When the tick database is unreachable, health reports "unreachable" rather than omitting the line. The minute, daily, and Kalshi passes never read the tick setting. Cutover is a script per the PM-host-step convention. Dependencies: [225]. Risk: Medium. Effort: 3/5
+   It also adds the second connection pool from `MT_TICK_DB_URL` to the health check, reusing the tick line states (`data/tick/line_state.py`: `TickLineState`, `TickUnavailable`, `unavailable_text`) and the composed-surface opener (`cli/tick_composed.connect`) that 230 introduced (230 is the first tick composing surface: accounting and overview). The check gains a retention-deadline finding for any in-flight unit whose deadline falls before the next scheduled firing, or, with a manual-only pass, within a fixed number of days. When the setting is absent, health prints a loud "not configured" line and continues, so minute, daily, and Kalshi monitoring are never silenced. When the tick database is unreachable, health reports "unreachable" rather than omitting the line. The minute, daily, and Kalshi passes never read the tick setting. Cutover is a script per the PM-host-step convention. **Realtime:** nothing forecloses either path; a streaming unit would be its own `Type=simple` unit, and a delayed-historical path adds a timer at the `FiringSchedule.manual()` seam. **API:** `/api/v1/overview`'s `pass` enum gains `tick`; the retention finding is not served (no source has a health-findings endpoint). Dependencies: [225]. Risk: Medium. Effort: 3/5
 
 ## Notes
 
