@@ -47,8 +47,8 @@ This slice takes the person out of that loop:
 - **The source works for the service user.** The journal is readable by the
   operator, not by `manta-trading`. The database and the cgroup file are
   readable by both, so the health unit and the installer can derive the bound.
-- **Per-run memory is visible.** `/api/v1/overview` shows each pass's last
-  memory peak, which today exists only in the journal.
+- **Pass memory is visible.** `/api/v1/overview` shows each pass's process
+  memory peak at its last close, which today exists only in the journal.
 
 ## Technical Scope
 
@@ -72,14 +72,18 @@ This slice takes the person out of that loop:
    `cli/commands/health_memory_bound.py`.
 7. `deploy/lib/memory_bound_dropin.sh`, sourced by `install-production.sh`:
    it runs the derivation as the service user and writes the drop-in.
-8. `last_run.memory_peak_bytes` on `/api/v1/overview` and in
-   `mt data overview --json`.
+8. `last_run.memory_peak_bytes` on `/api/v1/overview`.
 9. `scripts/cutover_235_memory_bound.py`. A pending migration makes
    `upgrade_production.py` refuse, so this release needs its own cutover.
+   It is a step list over `cutover_common` (preconditions, timer hold,
+   `migrate`, `install`, report). Only the member firing and the checks in the
+   walkthrough are new.
 10. Documentation updates: runbook 100's "Adding a source or pass" (the
     hand re-derive step that 233 added is removed), the slice unit's comment,
-    the CHANGELOG, and a dated slice-235 entry in the 220 architecture
-    document (see "Architecture statements superseded").
+    the CHANGELOG, a dated slice-235 entry in the 220 architecture document,
+    and the 220 slice plan's entry 16 (see "Architecture statements
+    superseded"). The plan entry also moves from Effort 2/5 to 3/5, which is
+    what the migration, the installer step and the cutover add up to.
 
 **Excluded**
 
@@ -90,9 +94,8 @@ This slice takes the person out of that loop:
   tick unit's journal peak is from 234's no-purchase firing, which is not
   representative, and the timed members record a peak within a day of the
   cutover.
-- **A peak on the text overview screen.** The plan entry places it on the API.
-  The JSON output gets it because it shares the API's shape. The fixed-width
-  screen is unchanged.
+- **A peak on `mt data overview`, text or `--json`.** The plan entry places
+  it on the API only.
 - **Recording the peak of a pass the OOM killer kills.** See Special
   Considerations.
 - **Serving the bound check over the API.** No source has a health-findings
@@ -118,8 +121,7 @@ This slice takes the person out of that loop:
   `data/acquisition/pass_runs.py`): the single close path for every pass.
 - `HealthCheck`, `CheckSeverity` and `gather` in `cli/commands/health.py`.
 - `LastRun` (`cli/overview_types.py`), `_last_run`
-  (`cli/commands/overview.py`), the JSON rendering in
-  `cli/rendering/overview.py`, and `LastRunRecord`
+  (`cli/commands/overview.py`) and `LastRunRecord`
   (`api_server/models/operations.py`).
 - `install()`, `migrate()`, `hold_timers` / `release_timers` and the report
   helpers in `scripts/cutover_common.py`.
@@ -165,7 +167,7 @@ derive ─┤
 
 ### State Management
 
-- **`pass_runs`** gains the per-run peak. It is written once, at close, by the
+- **`pass_runs`** gains the process peak at close. It is written once, at close, by the
   process that ran the pass, which keeps 922's rule that rows are written by
   the pass and never by an observer.
 - **The drop-in** `/etc/systemd/system/manta-acquisition.slice.d/memory-bound.conf`
@@ -225,10 +227,16 @@ is the truth of the host, and it does not depend on how the package was
 installed. The installer copies the release's units there before it derives
 (TD5), so at install time it holds the new release's members.
 
-A row's `systemd_unit` is the key. There is no `PassKind`-to-unit table to
-keep in step with the unit files. A unit that joins the slice in a later
-release is a member as soon as its file is installed, and it has a peak as
-soon as it runs once.
+A row's `systemd_unit` is the key. The alternative is a `PassKind`-to-unit
+table in code, which would be a second list of members to keep in step with
+the unit files. The column costs one nullable field and makes members come
+from one place. A unit that joins the slice in a later release is a member
+as soon as its file is installed, and it has a peak as soon as it runs once.
+
+The installer copies units in and never removes them. A unit retired or
+renamed out of the slice stays on disk as a never-measured member. The FAIL
+names it, and the operator removes the file; the release that retires a unit
+lists that removal in its cutover.
 
 `SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")` is defined once in the
 module. It matches `UNIT_DIR` in `install-production.sh`, the same
@@ -269,7 +277,7 @@ window") health would fail hourly after every idle month. That alarm would
 hide real regressions in the other checks. The newest peak of any age is that
 member's last measured use, not a placeholder. It is reported with its date.
 The failure that matters stays: a member that has never been measured fails
-derivation, and that keeps issue #34 visible until a real tick run. Timed
+derivation, and that FAILs health until the first tick run (TD4). Timed
 members always have a run in the window, so for them the rule is unchanged.
 Any outcome counts toward the peak, because a run that ended FAILED still
 used that memory.
@@ -304,8 +312,18 @@ health's existing primary connection inside `gather`, in its own
 `conn.transaction()` so that a missing column fails this row and not the
 checks after it. If the primary is down, health already exits 2.
 
-Until the tick pass records its first real run, this check FAILs, which keeps
-issue #34 visible. After that, an idle tick month does not fail it (TD3).
+Until the tick pass records its first run, this check FAILs. After that, an
+idle tick month does not fail it (TD3).
+
+**What the gate does not check.** Any tick run clears "never measured",
+including a run with nothing to buy or ingest, whose peak (about 100 MB in
+234's firing) says nothing about ingest memory. The design does not try to
+tell the two apart. Issue #34 closes when the operator confirms that the tick
+row behind the derived bound ingested units (its `progress_done` > 0 in the
+`ingest` phase); the check alone does not close it. Until then a bound derived
+from a small tick peak is no weaker than the 14G interim: the other members
+sum to 6.93 GiB, so the bound is still at least 14G, and the 7 GiB of
+headroom is several times 226's measured ingest-worker rise of 656–1025 MiB.
 
 ### TD5 — The install writes a drop-in; it never edits the shipped unit
 
@@ -323,6 +341,9 @@ systemd-run --quiet --wait --pipe --collect \
 
 `systemd-run` parses the environment file exactly as the pass units do, so
 the derivation sees the same `MT_TIMESCALE_DB_URL` and the same database role.
+`runuser` with the file sourced by bash was rejected: it is a different
+parser for the same file, and quoting that systemd accepts can read
+differently in a shell.
 The script connects with `PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS`.
 `MEMORY_BOUND_DERIVE_TIMEOUT_SECONDS=120`, defined once in the lib, bounds the
 whole run: a stalled query is killed by systemd, never left hanging the
@@ -359,8 +380,10 @@ migration runs `upgrade_production.py`, which calls the same installer.
 
 ### TD6 — API: the peak goes on `last_run`
 
-`LastRun`, `LastRunRecord` and the JSON rendering gain
-`memory_peak_bytes: int | None`. It is null when the run was not measured
+`LastRun` and `LastRunRecord` gain `memory_peak_bytes: int | None`: the
+pass process's cgroup peak at close. For a `--stop-when-done` daemon that
+closes several rows, that is the process's peak so far, not the last cycle's
+alone (TD1). It is null when the run was not measured
 (TD1) and for rows from before migration 061. Bytes, not GiB: the API carries
 exact values and the UI formats them. This is an additive, nullable field,
 so the patch version applies. `check_api_docs.py` and the published OpenAPI
@@ -383,7 +406,7 @@ join key, and the overview already keys lines by `pass`.
 - **Realtime:** a streaming unit (`Type=simple`) would close its row only
   when it stops. Its peak would then be recorded once per process life,
   which still bounds it. Nothing here forecloses that.
-- **API:** the per-run peak is served (TD6). The bound verdict is not, for
+- **API:** the peak at close is served (TD6). The bound verdict is not, for
   the reason in the plan entry.
 
 ### Architecture statements superseded
@@ -393,6 +416,12 @@ join key, and the overview already keys lines by `pass`.
   copy, journal peaks): replaced by TD1, TD3 and TD5. The implementation
   adds a dated slice-235 entry to the architecture document saying so. The
   2 × Σ peaks, whole-GiB rule is unchanged; the idle-member case is TD3's.
+- The 220 slice plan's entry 16 (this slice): the implementation rewrites it
+  to match three deliberate deviations. Health reads the loaded value through
+  `systemctl show`, not the live cgroup's `memory.max` (TD4). An idle member
+  keeps its newest peak instead of failing for "no recorded peak in the
+  window" (TD3). The bound goes into a drop-in, not the slice unit (TD5).
+  The entry's effort becomes 3/5.
 
 ## Implementation Details
 
@@ -431,7 +460,7 @@ gain both fields. The migration-chain test that pins the newest id
 
 ### Provides to Other Slices
 
-- A per-run `memory_peak_bytes` on every `pass_runs` row written under a
+- A `memory_peak_bytes` (process peak at close) on every `pass_runs` row written under a
   service. A future pass or source gets it with no code change.
 - A slice bound that follows the measured load. A future acquisition unit
   needs only `Slice=manta-acquisition.slice`. The runbook's add-a-pass
@@ -466,8 +495,7 @@ gain both fields. The migration-chain test that pins the newest id
    `MEMORY BOUND NOT RE-DERIVED` banner and completes. On any other exit,
    including a timeout or malformed output, the installer stops before
    `daemon-reload`.
-6. `/api/v1/overview` and `mt data overview --json` carry
-   `last_run.memory_peak_bytes`.
+6. `/api/v1/overview` carries `last_run.memory_peak_bytes`.
 
 ### Technical Requirements
 
@@ -531,9 +559,9 @@ Steps, each check-then-act, with a report in `project-documents/user/notes/`:
    select(.pass=="kalshi") | .last_run.memory_peak_bytes'` is non-null.
 7. **Release timers.**
 
-After the cutover, outside the slice's tasks: once a real tick run is
-recorded, the next install prints `memory bound: MemoryMax=<N>G written`,
-health reports OK, and issue #34 closes.
+After the cutover, outside the slice's tasks: once a tick run is recorded,
+the next install prints `memory bound: MemoryMax=<N>G written` and health
+reports OK. Issue #34 closes on the operator's confirmation in TD4.
 
 ## Implementation Notes
 
@@ -546,7 +574,7 @@ health reports OK, and issue #34 closes.
    from journal lines to `pass_runs` peaks).
 4. The health row.
 5. The installer lib, its test, and the hook in `install-production.sh`.
-6. The overview field: dataclass, API model, JSON, OpenAPI docs check.
+6. The overview field: dataclass, API model, OpenAPI docs check.
 7. The cutover script, then the docs.
 
 Commit after each numbered step.
