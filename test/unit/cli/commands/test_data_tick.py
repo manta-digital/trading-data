@@ -171,6 +171,7 @@ def test_group_lists_its_verbs() -> None:
         "reset",
         "pass",
         "ingest",
+        "run",
         "status",
         "coverage",
         "active",

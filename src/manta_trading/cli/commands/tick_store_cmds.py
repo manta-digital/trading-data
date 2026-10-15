@@ -28,6 +28,7 @@ from manta_trading.cli.commands.tick_exit import (
 from manta_trading.cli.output import print_error
 
 if TYPE_CHECKING:
+    from manta_trading.cli.commands.tick_heartbeat import IngestHeartbeat
     from manta_trading.config import Settings
     from manta_trading.data.tick.pass_contract import PassResult
     from manta_trading.data.tick.tick_coverage import TickCoverage
@@ -85,12 +86,19 @@ def run_mapped[T](
         raise typer.Exit(code) from exc
 
 
-async def ingest_units(settings: Settings, unit_ids: tuple[int, ...]) -> PassResult:
+async def ingest_units(
+    settings: Settings,
+    unit_ids: tuple[int, ...],
+    heartbeat: IngestHeartbeat | None = None,
+) -> PassResult:
     """The ingest pass ``mt data tick ingest`` runs, for callers that need its
-    ``PassResult`` (the 226 proof harness) rather than its rendering."""
+    ``PassResult`` (the 226 proof harness, ``mt data tick run``) rather than its
+    rendering. ``heartbeat`` (234) is told the selected units under the ingest
+    lock, then fed each batch's rows."""
     from manta_trading.data.tick import constants
     from manta_trading.data.tick.databento.dbn_file import DbnFileReader
     from manta_trading.data.tick.ingest_pass import IngestInputs, IngestPhase
+    from manta_trading.data.tick.ingest_select import select_units
     from manta_trading.data.tick.ingest_worker import WorkerConnectionSettings
     from manta_trading.data.tick.pass_contract import TickPass
     from manta_trading.data.tick.store_context import (
@@ -103,6 +111,8 @@ async def ingest_units(settings: Settings, unit_ids: tuple[int, ...]) -> PassRes
     async with open_tick_store(
         settings, lock_key=constants.TICK_INGEST_LOCK_KEY
     ) as store:
+        if heartbeat is not None:
+            heartbeat.set_units((await select_units(store.conn, unit_ids)).selected)
         inputs = IngestInputs(
             reader=DbnFileReader(),
             worker_settings=WorkerConnectionSettings(
@@ -118,6 +128,7 @@ async def ingest_units(settings: Settings, unit_ids: tuple[int, ...]) -> PassRes
             calendar_url=calendar_url(settings),
             workers=constants.TICK_INGEST_WORKERS,
             unit_ids=unit_ids,
+            on_batch_rows=None if heartbeat is None else heartbeat.add,
         )
         return await TickPass[TickStore](store, [IngestPhase(inputs)]).run()
 
