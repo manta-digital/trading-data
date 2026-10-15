@@ -51,7 +51,7 @@ def test_g_suffixed_memory_max_parses_1024_based(mods) -> None:
         checks.memory_max_bytes(
             (ROOT / "deploy/systemd/manta-acquisition.slice").read_text()
         )
-        == 14 * 1024**3
+        == 256 * 1024**3
     )
     with pytest.raises(ValueError, match="MemoryMax"):
         checks.memory_max_bytes("[Slice]\n")

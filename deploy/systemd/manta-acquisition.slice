@@ -1,23 +1,9 @@
 # manta-acquisition.slice — grouping unit for all acquisition passes.
-#
-# MemoryMax bounds the whole slice so a runaway pass is killed by the
-# slice-local OOM killer, not the host's, which would choose among
-# PostgreSQL backends (slice 233 design, Technical Decision 2).
-#
-# Rule:   MemoryMax = ceil_GiB(2 x sum over members of max 30-day journal
-#         "memory peak"), computed by scripts/acquisition_memory_bound.py.
-# Inputs: 2026-10-14 — mt-minute-pass 6348.8 MiB (Saturdays), mt-daily-pass
-#         426.1 MiB, mt-kalshi-pass 318.1 MiB; sum 6.93 GiB -> 14G.
-# A unit that joins this slice re-derives the value with the script and
-# updates this comment (runbook 100, "Adding a source or pass").
-#
-# No CPUWeight/IOWeight, deliberately (233 design, Technical Decision 1):
-# this slice is the only child of manta.slice, so a weight has no sibling
-# to divide against; and neither NVMe device has an I/O controller that
-# honours weights (scheduler "none", io.cost not configured).
+# MemoryMax is a fixed ceiling above host RAM: effectively unbounded, by PM
+# decision 2026-10-15. Do not re-derive it.
 [Unit]
 Description=Manta acquisition passes (resource grouping)
 Documentation=https://github.com/manta-digital/trading-data
 
 [Slice]
-MemoryMax=14G
+MemoryMax=256G

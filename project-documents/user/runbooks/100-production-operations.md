@@ -105,7 +105,7 @@ would either do nothing or install a second, unrelated copy.
 | `mt-accounting-pass.timer` | timer | fires the accounting pass **daily at 16:30 UTC**, after the day's collecting firings |
 | `mt-tick-pass.service` | oneshot pass, **no timer** | `mt data tick run` — the acquisition pass over the full universe, then the ingest pass whatever acquisition did; one `pass_runs` row (kind `tick`). Started only by `sudo mt-run tick`. `TimeoutStartSec=4h` ends a hung run; a killed run loses nothing (units commit one at a time). `UMask=0002` keeps the shared archive group-writable |
 | `mt-serve.service` | long-running | the API server; `Restart=on-failure` |
-| `manta-acquisition.slice` | grouping | home for acquisition passes (minute, daily, kalshi, tick); bounded by `MemoryMax`, derived by `scripts/acquisition_memory_bound.py` (slice 233); in force from the 234 cutover, which checks the live `memory.max` against it |
+| `manta-acquisition.slice` | grouping | home for acquisition passes (minute, daily, kalshi, tick); `MemoryMax=256G`, a fixed ceiling above host RAM (effectively unbounded) |
 
 ### Adding a source or pass
 
@@ -132,13 +132,7 @@ it; the steps are:
    unit names are derived from the kind. A scheduled-only check (health,
    accounting) does not need this; `mt-run status` lists every `mt-*` timer
    regardless.
-7. **If the unit sets `Slice=manta-acquisition.slice`, re-derive the
-   slice's `MemoryMax`:** `uv run python scripts/acquisition_memory_bound.py`,
-   then copy the result into `MemoryMax=` in
-   `deploy/systemd/manta-acquisition.slice` and the inputs and date into its
-   comment. The script exits 2 until the new unit has run once and logged a
-   `memory peak`; that is intended, since there is no default peak.
-8. **Install and enable explicitly:** `sudo ./deploy/install-production.sh
+7. **Install and enable explicitly:** `sudo ./deploy/install-production.sh
    --ref <tag>` then `sudo systemctl enable --now mt-<name>.timer`. The
    installer enables nothing on purpose.
 
@@ -761,13 +755,7 @@ Checklist for a new bounded pass (e.g. a Kalshi pass):
 6. Add the kind to `KINDS` in `deploy/mt-run` — that one line is what gives
    the source its `mt-run {kind}`, `mt-run follow {kind}`, and its row in
    `mt-run status`; the wrapper derives the unit name from the kind.
-7. **If the unit sets `Slice=manta-acquisition.slice`, re-derive the
-   slice's `MemoryMax`:** `uv run python scripts/acquisition_memory_bound.py`,
-   then copy the result into `MemoryMax=` in
-   `deploy/systemd/manta-acquisition.slice` and the inputs and date into its
-   comment. The script exits 2 until the new unit has run once and logged a
-   `memory peak`; that is intended, since there is no default peak.
-8. PM: re-run the install script, then `sudo systemctl enable --now
+7. PM: re-run the install script, then `sudo systemctl enable --now
    mt-{name}-pass.timer`.
 
 Two limits of the pattern, stated so they are not rediscovered:
