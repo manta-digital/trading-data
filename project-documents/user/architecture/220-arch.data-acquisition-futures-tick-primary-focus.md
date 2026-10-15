@@ -406,6 +406,13 @@ Follows this initiative, not part of it: realtime capture (streaming form, own i
     `raw_counts` counted every instrument in the session windows; it now
     counts the product's own instruments. The one leaked single-product
     assumption 232 found in src.
+- **2026-10-14** (slice 233; the slice design is authoritative in detail):
+  - **Cross-source arbitration.** `MemoryMax` only on
+    `manta-acquisition.slice`, derived from journal peaks by
+    `scripts/acquisition_memory_bound.py`. `CPUWeight` and `IOWeight` are
+    not set: they are inert on this host (233 design, Technical Decision 1).
+    The mechanism is calendar stagger, kept on existing evidence; no lock
+    and no scheduler.
 
 ## Related Work
 

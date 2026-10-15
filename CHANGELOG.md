@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Memory bound on acquisition passes** (slice 233). `manta-acquisition.slice`
+  declares `MemoryMax=14G`, derived from 30-day journal peaks by
+  `scripts/acquisition_memory_bound.py`. A runaway acquisition pass is then
+  killed inside its own slice instead of the host's OOM killer choosing
+  among PostgreSQL backends. The bound takes effect at the release that
+  follows 234.
 - **COMEX gold (GC) futures ticks** (slice 232). GC is the second product in
   the tick universe: tbbo for 2024-11-02 → 2025-01-01 (Thanksgiving closes and
   the December → February roll), on every tick surface (`status`,
