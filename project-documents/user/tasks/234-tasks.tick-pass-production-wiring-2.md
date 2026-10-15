@@ -1,5 +1,4 @@
 ---
----
 docType: tasks
 slice: tick-pass-production-wiring
 project: trading-data

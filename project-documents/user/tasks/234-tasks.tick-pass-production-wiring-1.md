@@ -341,6 +341,4 @@ Effort scale: 1 (trivial) to 5 (hardest).
 
 ---
 
----
-
 Continued in `234-tasks.tick-pass-production-wiring-2.md` (Tasks 5–10).
