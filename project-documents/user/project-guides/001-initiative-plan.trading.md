@@ -4,7 +4,7 @@ layer: project
 project: trading
 source: user/project-guides/000-concept.trading.md
 dateCreated: 20260327
-dateUpdated: 20260921
+dateUpdated: 20261015
 status: in_progress
 ---
 
@@ -34,7 +34,7 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
 
 7. [ ] **(200) Event Infrastructure** — Event-sourced operational audit trail. Ingestion tracking (`ingest_runs` table: timestamp, symbol range, row counts, data hash). Data lineage (provider version, transform version, adjustment policy). Local storage initially, structured for eventual cloud migration. Dependencies: [900]. Status: not_started
 
-8. [ ] **(220) Data Acquisition — Futures Tick (Primary Focus)** — Tick-level acquisition for futures instruments. **This is the project's primary research target**; equities (initiative 120) is the cheaper-to-source proving ground for the pipeline patterns this initiative consumes.
+8. [x] **(220) Data Acquisition — Futures Tick (Primary Focus)** — Tick-level acquisition for futures instruments. **This is the project's primary research target**; equities (initiative 120) is the cheaper-to-source proving ground for the pipeline patterns this initiative consumes.
 
     Strategy: prove the pipeline against **purchased historical tick data** (cheap one-off — Databento single-contract historical ~$10-30, CME Datamine ~$50-200, or free-tier Dukascopy forex ticks for code-path exercise) before committing to the **$179/mo Databento US-futures live feed**. The historical buy validates schema, provider seam, continuation/roll logic, storage volume, and query performance against real data; only then do we sign up for the live feed. Architecture: [220-arch.data-acquisition-futures-tick-primary-focus.md](../architecture/220-arch.data-acquisition-futures-tick-primary-focus.md) (2026-09-21) — historical-only, Databento, CME ES then GC, trades/TBBO tier, full operator and API parity, backup in scope; realtime capture is a separate initiative. Dependencies: [100, 120]. Status: in_progress
 
