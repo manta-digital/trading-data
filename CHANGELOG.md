@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-10-15
+
 ### Changed
 - `manta-acquisition.slice` `MemoryMax` is now a fixed 256G (above host RAM, so effectively unbounded). The derived bound, `scripts/acquisition_memory_bound.py` and its re-derive step are removed.
 
