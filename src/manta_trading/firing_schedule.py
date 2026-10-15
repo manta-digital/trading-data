@@ -11,7 +11,7 @@ read the same parsed value, so changing cadence is one line in the
 environment file and nothing else — no rebuild, no restart.
 
 Slice 922 generalised the "when next" question to every pass kind, because
-the overview answers it for all five: :class:`FiringSchedule` pairs times of
+the overview answers it for every kind: :class:`FiringSchedule` pairs times of
 day with the weekdays they run on, :func:`next_firing_at` searches it, and
 :func:`schedule_for` is the single place each kind's cadence is assembled.
 The times themselves live in ``constants.py`` beside the assertion that they
@@ -20,7 +20,7 @@ match the shipped timer units.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 
 from manta_trading.constants import (
@@ -116,10 +116,25 @@ class FiringSchedule:
 
     ``weekdays`` None means every day, matching the ``MT_MINUTE_FIRING_DAYS``
     spelling so the minute pass needs no special case here.
+
+    ``is_manual`` marks a pass that has no timer at all (slice 234 TD1). It is
+    set only by :meth:`manual`, so an empty schedule built by mistake stays an
+    error in :func:`next_firing_at` rather than reading as "manual". Callers
+    check it before asking for a next firing.
     """
 
     times_utc: tuple[time, ...]
     weekdays: tuple[int, ...] | None = None
+    is_manual: bool = field(default=False, kw_only=True)
+
+    def __post_init__(self) -> None:
+        if self.is_manual and self.times_utc:
+            raise ValueError("a manual schedule has no firing times")
+
+    @classmethod
+    def manual(cls) -> FiringSchedule:
+        """No timer: the pass runs only when an operator starts it."""
+        return cls((), is_manual=True)
 
     @classmethod
     def hourly(cls, minute: int) -> FiringSchedule:
@@ -128,6 +143,8 @@ class FiringSchedule:
 
     def describe(self) -> str:
         """One line for the overview's cadence column."""
+        if self.is_manual:
+            return "manual (no timer)"
         if self._is_hourly():
             return f"hourly :{self.times_utc[0].minute:02d}"
         times = ", ".join(f"{t:%H:%M}" for t in sorted(self.times_utc))
@@ -147,8 +164,9 @@ class FiringSchedule:
 def next_firing_at(after: datetime, schedule: FiringSchedule) -> datetime:
     """The first firing at or after ``after`` (an aware UTC instant).
 
-    Raises when the schedule can never fire — an empty time list or an empty
-    weekday list — rather than returning a plausible-looking instant.
+    Raises when the schedule can never fire — an empty time list, an empty
+    weekday list, or a manual schedule — rather than returning a
+    plausible-looking instant. Callers check ``is_manual`` first.
     """
     if after.tzinfo is None:
         raise ValueError("next_firing_at needs an aware datetime")
@@ -186,6 +204,8 @@ def schedule_for(
         return FiringSchedule.hourly(HEALTH_FIRING_MINUTE)
     if kind is PassKind.ACCOUNTING:
         return FiringSchedule(ACCOUNTING_PASS_FIRING_TIMES_UTC)
+    if kind is PassKind.TICK:
+        return FiringSchedule.manual()
     # Not reachable while the branches above are exhaustive; a new PassKind
     # member lands here loudly rather than acquiring a silent default.
     raise AssertionError(f"no firing schedule defined for pass kind {kind!r}")

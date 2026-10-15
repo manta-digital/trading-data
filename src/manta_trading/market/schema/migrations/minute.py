@@ -2635,4 +2635,23 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         ),
         "python_fn": _seed_cme_metals_calendar,
     },
+    {
+        "id": "060_pass_kind_tick",
+        "description": (
+            "Re-render pass_runs_pass_check from PassKind so it admits the "
+            "tick pass (slice 234)."
+        ),
+        # Same shape as kalshi_007. On a fresh apply 055 already renders the
+        # current enum, so this re-creates the constraint identically.
+        # Production's was rendered before PassKind.TICK existed, and the enum
+        # member alone changes nothing already in the database. DROP IF
+        # EXISTS + ADD keeps it idempotent; the enum stays the single source.
+        "sql": f"""
+            ALTER TABLE pass_runs
+                DROP CONSTRAINT IF EXISTS pass_runs_pass_check;
+            ALTER TABLE pass_runs
+                ADD CONSTRAINT pass_runs_pass_check
+                CHECK ({_pass_kind_check_sql()});
+        """,
+    },
 ]

@@ -1,6 +1,6 @@
 """Pass-run records: what is running, what ran, and how it ended.
 
-Every all-active-scope pass (minute, daily, kalshi, health, accounting)
+Every all-active-scope pass (minute, daily, kalshi, health, accounting, tick)
 writes one row to the ``pass_runs`` table: an open row while it runs, closed
 with an outcome when it finishes. The operator overview reads these rows;
 the ``data_status`` view reads their walk anchors to decide staleness.
@@ -50,6 +50,9 @@ class PassKind(StrEnum):
 
     ACCOUNTING = "accounting"
     """The minute-accounting pass that computes the universe line."""
+
+    TICK = "tick"
+    """The tick pass: acquisition then ingest, started by hand (no timer)."""
 
 
 class PassRunOutcome(StrEnum):

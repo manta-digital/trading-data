@@ -2501,7 +2501,8 @@
           "daily",
           "kalshi",
           "health",
-          "accounting"
+          "accounting",
+          "tick"
         ],
         "title": "PassKind",
         "type": "string"

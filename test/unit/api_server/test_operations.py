@@ -99,6 +99,10 @@ class TestOverviewRoute:
         assert {line["pass"] for line in body["passes"]} == {
             kind.value for kind in PassKind
         }
+        # 234 TD1: tick has no timer — no next firing, and the cadence says so.
+        tick = next(line for line in body["passes"] if line["pass"] == "tick")
+        assert tick["next_firing"] is None
+        assert tick["cadence"] == "manual (no timer)"
         assert body["sources"] == [
             {
                 "name": "minute bars",

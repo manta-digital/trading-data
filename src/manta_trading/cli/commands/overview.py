@@ -314,15 +314,13 @@ def build_overview(
 
 def _pass_line(kind: PassKind, facts: OverviewFacts, *, pid_alive: Any) -> PassLine:
     schedule = schedule_for(kind, facts.minute_firing_days)
-    try:
-        next_firing: datetime | None = next_firing_at(facts.now, schedule)
-    except RuntimeError:
-        # A schedule that can never fire: report no next firing rather than
-        # failing the whole overview over one cadence.
-        next_firing = None
+    # A manual pass has no next firing; any other schedule must produce one,
+    # so next_firing_at raising there is a real error, not a blank cell.
+    next_firing = None if schedule.is_manual else next_firing_at(facts.now, schedule)
     return PassLine(
         kind=kind,
         cadence=schedule.describe(),
+        manual=schedule.is_manual,
         running=tuple(
             _running_row(run, facts.hostname, pid_alive)
             for run in facts.open_runs.get(kind, ())

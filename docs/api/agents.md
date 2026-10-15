@@ -518,7 +518,7 @@ and `status` on every market record:
 An invalid token is a `422` naming both what you sent and the valid set.
 
 **Pass kind** — `passes[].pass` on `/api/v1/overview`:
-`accounting` `daily` `health` `kalshi` `minute`.
+`accounting` `daily` `health` `kalshi` `minute` `tick`.
 <!-- from: manta_trading.data.acquisition.pass_runs.PassKind -->
 
 The field is serialized under the **alias** `pass` because `pass` is a Python

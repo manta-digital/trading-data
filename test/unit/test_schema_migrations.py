@@ -229,7 +229,8 @@ class TestMigrationsListIntegrity:
         # 59 -> 61 with slice 221's 057 (calendar holidays_seeded_through)
         # and 058 (CME_EQUITY calendar seed).
         # 61 -> 62 with slice 232's 059 (CME_METALS calendar seed).
-        assert len(MIGRATIONS) == 62
+        # 62 -> 63 with slice 234's 060 (pass_runs admits tick).
+        assert len(MIGRATIONS) == 63
 
 
 # ---------------------------------------------------------------------------
@@ -1307,9 +1308,9 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_059() -> None:
+def test_chain_ends_at_060() -> None:
     """The newest migration must be last (slice 922 retargeted this from 054;
-    slice 221 from 056; slice 232 from 058).
+    slice 221 from 056; slice 232 from 058; slice 234 from 059).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
@@ -1320,7 +1321,7 @@ def test_chain_ends_at_059() -> None:
     (see ``POSITION_CRITICAL_IDS``), which is why the tip check names a later
     migration.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == "059_seed_cme_metals_calendar"
+    assert MINUTE_MIGRATIONS[-1]["id"] == "060_pass_kind_tick"
 
 
 class TestMigration054DailyMonthlyRefreshWindow:

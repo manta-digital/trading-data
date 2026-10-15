@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time
+from pathlib import Path
 
 import pytest
 
@@ -220,7 +221,8 @@ class TestScheduleFor:
     @pytest.mark.parametrize("kind", list(PassKind))
     def test_every_pass_kind_has_a_schedule(self, kind: PassKind) -> None:
         schedule = schedule_for(kind)
-        assert schedule.times_utc, f"{kind} has no firing times"
+        # A manual pass answers "no timer" explicitly; every other kind fires.
+        assert schedule.is_manual or schedule.times_utc, f"{kind} has no firing times"
 
     def test_minute_observes_the_operator_setting(self) -> None:
         assert schedule_for(PassKind.MINUTE, (5,)).weekdays == (5,)
@@ -228,7 +230,7 @@ class TestScheduleFor:
 
     def test_no_other_kind_observes_it(self) -> None:
         for kind in PassKind:
-            if kind is PassKind.MINUTE:
+            if kind is PassKind.MINUTE or schedule_for(kind).is_manual:
                 continue
             assert schedule_for(kind, (5,)).weekdays is None, kind
 
@@ -249,7 +251,46 @@ class TestScheduleFor:
     def test_next_firing_resolves_for_every_kind(self) -> None:
         now = datetime(2026, 9, 12, 13, 10, tzinfo=UTC)
         for kind in PassKind:
+            if schedule_for(kind).is_manual:
+                continue
             assert next_firing_at(now, schedule_for(kind)) >= now
+
+    def test_only_tick_is_manual(self) -> None:
+        manual = {kind for kind in PassKind if schedule_for(kind).is_manual}
+        assert manual == {PassKind.TICK}
+
+    def test_manual_iff_no_timer_unit(self) -> None:
+        """A manual schedule is the code's statement that no timer ships
+        (234 TD1). Checked against the unit files so the two cannot drift."""
+        units = Path(__file__).resolve().parents[2] / "deploy" / "systemd"
+        checked = []
+        for kind in PassKind:
+            if not (units / f"mt-{kind.value}-pass.service").exists():
+                continue
+            has_timer = (units / f"mt-{kind.value}-pass.timer").exists()
+            assert schedule_for(kind).is_manual is not has_timer, kind
+            checked.append(kind)
+        assert PassKind.MINUTE in checked, "unit directory not found"
+
+
+class TestManualSchedule:
+    """``FiringSchedule.manual()``: the explicit "no timer" answer (234 TD1)."""
+
+    def test_describe(self) -> None:
+        assert FiringSchedule.manual().describe() == "manual (no timer)"
+
+    def test_only_manual_is_manual(self) -> None:
+        assert FiringSchedule.manual().is_manual
+        assert not FiringSchedule(()).is_manual
+        assert not FiringSchedule(T1305).is_manual
+
+    def test_next_firing_still_raises(self) -> None:
+        with pytest.raises(RuntimeError, match="empty"):
+            next_firing_at(datetime(2026, 9, 12, tzinfo=UTC), FiringSchedule.manual())
+
+    def test_manual_with_times_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="no firing times"):
+            FiringSchedule(T1305, is_manual=True)
 
 
 class TestMinuteScheduleStillAgrees:

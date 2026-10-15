@@ -41,6 +41,7 @@ from manta_trading.cli.rendering.overview import (
     outcome_text,
     overview_payload,
     render_last,
+    render_next_firings,
     render_overview,
     render_running,
 )
@@ -403,11 +404,24 @@ class TestCadenceAndNextFiring:
         overview = build_overview(facts)
         assert _line(overview, PassKind.MINUTE).cadence == "13:05"
 
-    def test_every_kind_gets_a_next_firing_in_the_future(self) -> None:
+    def test_every_timed_kind_gets_a_next_firing_in_the_future(self) -> None:
         overview = build_overview(_facts())
         for line in overview.passes:
+            if line.manual:
+                continue
             assert line.next_firing is not None
             assert line.next_firing >= NOW
+
+    def test_tick_is_manual_with_no_next_firing(self) -> None:
+        line = _line(build_overview(_facts()), PassKind.TICK)
+        assert line.manual
+        assert line.next_firing is None
+        assert line.cadence == "manual (no timer)"
+
+    def test_next_line_says_tick_manual(self) -> None:
+        text = " ".join(render_next_firings(build_overview(_facts())))
+        assert "tick manual" in text
+        assert "minute " in text
 
 
 class TestSources:

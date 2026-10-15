@@ -121,6 +121,8 @@ class PassLine:
     running: tuple[RunningRow, ...]
     last: LastRun | None
     next_firing: datetime | None
+    manual: bool = False
+    """No timer: ``next_firing`` is None by design, shown as ``manual``."""
 
 
 @dataclass(frozen=True)

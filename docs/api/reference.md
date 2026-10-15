@@ -1172,7 +1172,7 @@ Operational state: what each acquisition pass is doing, the newest row in each
 source table, the health verdict, and the universe accounting line. No
 parameters. **This is a pure database read and safe to poll.**
 
-Pass kinds are `accounting` `daily` `health` `kalshi` `minute`.
+Pass kinds are `accounting` `daily` `health` `kalshi` `minute` `tick`.
 <!-- from: manta_trading.data.acquisition.pass_runs.PassKind -->
 
 Run outcomes are `COMPLETE` `COMPLETE_QUOTA` `FAILED` `INCOMPLETE`
@@ -1199,7 +1199,7 @@ with `getattr(obj, "pass_")` or by key.
 | `passes[].last_run.outcome` | string | no | — | A `PassRunOutcome` token. |
 | `passes[].last_run.exit_code` | integer | yes | — | Process exit code. |
 | `passes[].last_run.detail` | string | yes | — | Free-text summary of what it did. |
-| `passes[].next_firing` | string | yes | UTC | Next scheduled run. |
+| `passes[].next_firing` | string | yes | UTC | Next scheduled run. Null for a pass with no timer (`tick`, whose cadence reads `manual (no timer)`). |
 | `sources[].name` | string | no | — | Source table label, e.g. `minute bars`. |
 | `sources[].newest` | string | yes | UTC | Newest row in that table. |
 | `sources[].unavailable` | string | yes | — | Why the source could not be read; `newest` is then null. |

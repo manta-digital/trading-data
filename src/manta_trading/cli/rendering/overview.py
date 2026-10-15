@@ -150,13 +150,19 @@ def _next_stamp(at: datetime, now: datetime) -> str:
     return f"{at:%H:%M}" if at.date() == now.date() else _stamp(at)
 
 
+#: What the ``next`` line shows for a pass with no timer (slice 234 TD1).
+_NEXT_MANUAL = "manual"
+
+
 def render_next_firings(overview: Overview, *, width: int = _SCREEN_WIDTH) -> list[str]:
     """When each pass fires next, wrapped to stay on the screen."""
-    parts = [
-        f"{line.kind.value} {_next_stamp(line.next_firing, overview.now)}"
-        for line in overview.passes
-        if line.next_firing is not None
-    ]
+    parts: list[str] = []
+    for line in overview.passes:
+        if line.manual:
+            parts.append(f"{line.kind.value} {_NEXT_MANUAL}")
+        elif line.next_firing is not None:
+            stamp = _next_stamp(line.next_firing, overview.now)
+            parts.append(f"{line.kind.value} {stamp}")
     if not parts:
         return []
     label = f"{'next':<{_KIND_WIDTH}} "
