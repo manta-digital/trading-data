@@ -14,48 +14,54 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261014
 dateUpdated: 20261014
-reviewedSha: b88cb22f6b72bc05b157c58e84490bdb42f134ec
+reviewedSha: a436419c829c3decc641ee2fe75a8120fae8321b
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 10
-durationSeconds: 47.9
+toolCallsMade: 4
+durationSeconds: 46.0
 runId: run-20261015-p4-4669ddf5
 squadronVersion: 0.21.9
 findings:
   - id: F001
     severity: concern
-    category: scope-omission
-    summary: "225's per-batch progress heartbeat is not picked up or disclaimed"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Data Flow"
+    category: error-handling
+    summary: "Hung or wedged run has no detection or handling"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD2 — One verb, one unit, one row"
   - id: F002
     severity: concern
-    category: error-handling
-    summary: "Unit timeout and hang handling are unspecified for the new oneshot"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Technical Scope (item 4)"
+    category: scope
+    summary: "Per-batch heartbeat handed over by 225 is declined"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Data Flow (step 2)"
   - id: F003
     severity: concern
     category: proportionality
-    summary: "Scope the plan does not assign: TD7 import guard and the 10-step cutover"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD7 — Minute, daily and Kalshi passes never read the tick setting"
+    summary: "Cutover script is heavier than the slice needs"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD4 — The cutover script owns verification"
   - id: F004
     severity: concern
-    category: scope-creep
-    summary: "Design adds `mt data tick run` and a composite outcome model not in the plan or architecture"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD2 — One verb, one unit, one row"
+    category: architecture-alignment
+    summary: "Architecture statements are superseded in four places, and the Revision Log update is only a late task"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Architecture statements superseded"
   - id: F005
-    severity: concern
-    category: architectural-alignment
-    summary: "Architecture's Cadence text conflicts with this slice and is not recorded for the Revision Log"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Overview"
+    severity: note
+    category: architecture-alignment
+    summary: "Manual-only cadence answer is explicit and drift-guarded"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD1 — Manual-only cadence, stated in code"
   - id: F006
     severity: note
-    category: nfr
-    summary: "Retention finding window is a reasonable manual-regime answer"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD5 — Retention finding with a manual pass"
+    category: scope
+    summary: "Deviation from the plan's three env keys to five is justified"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD3 — Settings enter production by a one-time root script"
   - id: F007
     severity: note
-    category: boundaries
-    summary: "Boundaries and dependency directions hold"
+    category: architecture-alignment
+    summary: "Isolation, one-way coupling and accounting match the architecture"
     location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Architecture"
+  - id: F008
+    severity: note
+    category: scope
+    summary: "Open interest question is carried as the plan requires"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Special Considerations"
 ---
 
 # Review: slice — slice 234
@@ -65,61 +71,63 @@ findings:
 
 ## Findings
 
-### [CONCERN] 225's per-batch progress heartbeat is not picked up or disclaimed
+### [CONCERN] Hung or wedged run has no detection or handling
 
-Slice 225 states that "234 owns the per-batch progress heartbeat that 225 omits … because its systemd timeouts are what the heartbeat serves". It also lists this as a superseded architecture statement ("only progress returns to the loop"). The 234 design never mentions the heartbeat. Data Flow step 2 says phase progress goes through `recorder.progress`, ending at a single `ingest` phase. Ingest returns one outcome per unit with no per-batch progress. The architecture requires that "progress stays observable during a multi-gigabyte ingest". The design needs to do one of two things:
-- Name where the heartbeat is built (composed in `run` or added to the ingest pass) and state what it feeds, whether the `pass_runs` progress or 922's abandoned-run detection.
-- Explicitly decline it with a reason, and record that against the 225 hand-off.
+The design covers a killed run (SIGTERM, SIGKILL, OOM) well. It covers the overlap of its own cutover with a by-hand run. It does not cover a run that hangs without dying.
+- **The cause:** `TimeoutStartSec=infinity`, no `WatchdogSec`, and no per-batch heartbeat are all chosen together. A stuck provider download, a stuck ingest `COPY` or a blocked database call then never ends.
+- **What the operator sees:** an open `TICK` row. The abandoned-run closer only closes rows whose pid is gone, so a live hung pid is never closed.
+- **Why the new unit makes it worse:** `mt-run tick` and the unit would block any later `systemctl start` of the same unit indefinitely.
+- **What the design says:** "Timeout and kill handling: TD2" covers only the kill case. The hang case should be named, with its handling stated. For example, the operator stops the unit and it recovers through the kill path. Or an overall wall-clock bound is added.
+- **The advisory locks:** `220_000_001` and `220_000_002` are held across the run. The slice should say what a second `run` does when a by-hand `pass` holds the lock, and how that maps to `TickOutcome` and the exit code.
 
-### [CONCERN] Unit timeout and hang handling are unspecified for the new oneshot
+### [CONCERN] Per-batch heartbeat handed over by 225 is declined
 
-Item 4 lists `Slice=` and `UMask=0002` for `mt-tick-pass.service`. It does not state `TimeoutStartSec`. The existing pass units set `TimeoutStartSec=infinity` because the 90 s systemd default kills a long pass mid-run (minute, daily, kalshi and accounting units). A tick run can wait up to 1,800 s in acquisition and then ingest multi-gigabyte units. The design also does not say what happens when the process is killed (OOM, SIGKILL, `TimeoutStopSec`) after `recorder.open`. TD4 step 8 only checks `oom_kill` after a clean firing. The design names the unexpected-exception path (row closes `FAILED`) but not the killed-process path. It should state:
-- the timeout settings and why;
-- which mechanism closes an orphaned `TICK` row (presumably 922's abandoned-run closer, and whether it needs a tick-specific threshold);
-- peer-disconnect behaviour for the paid-delivery window (a killed run leaves `SUBMITTED` units, which the retention check then covers).
+The slice plan's notes record that 225 handed the heartbeat to 234: "One outcome per unit returns to the loop, with no per-batch progress; the heartbeat is handed to 234". This design declines it. That drops scope assigned to this slice.
+- **Where the rationale is thin:** the architecture's ingest principle says progress "stays observable during a multi-gigabyte ingest". The slice justifies declining mainly with 226's 3.9 s slowest unit. That measurement doesn't bound the multi-gigabyte units the Standard plan's included year will bring.
+- **How it ties to the hang finding:** the heartbeat is the only liveness signal a hung ingest could give. The two decisions should be argued together.
+- **What to change:** either implement the minimal heartbeat, or record the deferral explicitly in the plan and Revision Log with a trigger. For example, "when the first unit exceeds N seconds or a watchdog is adopted".
+- **What already holds:** the "Architecture statements superseded" list does include the decision.
 
-### [CONCERN] Scope the plan does not assign: TD7 import guard and the 10-step cutover
+### [CONCERN] Cutover script is heavier than the slice needs
 
-TD7 adds an import-walking test for a rule the design itself says "has held by convention". No requirement in the plan or the architecture is left unmet without it. The architecture only requires that those passes "never read it", and no change in this slice affects that. It is a cut candidate. If it stays, the design should say what regression it prevents. The cutover script's step 10 (re-derive the bound and record derived versus declared) goes beyond the plan entry, which asks only that the cutover install and verify 233's bound. Step 10 reads like 233's closing work and could be deferred to 233's own follow-up. The remaining cutover steps (archive chgrp, connection-budget function with a unit test, estimate-only guard) are each tied to a plan bullet or a stated risk and are proportionate.
+The nine-step cutover with a generalised `cutover_common.migrate(track, id)` is mostly justified. Two parts are not.
+- **Connection-budget step (6):** it is a pure arithmetic function with a multi-worker model (workers × 2 × `TICK_API_POOL_MAX`) and a 1-versus-4-worker unit test. Production runs `mt-serve` with one worker ("With no `--workers` it is 1"). Cut it to a direct check at the installed worker count against `max_connections` minus reserved. Leave general worker-count arithmetic to a slice that changes workers.
+- **Runbook 100 rewrite (Technical Scope 10):** the merge of the two "Adding a source" checklists restates and restructures another document. Defer it, or reduce it to adding the tick row and the five keys.
 
-### [CONCERN] Design adds `mt data tick run` and a composite outcome model not in the plan or architecture
+### [CONCERN] Architecture statements are superseded in four places, and the Revision Log update is only a late task
 
-The plan entry assigns a pass unit running the existing passes. The architecture's pass form is "`mt` command → `mt-{source}-pass.service`". The design instead invents:
-- a new verb, `mt data tick run`;
-- a severity ordering of tick outcomes;
-- `PASS_RUN_OUTCOME_BY_TICK_OUTCOME`;
-- an `acquire=… ingest=…` detail;
-- a `--json` shape.
+Four architecture statements are overridden: Cadence, the multi-source "carry on" posture, the escalation rule, and the heartbeat. The design lists them well and schedules a Revision Log entry in Development Approach step 7. Two details need tightening.
+- **Cadence:** the architecture is internally inconsistent here. The "Operational state" principle says `PassKind.TICK` lands with its `schedule_for` branch. The Cadence paragraph says no branch. The design's `FiringSchedule.manual()` satisfies the "explicit no timer answer" requirement. Say that it resolves this inconsistency rather than reversing a decision.
+- **Health exit code:** the architecture says the multi-source surfaces print a loud line "and carry on". TD6 prints the line and carries on, but also makes health exit 1 for "not configured". That adds a new alerting behaviour for the hourly check. Confirm with the PM that a tick misconfiguration should turn the whole health check red, since the architecture's stated intent was that tick must never silence or disturb minute, daily and Kalshi monitoring.
 
-The TD2 reasoning, that a single unit and a single `pass_runs` row beat two `ExecStart=` lines, is sound and I accept it. The design should still say the plan said one pass unit and name this as a deliberate extension. It should also note that the new outcome precedence (for example `REFUSED` above `IN_FLIGHT`) is a new contract the 230 exit-code vocabulary must agree with. No requirement forces this to be heavier than TD2 needs, but the composite is the largest unassigned mechanism in the slice.
+### [NOTE] Manual-only cadence answer is explicit and drift-guarded
 
-### [CONCERN] Architecture's Cadence text conflicts with this slice and is not recorded for the Revision Log
+`FiringSchedule.manual()`, the caller checks on `is_manual`, and the drift guard tying "manual" to the absence of `mt-tick-pass.timer` meet the architecture's requirement for an explicit "no timer" answer. The slice also does not build any cadence constant. This matches the plan's "a timer only if the cadence decision calls for one". The realtime-paths check is present and correct.
 
-The architecture's Cadence section says "no `schedule_for` branch, no `PassKind.TICK` firing calendar". The same paragraph, and "Operational state has one home", say a manual-only pass needs an explicit "no timer" answer in `schedule_for`. The design takes the second reading, which is correct because `schedule_for` is exhaustive. Earlier slices flagged such conflicts "for the architecture's Revision Log" (224, 225). This slice supersedes the first sentence, and it also supersedes:
-- the architecture's "tick: not configured" wording for health, which becomes a failing row with exit 1 (TD6);
-- the fixed 7-day retention window, which replaces the architecture's "before the next scheduled firing" test.
+### [NOTE] Deviation from the plan's three env keys to five is justified
 
-The design does not list these as superseded statements, so the architecture and slice will disagree. Add a short "architecture statements superseded" note and a task to update the Revision Log.
+The plan names three keys. TD3 adds `MT_TICK_SPEND_30D_CEILING_USD` and `MT_TICK_ARCHIVE_DIR`, because the architecture says purchase refuses without both ceilings and the preflight needs the archive. Keeping `MT_TICK_MAINTENANCE_URL` out of the service environment respects 913 credential separation. The key stays confined to the unit's environment, consistent with the architecture's "Secrets and spend guards".
 
-### [NOTE] Retention finding window is a reasonable manual-regime answer
+### [NOTE] Isolation, one-way coupling and accounting match the architecture
 
-The architecture's escalation rule is "deadline before the next scheduled firing". With no firing, TD5 uses a fixed 7-day window, and it switches to `schedule_for` once a timer exists. The 30-day retention NFR is respected, and the design is internally consistent.
+- `PassKind.TICK` lands as a minute-track migration.
+- The recorder is best-effort.
+- Health reads the tick database through a separate path (`read_line`) so a tick failure only changes tick rows.
+- The API keeps its distinct `tick_db` field.
+- Tick runs only when an operator starts it, so the 14G `MemoryMax` interim is acceptable; re-deriving it is deferred to issue #34.
 
-### [NOTE] Boundaries and dependency directions hold
+These preserve the tick → production dependency direction and the isolation goal. The memory, ingest and retention figures are restated with specific targets (14G, 1800 s wait budget, 30-day window, 7-day warning).
 
-- `PassKind.TICK` lands as a minute-track migration (`060`), as the architecture requires.
-- Health reaches the tick database only through `tick_composed.read_line`, with no new pool.
-- A tick failure changes only the tick rows.
-- Run accounting uses the recorder's existing best-effort contract.
-- `MT_TICK_MAINTENANCE_URL` is kept out of the service environment, consistent with the 913 separation.
-- The API question ("does this belong in the API?") and the realtime-paths check are both answered, as the architecture requires.
+### [NOTE] Open interest question is carried as the plan requires
+
+The plan says 234 asks the PM again about the Standard-plan subscription date if none is recorded. The design asks it and leaves open interest excluded. That is acceptable. The answer should be recorded before task breakdown so it doesn't stay open.
 
 ### Run Digest
 
-- Response length: 7339 chars
+- Response length: 7707 chars
 - Response is newline-free: no
-- Tool calls made: 10
-- Tool calls failed: 1
+- Tool calls made: 4
+- Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
 - System prompt: preset+append
@@ -128,10 +136,10 @@ The architecture's escalation rule is "deadline before the next scheduled firing
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 47.9 s
+- Duration: 46.0 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 7
+- Finding-shaped matches — whole response: 8
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 7
-- Finding-shaped matches — surviving validation: 7
+- Finding-shaped matches — in findings section: 8
+- Finding-shaped matches — surviving validation: 8

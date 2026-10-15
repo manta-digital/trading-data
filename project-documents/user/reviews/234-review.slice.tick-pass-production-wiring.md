@@ -14,54 +14,44 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261014
 dateUpdated: 20261014
-reviewedSha: a436419c829c3decc641ee2fe75a8120fae8321b
-revision_number: 1
+reviewedSha: 366a7c8e4a4159fd9d27d5ed08f741e83ef70050
+revision_number: 2
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 4
-durationSeconds: 46.0
+toolCallsMade: 8
+durationSeconds: 61.9
 runId: run-20261015-p4-4669ddf5
 squadronVersion: 0.21.9
 findings:
   - id: F001
     severity: concern
-    category: error-handling
-    summary: "Hung or wedged run has no detection or handling"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD2 — One verb, one unit, one row"
+    category: architecture-alignment
+    summary: "Health exit-1 for \"tick not configured\" reverses an architecture rule and is left as an open default"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md:216-220"
   - id: F002
     severity: concern
-    category: scope
-    summary: "Per-batch heartbeat handed over by 225 is declined"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Data Flow (step 2)"
+    category: failure-modes
+    summary: "The \"buys nothing\" cutover firing is guarded by a check-then-act gap"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md:196-199, 366-372"
   - id: F003
     severity: concern
-    category: proportionality
-    summary: "Cutover script is heavier than the slice needs"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD4 — The cutover script owns verification"
+    category: scope
+    summary: "Proportionality: the cutover script and several one-off mechanisms are heavy for a manual-only, no-timer slice"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md:46-56, 179-209"
   - id: F004
     severity: concern
-    category: architecture-alignment
-    summary: "Architecture statements are superseded in four places, and the Revision Log update is only a late task"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Architecture statements superseded"
+    category: failure-modes
+    summary: "Orphaned-row recovery and a \"second start refused\" behaviour are asserted, not verified"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md:157, 162"
   - id: F005
     severity: note
     category: architecture-alignment
-    summary: "Manual-only cadence answer is explicit and drift-guarded"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD1 — Manual-only cadence, stated in code"
+    summary: "Cadence and escalation changes are correctly scoped as supersessions of the architecture"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md:237-241"
   - id: F006
-    severity: note
-    category: scope
-    summary: "Deviation from the plan's three env keys to five is justified"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#TD3 — Settings enter production by a one-time root script"
-  - id: F007
-    severity: note
+    severity: pass
     category: architecture-alignment
-    summary: "Isolation, one-way coupling and accounting match the architecture"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Architecture"
-  - id: F008
-    severity: note
-    category: scope
-    summary: "Open interest question is carried as the plan requires"
-    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#Special Considerations"
+    summary: "Layering, dependency direction and isolation match the architecture"
+    location: "project-documents/user/slices/234-slice.tick-pass-production-wiring.md#architecture"
 ---
 
 # Review: slice — slice 234
@@ -71,62 +61,58 @@ findings:
 
 ## Findings
 
-### [CONCERN] Hung or wedged run has no detection or handling
+### [CONCERN] Health exit-1 for "tick not configured" reverses an architecture rule and is left as an open default
 
-The design covers a killed run (SIGTERM, SIGKILL, OOM) well. It covers the overlap of its own cutover with a by-hand run. It does not cover a run that hangs without dying.
-- **The cause:** `TimeoutStartSec=infinity`, no `WatchdogSec`, and no per-batch heartbeat are all chosen together. A stuck provider download, a stuck ingest `COPY` or a blocked database call then never ends.
-- **What the operator sees:** an open `TICK` row. The abandoned-run closer only closes rows whose pid is gone, so a live hung pid is never closed.
-- **Why the new unit makes it worse:** `mt-run tick` and the unit would block any later `systemctl start` of the same unit indefinitely.
-- **What the design says:** "Timeout and kill handling: TD2" covers only the kill case. The hang case should be named, with its handling stated. For example, the operator stops the unit and it recovers through the kill path. Or an overall wall-clock bound is added.
-- **The advisory locks:** `220_000_001` and `220_000_002` are held across the run. The slice should say what a second `run` does when a by-hand `pass` holds the lock, and how that maps to `TickOutcome` and the exit code.
+The architecture (Operational state has one home) says multi-source surfaces print a loud `tick: not configured (MT_TICK_DB_URL unset)` line and "carry on", so a tick misconfiguration can never silence or disturb minute, daily or Kalshi monitoring. TD6 makes every non-OK tick state a failing row, which turns the hourly health verdict to exit 1. Superseded item 2 and Special Considerations both admit this is new alerting behaviour that waits on a PM answer. The design ships the architecture-contradicting behaviour as its default while the decision is open. It also puts Functional Requirement 5 and the TD6 text at risk of rework. Resolve the question before the design is finalised, or make the architecture-conformant informational line the default and promote it to a failure only on PM approval. The fallback sketched in TD6 already describes that behaviour.
 
-### [CONCERN] Per-batch heartbeat handed over by 225 is declined
+### [CONCERN] The "buys nothing" cutover firing is guarded by a check-then-act gap
 
-The slice plan's notes record that 225 handed the heartbeat to 234: "One outcome per unit returns to the loop, with no per-batch progress; the heartbeat is handed to 234". This design declines it. That drops scope assigned to this slice.
-- **Where the rationale is thin:** the architecture's ingest principle says progress "stays observable during a multi-gigabyte ingest". The slice justifies declining mainly with 226's 3.9 s slowest unit. That measurement doesn't bound the multi-gigabyte units the Standard plan's included year will bring.
-- **How it ties to the hang finding:** the heartbeat is the only liveness signal a hung ingest could give. The two decisions should be argued together.
-- **What to change:** either implement the minimal heartbeat, or record the deferral explicitly in the plan and Revision Log with a trigger. For example, "when the first unit exceeds N seconds or a watchdog is adopted".
-- **What already holds:** the "Architecture statements superseded" list does include the decision.
+Step 7 runs `--estimate-only` and step 8 then fires `mt-tick-pass.service`, which runs the full universe with production spend ceilings. `run` has no options, so the firing cannot be restricted to non-purchasing behaviour. The provider's availability edge advances about every 8 hours. A session that becomes available between the two steps would make the firing buy, and the design then relies only on the spend ceilings. The Risk section names the purchase risk but treats step 7 as full mitigation. Either tighten the window, for example by re-checking the estimate immediately before the firing and failing the step if cost is non-zero. Or state explicitly that the ceilings are the accepted bound on this race.
 
-### [CONCERN] Cutover script is heavier than the slice needs
+### [CONCERN] Proportionality: the cutover script and several one-off mechanisms are heavy for a manual-only, no-timer slice
 
-The nine-step cutover with a generalised `cutover_common.migrate(track, id)` is mostly justified. Two parts are not.
-- **Connection-budget step (6):** it is a pure arithmetic function with a multi-worker model (workers × 2 × `TICK_API_POOL_MAX`) and a 1-versus-4-worker unit test. Production runs `mt-serve` with one worker ("With no `--workers` it is 1"). Cut it to a direct check at the installed worker count against `max_connections` minus reserved. Leave general worker-count arithmetic to a slice that changes workers.
-- **Runbook 100 rewrite (Technical Scope 10):** the merge of the two "Adding a source" checklists restates and restructures another document. Defer it, or reduce it to adding the tick row and the five keys.
+The slice delivers a unit, a `mt-run` kind, a recorder kind and settings. Beyond that it adds:
+- a new verb with an outcome-severity fold and map;
+- an ingest heartbeat callback;
+- a 9-step cutover with connection arithmetic on two clusters;
+- an archive chgrp/chmod step;
+- a root env script;
+- a new `units_near_deadline` read;
+- a generalised `cutover_common.migrate`.
 
-### [CONCERN] Architecture statements are superseded in four places, and the Revision Log update is only a late task
+The design admits `run` and the five keys extend the plan entry, and both are justified. Things that can be cut or deferred:
+- Step 6 (connection arithmetic) could reduce to a fixed assertion against 231's recorded budget; the design already says worker-count arithmetic is left to a later slice.
+- The "Does this belong in the API" and "Realtime paths" sections mostly restate decisions already in the architecture and 231.
+- The drift guard could merge into the existing `test_firing_schedule` tests rather than add a separate mechanism.
 
-Four architecture statements are overridden: Cadence, the multi-source "carry on" posture, the escalation rule, and the heartbeat. The design lists them well and schedules a Revision Log entry in Development Approach step 7. Two details need tightening.
-- **Cadence:** the architecture is internally inconsistent here. The "Operational state" principle says `PassKind.TICK` lands with its `schedule_for` branch. The Cadence paragraph says no branch. The design's `FiringSchedule.manual()` satisfies the "explicit no timer answer" requirement. Say that it resolves this inconsistency rather than reversing a decision.
-- **Health exit code:** the architecture says the multi-source surfaces print a loud line "and carry on". TD6 prints the line and carries on, but also makes health exit 1 for "not configured". That adds a new alerting behaviour for the hourly check. Confirm with the PM that a tick misconfiguration should turn the whole health check red, since the architecture's stated intent was that tick must never silence or disturb minute, daily and Kalshi monitoring.
+Trim these or state why each is needed now.
 
-### [NOTE] Manual-only cadence answer is explicit and drift-guarded
+### [CONCERN] Orphaned-row recovery and a "second start refused" behaviour are asserted, not verified
 
-`FiringSchedule.manual()`, the caller checks on `is_manual`, and the drift guard tying "manual" to the absence of `mt-tick-pass.timer` meet the architecture's requirement for an explicit "no timer" answer. The slice also does not build any cadence constant. This matches the plan's "a timer only if the cadence decision calls for one". The realtime-paths check is present and correct.
+TD2 relies on two things it never confirms:
+- that 922's abandoned-run closer needs no per-kind threshold and will close a `TICK` row by pid;
+- that systemd "refuses" a second start of an active oneshot unit.
 
-### [NOTE] Deviation from the plan's three env keys to five is justified
+In practice `systemctl start` on an activating oneshot waits rather than refusing. If the closer does need a threshold, a killed run would leave a stale open row on the overview indefinitely. Tie both to a test or a cutover step, or restate them as assumptions to verify at implementation.
 
-The plan names three keys. TD3 adds `MT_TICK_SPEND_30D_CEILING_USD` and `MT_TICK_ARCHIVE_DIR`, because the architecture says purchase refuses without both ceilings and the preflight needs the archive. Keeping `MT_TICK_MAINTENANCE_URL` out of the service environment respects 913 credential separation. The key stays confined to the unit's environment, consistent with the architecture's "Secrets and spend guards".
+### [NOTE] Cadence and escalation changes are correctly scoped as supersessions of the architecture
 
-### [NOTE] Isolation, one-way coupling and accounting match the architecture
+The architecture's Cadence paragraph says there is no `schedule_for` branch, and the same paragraph requires an explicit "no timer" answer. `FiringSchedule.manual()` resolves that inconsistency. The fixed 7-day retention window in place of "before the next firing" is also a documented supersession, and TD5 makes it revert when a timer exists. The slice carries the Revision Log update as a task, which is the right place for it.
 
-- `PassKind.TICK` lands as a minute-track migration.
-- The recorder is best-effort.
-- Health reads the tick database through a separate path (`read_line`) so a tick failure only changes tick rows.
-- The API keeps its distinct `tick_db` field.
-- Tick runs only when an operator starts it, so the 14G `MemoryMax` interim is acceptable; re-deriving it is deferred to issue #34.
+### [PASS] Layering, dependency direction and isolation match the architecture
 
-These preserve the tick → production dependency direction and the isolation goal. The memory, ingest and retention figures are restated with specific targets (14G, 1800 s wait budget, 30-day window, 7-day warning).
-
-### [NOTE] Open interest question is carried as the plan requires
-
-The plan says 234 asks the PM again about the Standard-plan subscription date if none is recorded. The design asks it and leaves open interest excluded. That is acceptable. The answer should be recorded before task breakdown so it doesn't stay open.
+- `PassKind.TICK` lands as a minute-track migration, and `pass_runs` stays on the primary DB.
+- The recorder keeps its best-effort contract.
+- Health reaches the tick DB only through the second pool (`read_line`), and a tick failure changes only the tick rows.
+- `MT_TICK_MAINTENANCE_URL` is kept out of the service environment.
+- The standing 220 obligations (Kalshi contract diff, mapping rows, realtime-paths check) are all present.
+- Timeouts, killed-run recovery and the 233 memory bound are stated with explicit handling and targets.
 
 ### Run Digest
 
-- Response length: 7707 chars
+- Response length: 5543 chars
 - Response is newline-free: no
-- Tool calls made: 4
+- Tool calls made: 8
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -136,10 +122,10 @@ The plan says 234 asks the PM again about the Standard-plan subscription date if
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 46.0 s
+- Duration: 61.9 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 8
+- Finding-shaped matches — whole response: 6
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 8
-- Finding-shaped matches — surviving validation: 8
+- Finding-shaped matches — in findings section: 6
+- Finding-shaped matches — surviving validation: 6
