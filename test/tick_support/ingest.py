@@ -150,6 +150,7 @@ def ingest_inputs(
     workers: int = TICK_INGEST_WORKERS,
     lock_timeout_seconds: float = TEST_LOCK_TIMEOUT_SECONDS,
     unit_ids: tuple[int, ...] = (),
+    on_batch_rows: Any = None,
 ) -> IngestInputs:
     return IngestInputs(
         reader=reader or DbnFileReader(),
@@ -157,6 +158,7 @@ def ingest_inputs(
         calendar_url=calendar_url,
         workers=workers,
         unit_ids=unit_ids,
+        on_batch_rows=on_batch_rows,
     )
 
 

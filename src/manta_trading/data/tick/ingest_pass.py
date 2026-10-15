@@ -27,6 +27,7 @@ from manta_trading.data.tick.ingest_plan import Calendars, UnitIngestPlan, build
 from manta_trading.data.tick.ingest_records import UnitCheckFailed
 from manta_trading.data.tick.ingest_select import SkipKind, select_units
 from manta_trading.data.tick.ingest_worker import (
+    BatchProgress,
     UnitOutcome,
     UnitResult,
     WorkerConnectionSettings,
@@ -57,6 +58,11 @@ class IngestInputs:
     calendar_url: str
     workers: int
     unit_ids: tuple[int, ...] = ()
+    #: Optional per-batch row count hook (234). Called from worker threads, so
+    #: it must be thread-safe. Counts are rows COPY'd inside a unit's open
+    #: transaction: a liveness signal only, and a unit that rolls back has
+    #: still reported its rows. None (the default) reports nothing.
+    on_batch_rows: BatchProgress | None = None
 
 
 class _Tally:
@@ -170,6 +176,7 @@ async def run_ingest(
                         inputs.worker_settings,
                         inputs.reader,
                         store.clock,
+                        inputs.on_batch_rows,
                     )
                 )
                 running[task] = plan

@@ -135,8 +135,17 @@ def supersede(cur: Cursor, plan: UnitIngestPlan) -> None:
             )
 
 
+#: Receives the row count of each ``COPY`` batch (234). Rows are inside the
+#: unit's open transaction, so a count is a liveness signal, not a commit.
+BatchProgress = Callable[[int], None]
+
+
 def _copy(
-    cur: Cursor, plan: UnitIngestPlan, path: Path, reader: ITickFileReader
+    cur: Cursor,
+    plan: UnitIngestPlan,
+    path: Path,
+    reader: ITickFileReader,
+    progress: BatchProgress | None,
 ) -> tuple[_Loaded, list[LedgerRow]]:
     loaded, carry, ledger = _Loaded(), OrdinalCarry(), LedgerAccumulator()
     batches = reader.open_file(path).iter_batches()
@@ -165,6 +174,8 @@ def _copy(
                     high if loaded.last_ns is None else max(loaded.last_ns, high)
                 )
             loaded.decoded += batch.count
+            if progress is not None and batch.count:
+                progress(batch.count)
     return loaded, ledger.rows(plan.definitions, plan.frame, plan.calendar_id)
 
 
@@ -230,8 +241,13 @@ def ingest_unit(
     settings: WorkerConnectionSettings,
     reader: ITickFileReader,
     clock: Callable[[], datetime],
+    progress: BatchProgress | None = None,
 ) -> UnitOutcome:
-    """Load one unit in one transaction; see the module docstring."""
+    """Load one unit in one transaction; see the module docstring.
+
+    ``progress`` is called once per ``COPY`` batch with its row count. A unit
+    that then fails a check or rolls back has still reported those rows.
+    """
     started = time.monotonic()
     unit = plan.unit
     assert unit.file is not None, f"unit {unit.unit_id} is verified with no file"
@@ -257,7 +273,7 @@ def ingest_unit(
         try:
             with conn.transaction(), conn.cursor() as cur:
                 supersede(cur, plan)
-                loaded, ledger = _copy(cur, plan, path, reader)
+                loaded, ledger = _copy(cur, plan, path, reader, progress)
                 _check_counts(cur, plan, loaded)
                 _insert_ledger(cur, unit.unit_id, ledger)
                 statement = mark_ingested_statement(
