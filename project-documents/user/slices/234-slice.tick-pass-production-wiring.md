@@ -6,7 +6,7 @@ parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus
 dependencies: [225-slice.ingest-pass-and-proof-parity, 230-slice.operator-surface-full-parity, 231-slice.api-surface-coverage-futures-tick, 233-slice.cross-source-acquisition-arbitration]
 interfaces: []
 dateCreated: 20261014
-dateUpdated: 20261014
+dateUpdated: 20261015
 status: not_started
 ---
 
@@ -140,7 +140,7 @@ mt data health (hourly) ─► primary checks (unchanged)
 - **Callers.** `next_firing_at` keeps raising on a schedule with no times. Every caller checks `is_manual` first:
   - The overview's `_pass_line` stops catching `RuntimeError` for this purpose.
   - `render_next_firings` prints `tick manual`.
-- **Tests.** The three `test_firing_schedule.py` tests that iterate `PassKind` assert that a firing exists only for kinds that are not manual. A new drift guard asserts that `schedule_for(kind).is_manual` holds if and only if `deploy/systemd/mt-{kind}-pass.timer` is absent, for every pass kind that has a unit.
+- **Tests.** The three `test_firing_schedule.py` tests that iterate `PassKind` assert that a firing exists only for kinds that are not manual. One more test in `test_firing_schedule.py` (not a separate guard module) asserts that `schedule_for(kind).is_manual` holds if and only if `deploy/systemd/mt-{kind}-pass.timer` is absent, for every pass kind that has a unit.
 - **Rejected:** an empty schedule that callers catch as an error. That is the "omission" the architecture forbids.
 
 ### TD2 — One verb, one unit, one row
@@ -154,12 +154,12 @@ mt data health (hourly) ─► primary checks (unchanged)
     - Acquisition can wait up to `TICK_WAIT_BUDGET_SECONDS` (1800 s). Ingest ran at about 490k rows/s at 2 workers in 226 (27.7M rows in 57 s), so a year of ES and GC `tbbo` loads in minutes.
     - A bound that proves too low costs a resumed run, never data: units commit one at a time.
   - **No `TimeoutStopSec` override:** the pass has no clean-stop protocol.
-- **A second run while another holds a lock.** The locks are `TICK_ACQUISITION_LOCK_KEY` and `TICK_INGEST_LOCK_KEY`; for example, `mt-run tick` during a by-hand `pass`. The store context's existing preflight refuses that pass with "lock held: acquisition" (or ingest). `run` still attempts the other pass, exits `EXIT_PREFLIGHT` (1), and closes its row `FAILED` with the refusal text (Data Flow, step 4). Systemd itself refuses a second start of an active unit, so two `run`s never overlap.
+- **A second run while another holds a lock.** The locks are `TICK_ACQUISITION_LOCK_KEY` and `TICK_INGEST_LOCK_KEY`; for example, `mt-run tick` during a by-hand `pass`. The store context's existing preflight refuses that pass with "lock held: acquisition" (or ingest). `run` still attempts the other pass, exits `EXIT_PREFLIGHT` (1), and closes its row `FAILED` with the refusal text (Data Flow, step 4). Two `run`s never overlap in one unit either: `systemctl start` on an active oneshot does not start a second instance. It joins the running start job and waits for it to finish. So a second `mt-run tick` blocks until the first run ends and then returns without running again. **Verify at implementation:** a deploy-tier or cutover check starts the unit twice and asserts one `TICK` row.
 - **A killed run (SIGTERM, SIGKILL, OOM) loses nothing.**
   - Ingest commits a unit's rows, ledger and *ingested* transition in one transaction, so a killed unit stays *verified* and reloads next run.
   - Acquisition advances the manifest by compare-and-set per transition. The next run's reconcile phase resumes submitted jobs from the account's job list and never re-buys them.
   - `SUBMITTED` or `DELIVERED` units left behind are what the `tick retention` health check watches (TD5).
-- **The orphaned `TICK` row** is closed by 922's existing abandoned-run closer, when the next `run` calls `recorder.open(PassKind.TICK)`: this host's rows whose pid is gone close as abandoned. It uses no threshold, so tick needs none. Until then the overview shows the row open, and `mt-run status` shows the unit's real systemd result.
+- **The orphaned `TICK` row** is closed by 922's existing abandoned-run closer, when the next `run` calls `recorder.open(PassKind.TICK)`: this host's rows whose pid is gone close as abandoned. It uses no threshold, so tick needs none: `PassRunRecorder._close_stale` selects open rows by kind, then this host, then dead pid (confirmed in `pass_run_recorder.py`). **Pinned by a test:** an integration test seeds an open `TICK` row with a dead pid, opens a new `TICK` run, and asserts the old row closed as `abandoned: pid … gone`. Until then the overview shows the row open, and `mt-run status` shows the unit's real systemd result.
 
 ### TD3 — Settings enter production by a one-time root script
 - **What it adds.** `deploy/add-tick-env.sh --from <checkout .env>` adds these keys to `/etc/manta-trading.env`:
@@ -189,14 +189,14 @@ mt data health (hourly) ─► primary checks (unchanged)
 3. **Migrate.** Runs minute-track `060_pass_kind_tick`, after `verify_migrate_target` matches the checkout and production targets. Check: `pass_runs_pass_check` accepts `tick`.
 4. **Install** the ref (installer, `daemon-reload`). Check: `/opt` HEAD and `mt --version`.
 5. **Restart `mt-serve` if active.** Check: `/health` reports the tick pool reachable.
-6. **Connections, at the installed worker count.** The installed `mt-serve` unit's `ExecStart` has no `--workers`, so it runs 1 worker; the step fails if it finds `--workers`.
-   - Tick cluster: 231's 8 for the API plus 1 + `TICK_INGEST_WORKERS` for the pass must fit in `max_connections` − `superuser_reserved_connections` − the live `pg_stat_activity` count.
-   - Primary: 231's 4 extra plus the pass's 1, under the same check.
-   - Pool sizes come from the `src` constants. Worker-count arithmetic is left to a slice that changes workers.
-7. **Purchase guard.** Run `mt-run data tick pass --estimate-only --json`. Check: nothing wanted, cost 0. If anything is wanted, stop and report it: a cutover never buys.
+6. **Connections.** One fixed assertion per cluster against 231's recorded budget. It is not new arithmetic. The installed `mt-serve` unit's `ExecStart` must have no `--workers` (1 worker), and the step fails if it does.
+   - Tick cluster: the 231 API budget plus 1 + `TICK_INGEST_WORKERS` for the pass fits in `max_connections` − `superuser_reserved_connections` − live `pg_stat_activity`.
+   - Primary: 231's recorded extra plus the pass's 1, under the same check.
+   - Pool sizes come from the `src` constants. Worker-count arithmetic belongs to a slice that changes workers.
+7. **Purchase guard.** Run `mt-run data tick pass --estimate-only --json`. Check: nothing wanted, cost 0. If anything is wanted, stop and report it: a cutover never buys. This step runs **immediately before** step 8's `fire_unit`, with no other step between. Nothing else in the cutover depends on how much time passes between the two.
 8. **Supervised firing.** Run `fire_unit("mt-tick-pass.service", ["tick"])`.
    - While the unit is active, read the slice cgroup: `memory.max` must equal the declared value parsed from the installed `manta-acquisition.slice` (issue #33). Reading while a member runs guarantees the slice cgroup exists.
-   - Check: exit 0, the newest `TICK` `pass_runs` row is `COMPLETE`, and the journal has a `memory peak` line.
+   - Check: exit 0, the newest `TICK` `pass_runs` row is `COMPLETE`, and the journal has a `memory peak` line. The report records the acquisition pass's purchase count (expected 0).
    - After the firing: `memory.events` `oom_kill` is 0.
 9. **Surfaces.**
    - `mt-run status` has a `tick` row.
@@ -214,10 +214,12 @@ mt data health (hourly) ─► primary checks (unchanged)
 - **When a timer arrives.** The window becomes "before the next firing" in that same `schedule_for` change. The check reads `schedule_for(TICK)` and uses the constant only when it `is_manual`.
 
 ### TD6 — Health semantics for an absent or unreachable tick database
-- **Each `TickLineState` other than OK is a failing `tick database` row**, with `unavailable_text` as its detail. That makes health exit 1, the "loud" line.
-- **`tick retention` is not emitted** when the database row failed: it would only repeat the cause.
-- **Primary checks still run and print.** A primary outage keeps its exit 2 ("could not run") exactly as today, and the tick checks run first, so they are still printed.
-- **Why "not configured" fails:** after this slice every production process has the setting, so its absence is a regression to report, not an expected state. Pending PM confirmation (Special Considerations). If the PM declines, a non-OK tick state prints as a loud informational line that does not count toward the verdict. That changes TD6 and Functional Requirement 5 only.
+**PM decision 2026-10-15: informational, not failing.** This follows the architecture ("Operational state has one home": print a loud line and carry on).
+- **Each `TickLineState` other than OK prints a loud informational `tick database` line** with `unavailable_text` as its detail, for example `INFO tick database: not configured (MT_TICK_DB_URL unset)`. It does **not** count toward the verdict. A tick misconfiguration or outage never turns the hourly check red and never disturbs the minute, daily or Kalshi verdict.
+- **`tick retention` is not emitted** when the database line is not OK, because it would only repeat the cause.
+- **`tick retention` does count toward the verdict.** A reachable database with a unit near its download deadline is a real finding about paid data, and it fails (exit 1). TD5 covers it.
+- **Primary checks still run and print.** A primary outage keeps its exit 2 ("could not run") exactly as today. The tick checks run first, so they are still printed.
+- **Promoting the database line to a failure** later is a one-line severity change, and it needs PM approval.
 
 ### Patterns and Conventions
 - **Constants:** `TICK_RETENTION_WARN_DAYS`, the outcome severity order, and `PASS_RUN_OUTCOME_BY_TICK_OUTCOME` are each defined once.
@@ -225,20 +227,14 @@ mt data health (hourly) ─► primary checks (unchanged)
 - **The migration** follows `kalshi_007`: `DROP CONSTRAINT IF EXISTS`, then `ADD CONSTRAINT … CHECK ({_pass_kind_check_sql()})`. It is a no-op in effect on a fresh database and required on production, whose constraint dates from `055`.
 - **Exceptions** follow the project rule. `run` re-raises after closing its row.
 
-### Realtime paths check
-Nothing here forecloses either path:
-- **Path A, assemble from realtime:** a future streaming unit is `Type=simple` under its own name. `PassKind.TICK` stays the historical pass.
-- **Path B, historical with delay:** it needs a timer, which is the TD1 extension point.
-
-### Does this belong in the API?
-- **Served:** the `pass` enum on `/api/v1/overview` gains `tick` automatically, and `openapi.json` is regenerated (the schema test enforces it).
-- **Not served:** the retention finding, because the API has no health-findings endpoint for any source. Its `/health` already carries `tick_db` from 231. A findings endpoint would be its own API slice, not a tick-only addition.
+### Realtime paths and the API (standing 220 checks)
+- **Realtime:** nothing forecloses either path. A streaming unit would be `Type=simple` under its own name. A delayed-historical path adds a timer at the TD1 extension point.
+- **API:** the `pass` enum on `/api/v1/overview` gains `tick` and `openapi.json` is regenerated. The retention finding is not served, because no source has a health-findings endpoint. That is its own API slice.
 
 ### Architecture statements superseded
 These go in the architecture's Revision Log, with the Cadence text updated to match (Development Approach, step 7):
 1. **Cadence: "no `schedule_for` branch, no `PassKind.TICK` firing calendar".** This resolves an inconsistency in the architecture; it does not reverse a decision. The Cadence paragraph says there is no branch. "Operational state has one home", and the same paragraph's last sentence, say `PassKind.TICK` lands with its branch and a manual-only pass needs an explicit "no timer" answer. `FiringSchedule.manual()` is that answer (TD1). The Revision Log entry rewords the Cadence sentence to match.
-2. **The multi-source surfaces print `tick: not configured` "and carry on".** Health prints the line and carries on. It also counts the line as a failing row, so health exits 1 (TD6). That is new alerting behaviour, and it waits on the PM's confirmation (Special Considerations).
-3. **Escalation: "deadline before the next scheduled firing".** With a manual pass, the window is a fixed `TICK_RETENTION_WARN_DAYS`. The firing-based test returns when a timer exists (TD5).
+2. **Escalation: "deadline before the next scheduled firing".** With a manual pass, the window is a fixed `TICK_RETENTION_WARN_DAYS`. The firing-based test returns when a timer exists (TD5).
 
 ## Implementation Details
 
@@ -279,11 +275,11 @@ These go in the architecture's Revision Log, with the Cadence text updated to ma
    - It closes with the mapped outcome and an `acquire=… ingest=…` detail.
 3. **Ingest runs after any acquisition outcome.** A test covers `REFUSED`, `PROVIDER_ABORT` and `IN_FLIGHT`.
 4. **Overview:** `mt data overview` and `/api/v1/overview` list `tick`, and its next firing reads `manual`.
-5. **The `tick database` health row:**
-   - FAIL with "not configured (MT_TICK_DB_URL unset)" when the setting is absent.
-   - FAIL with "unreachable: …" when the database is down.
-   - FAIL when migrations are pending.
-   - The minute, daily and Kalshi rows still print in each case.
+5. **The `tick database` health line is informational (TD6):**
+   - INFO with "not configured (MT_TICK_DB_URL unset)" when the setting is absent.
+   - INFO with "unreachable: …" when the database is down.
+   - INFO when migrations are pending.
+   - None of these changes the exit code, and the minute, daily and Kalshi rows still print in each case.
 6. **The `tick retention` health row** fails for a unit with `download_deadline` within 7 days or already past. It passes when none qualifies, and holed or reopened units never count.
 7. **`add-tick-env.sh`:**
    - Adds only absent keys and never prints values.
@@ -293,15 +289,17 @@ These go in the architecture's Revision Log, with the Cadence text updated to ma
 
 ### Technical Requirements
 1. **`060_pass_kind_tick`:** applies on a database created at `055` and makes it accept `tick`. A migration test covers this.
-2. **Firing-schedule tests and the drift guard (TD1):** they pass, and no `mt-tick-pass.timer` exists.
+2. **Firing-schedule tests, including the manual-iff-no-timer test (TD1):** they pass, and no `mt-tick-pass.timer` exists.
 3. **Deploy tests (`test_units.py`)** cover:
    - the tick service: `ExecStart`, `Slice=`, oneshot, `UMask=0002`, `TimeoutStartSec=4h`, no `[Install]`;
    - its place in `UNITS`;
    - `tick` in `KINDS`;
    - `test_members_from_real_unit_files` including `mt-tick-pass.service`.
-4. **Unit tests** cover:
+4. **Tests** cover:
    - the outcome-severity fold and `PASS_RUN_OUTCOME_BY_TICK_OUTCOME` exhaustiveness;
-   - the ingest heartbeat: per-batch counts reach `recorder.progress` at most once per `TICK_HEARTBEAT_SECONDS`.
+   - the ingest heartbeat: per-batch counts reach `recorder.progress` at most once per `TICK_HEARTBEAT_SECONDS`;
+   - the orphaned `TICK` row closing as abandoned on the next open (integration, TD2);
+   - the health tick line: non-OK states print informationally and leave the exit code unchanged; retention fails (TD5, TD6).
 5. **`openapi.json`** is regenerated, and the schema test passes.
 6. **Ruff, mypy and shellcheck are clean** on touched files. The full unit and integration tiers pass, apart from known pre-existing failures.
 7. **Runbook 100** has:
@@ -357,7 +355,7 @@ The JSON path and port are confirmed against the installed `mt-serve` at impleme
 ```
 env -u MT_TICK_DB_URL uv run mt data health
 ```
-Expected: `FAIL tick database: not configured (MT_TICK_DB_URL unset)`, the minute, daily and Kalshi rows still printed, and exit 1. The unreachable case is covered by an integration test that points the URL at a closed port.
+Expected: an informational `tick database: not configured (MT_TICK_DB_URL unset)` line, the minute, daily and Kalshi rows still printed, and the exit code the primary checks alone give (0 on a healthy dev database). The unreachable case is covered by an integration test that points the URL at a closed port.
 
 **5. Prove the retention finding** in an integration test, not production. Seed a `SUBMITTED` unit with a deadline 3 days out. Health reports `FAIL tick retention: GLBX-… deadline <date> (run: mt-run tick)`.
 
@@ -368,14 +366,14 @@ Expected: `FAIL tick database: not configured (MT_TICK_DB_URL unset)`, the minut
 - **The archive's ownership change racing a by-hand run.** A `manta` run writing during step 2 could leave a file outside the group.
 
 ### Mitigation Strategies
-- **Purchase:** step 7's estimate-only guard stops the cutover before the firing if anything is wanted. The spend ceilings remain the second guard.
+- **Purchase:** step 7's estimate-only guard stops the cutover before the firing if anything is wanted. A check-then-act gap remains: the provider's availability edge moves about every 8 hours, and a session could become available in the seconds between step 7 and the firing. **The spend ceilings are the accepted bound on that race.** Closing the gap fully would need a no-buy option on `run`, and `run` takes no options. Step 8's report records the run's purchase count, so any buy shows up and is not silent.
 - **Ownership race:** tick has no timer, so the only writers during the cutover are runs the agent starts itself. Step 2's check covers every entry, so a race shows as a failed step, never as a silent gap.
 
 ## Implementation Notes
 
 ### Development Approach
 Suggested order. Commits are checkpointed per section.
-1. `PassKind.TICK`, `FiringSchedule.manual()`, the `schedule_for` branch, the callers (overview, renderer), and the schedule tests with the drift guard.
+1. `PassKind.TICK`, `FiringSchedule.manual()`, the `schedule_for` branch, the callers (overview, renderer), and the schedule tests, including manual-iff-no-timer.
 2. Migration `060`, its test, and the regenerated `openapi.json`.
 3. `mt data tick run`: the severity fold, the outcome map, recorder wiring, and the ingest heartbeat callback. Tests use mocked passes, plus one integration run on the test cluster.
 4. Health: `units_near_deadline`, `gather_tick`, and the TD6 semantics.
@@ -387,7 +385,6 @@ Suggested order. Commits are checkpointed per section.
 Effort 3/5. The cutover sequencing is the main work.
 
 ### Special Considerations
-- **Health exit code — question for the PM.** Should a tick misconfiguration or outage turn the hourly health check red (exit 1)? The architecture's intent is that tick never silences or disturbs minute, daily and Kalshi monitoring. TD6 keeps their rows printed, but the overall verdict would go UNHEALTHY. The design defaults to yes (TD6).
 - **Open interest (Future Work item 2) — question for the PM.** The plan says that if no Standard-plan subscription date is set when 234 is designed, 234's design asks again. No date is recorded, so the question is asked here:
   - Is a subscription date set?
   - If not, does open interest still wait for the first subscription month?
