@@ -26,6 +26,7 @@ import getpass
 import json
 import subprocess
 import sys
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -59,7 +60,7 @@ from cutover_common import (  # noqa: E402
     INSTALL_DIR,
     NOTES_DIR,
     SERVE_UNIT,
-    _env_value,
+    env_value,
     fire_unit,
     install,
     migrate,
@@ -113,7 +114,7 @@ def step_preconditions(ctx: Context, step: Step) -> None:
 
 
 def step_archive(ctx: Context, step: Step) -> None:
-    root = Path(_env_value(ctx.production_env, "MT_TICK_ARCHIVE_DIR"))
+    root = Path(env_value(ctx.production_env, "MT_TICK_ARCHIVE_DIR"))
     problems = host.archive_problems(root)
     step.seen.append(f"{root}: {len(problems)} entries not shared with {host.GROUP}")
     if problems:
@@ -125,9 +126,7 @@ def step_archive(ctx: Context, step: Step) -> None:
 
 def step_migrate(ctx: Context, step: Step) -> None:
     migrate(MIGRATION_TRACK, MIGRATION_ID)
-    url = _env_value(
-        (ctx.checkout / ".env").read_text(), "MT_TIMESCALE_MAINTENANCE_URL"
-    )
+    url = env_value((ctx.checkout / ".env").read_text(), "MT_TIMESCALE_MAINTENANCE_URL")
     definition = host.pass_check_definition(url)
     step.seen.append(f"pass_runs_pass_check: {definition}")
     require("'tick'" in definition, step, "pass_runs_pass_check does not admit tick")
@@ -164,7 +163,7 @@ def step_connections(ctx: Context, step: Step) -> None:
         ),
     )
     for name, key, needed in clusters:
-        load = host.cluster_load(_env_value(ctx.production_env, key))
+        load = host.cluster_load(env_value(ctx.production_env, key))
         step.seen.append(budget_line(name, load, needed))
         require(fits(load, needed), step, f"the {name} cluster lacks {needed} slots")
 
@@ -261,6 +260,7 @@ def run_steps(ctx: Context, steps: list[Step]) -> bool:
         ) as exc:
             # Process boundary: any failure of a step is recorded and the run
             # stops here; main() still writes the report.
+            traceback.print_exc()
             step.status = StepStatus.FAIL
             step.seen.append(str(exc))
             if isinstance(exc, subprocess.CalledProcessError):

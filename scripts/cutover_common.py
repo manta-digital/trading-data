@@ -187,7 +187,7 @@ def _migrate_status(track: str) -> tuple[list[str], list[str]]:
     )
 
 
-def _env_value(text: str, key: str) -> str:
+def env_value(text: str, key: str) -> str:
     """``key``'s value in dotenv-style text — lenient on comments,
     ``export``, quotes, and whitespace (CLAUDE.md, parsing)."""
     for line in text.splitlines():
@@ -215,9 +215,9 @@ def verify_migrate_target(checkout_env: str, production_env: str) -> str:
     database the production units use (267 code review; sql.md: verify the
     target before destructive/DDL work). Returns the database name."""
     maintenance = _url_identity(
-        _env_value(checkout_env, "MT_TIMESCALE_MAINTENANCE_URL")
+        env_value(checkout_env, "MT_TIMESCALE_MAINTENANCE_URL")
     )
-    application = _url_identity(_env_value(production_env, "MT_TIMESCALE_DB_URL"))
+    application = _url_identity(env_value(production_env, "MT_TIMESCALE_DB_URL"))
     if maintenance != application:
         raise CutoverError(
             "the checkout .env maintenance URL targets "

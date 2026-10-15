@@ -171,6 +171,22 @@ def test_the_key_list_is_the_scripts(mods) -> None:
     assert len(keys) == 5 and "MT_TICK_MAINTENANCE_URL" not in keys
 
 
+def test_a_sampler_read_failure_is_raised_from_stop(mods, monkeypatch) -> None:
+    host = mods["host"]
+    monkeypatch.setattr(host, "SAMPLE_SECONDS", 0)
+    monkeypatch.setattr(host, "unit_active", lambda _unit: True)
+    monkeypatch.setattr(host, "slice_cgroup", lambda: Path("/nonexistent"))
+
+    def unreadable(_path: Path) -> str:
+        raise PermissionError("memory.max")
+
+    sampler = host.CgroupSampler("mt-tick-pass.service", read=unreadable)
+    sampler.start()
+    sampler._thread.join(timeout=5)
+    with pytest.raises(PermissionError, match="memory.max"):
+        sampler.stop()
+
+
 # -- timers ------------------------------------------------------------------------
 
 

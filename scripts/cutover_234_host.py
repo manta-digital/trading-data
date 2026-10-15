@@ -12,6 +12,7 @@ import inspect
 import json
 import os
 import stat
+import subprocess
 import threading
 import time
 import urllib.request
@@ -85,7 +86,8 @@ def cluster_load(url: str) -> ClusterLoad:
         max_conn = conn.execute("SHOW max_connections").fetchone()
         reserved = conn.execute("SHOW superuser_reserved_connections").fetchone()
         live = conn.execute("SELECT count(*) FROM pg_stat_activity").fetchone()
-    assert max_conn and reserved and live
+    if max_conn is None or reserved is None or live is None:
+        raise ValueError("a connection-budget query returned no row")
     return ClusterLoad(int(max_conn[0]), int(reserved[0]), int(live[0]))
 
 
@@ -149,6 +151,7 @@ class CgroupSampler:
         self._read = read
         self.memory_max: str | None = None
         self.oom_kill: int | None = None
+        self.error: Exception | None = None
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, daemon=True)
 
@@ -158,6 +161,8 @@ class CgroupSampler:
     def stop(self) -> None:
         self._stop.set()
         self._thread.join()
+        if self.error is not None:
+            raise self.error
         cgroup = slice_cgroup()
         if (cgroup / "memory.events").exists():
             self.oom_kill = oom_kills(self._read(cgroup / "memory.events"))
@@ -166,6 +171,12 @@ class CgroupSampler:
         while not self._stop.wait(SAMPLE_SECONDS):
             if not unit_active(self._unit):
                 continue
-            cgroup = slice_cgroup()
-            self.memory_max = self._read(cgroup / "memory.max").strip()
-            self.oom_kill = oom_kills(self._read(cgroup / "memory.events"))
+            try:
+                cgroup = slice_cgroup()
+                self.memory_max = self._read(cgroup / "memory.max").strip()
+                self.oom_kill = oom_kills(self._read(cgroup / "memory.events"))
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                # Not swallowed: stop() re-raises it on the caller's thread,
+                # so the step fails with the real cause, not "memory.max ≠".
+                self.error = exc
+                return

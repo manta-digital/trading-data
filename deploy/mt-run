@@ -21,7 +21,9 @@
 set -euo pipefail
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \{0,3\}//'
+  # The header comment, from line 2 to the first code line, unprefixed:
+  # "#   sudo mt-run daily  start…" -> "  sudo mt-run daily  start…"; "#" -> "".
+  sed -n '2,/^[^#]/s/^# \{0,3\}//p' "$0"
   echo "Pass kinds: ${KINDS[*]}"
   exit 2
 }

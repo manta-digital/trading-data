@@ -116,3 +116,18 @@ def test_preflight_refuses_a_sha_no_remote_ref_points_at(
     listing = f"{'b' * 40}\trefs/heads/main\n"
     with pytest.raises(common.CutoverError, match="not on origin"):
         _preflight_with(monkeypatch, tmp_path, "", listing)
+
+
+def test_journal_cursor_reads_the_whole_journal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A never-logged unit has no unit-scoped cursor; the global one is read."""
+    calls: list[list[str]] = []
+
+    def fake_out(args: list[str], *, sudo: bool = False) -> str:
+        calls.append(args)
+        return "-- cursor: s=abc;i=1"
+
+    monkeypatch.setattr(common, "out", fake_out)
+    assert common.journal_cursor() == "s=abc;i=1"
+    assert calls == [["journalctl", "-n", "0", "--show-cursor", "-q"]]

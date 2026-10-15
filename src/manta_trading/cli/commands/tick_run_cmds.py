@@ -8,8 +8,8 @@ two real passes and prints their existing renderings.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from manta_trading.data.tick.pass_contract import (
         PassPhase,
         PassResult,
+        PhaseReport,
         TickPassPhaseName,
     )
     from manta_trading.data.tick.run_context import TickRun
@@ -51,12 +52,12 @@ RUN_EPILOG = (
 class _Reported:
     """A pass phase that writes its name to the row before it runs."""
 
-    def __init__(self, inner: Any, hook: PhaseHook) -> None:
+    def __init__(self, inner: PassPhase[TickRun], hook: PhaseHook) -> None:
         self._inner = inner
         self._hook = hook
         self.name: TickPassPhaseName = inner.name
 
-    async def run(self, run: TickRun) -> Any:
+    async def run(self, run: TickRun) -> PhaseReport:
         await self._hook(self.name)
         return await self._inner.run(run)
 
@@ -82,7 +83,7 @@ async def acquire_full_universe(settings: Settings, hook: PhaseHook) -> PassResu
         return await run_acquisition(run, phases, hook)
 
 
-def _print_end(end: PassEnd, print_result: Any) -> None:
+def _print_end(end: PassEnd, print_result: Callable[[PassResult, int], None]) -> None:
     if end.result is None:
         print_error(f"{end.label} refused: {end.refusal}", json_mode=False)
         return
