@@ -60,7 +60,7 @@ One cutover script installs all of it and verifies it.
 - A `pass_runs` row for by-hand `mt data tick pass` / `ingest`. These stay operator tools; the production entry point is `run`.
 - Changes to `env_add_keys.sh`, the tick pass logic, the spend guards, or the universe.
 - Any purchase. The cutover refuses to fire if the universe wants anything.
-- Open interest (Future Work item 2). See Special Considerations: the trigger question is asked again here.
+- Open interest (Future Work item 2). Deferred: no Standard-plan date is set (Special Considerations).
 
 ## Dependencies
 
@@ -385,9 +385,7 @@ Suggested order. Commits are checkpointed per section.
 Effort 3/5. The cutover sequencing is the main work.
 
 ### Special Considerations
-- **Open interest (Future Work item 2) — question for the PM.** The plan says that if no Standard-plan subscription date is set when 234 is designed, 234's design asks again. No date is recorded, so the question is asked here:
-  - Is a subscription date set?
-  - If not, does open interest still wait for the first subscription month?
+- **Open interest (Future Work item 2).** PM answer 2026-10-15: no Standard-plan subscription date is set; it is TBD. Open interest stays deferred and still waits for the first subscription month. 234 builds nothing for it.
 - **Security:**
   - Values are never printed by `add-tick-env.sh` or the cutover report, which checks keys by name only.
   - `MT_TICK_MAINTENANCE_URL` never enters the service environment.
