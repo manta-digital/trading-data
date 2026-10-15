@@ -14,16 +14,17 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261015
 dateUpdated: 20261015
-reviewedSha: ea30915b8dceb8989c45bb80113294f365c671e2
+reviewedSha: 1860a036a1362c38cf8720660248459c1a1464e6
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 7
-turns: 8
-promptTokens: 294274
-cachedTokens: 191655
-cacheWriteTokens: 102611
-completionTokens: 4900
-durationSeconds: 46.4
-costUsd: 0.479367
+toolCallsMade: 5
+turns: 6
+promptTokens: 244729
+cachedTokens: 140606
+cacheWriteTokens: 104117
+completionTokens: 5401
+durationSeconds: 50.6
+costUsd: 0.485292
 costBasis: provider
 runId: run-20261015-p4-227e5f01
 squadronVersion: 0.22.0
@@ -31,38 +32,38 @@ findings:
   - id: F001
     severity: pass
     category: architecture-alignment
-    summary: "Boundaries and dependency direction match the architecture"
+    summary: "Layering, dependency direction and ownership of run accounting"
     location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#Architecture"
   - id: F002
-    severity: note
-    category: plan-alignment
-    summary: "Deliberate deviations from the plan entry are justified"
-    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#TD4, #TD5"
+    severity: pass
+    category: error-handling
+    summary: "Failure modes enumerated for each new I/O path"
+    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#TD1, TD4, TD5"
   - id: F003
     severity: concern
-    category: architecture-alignment
-    summary: "Manual-only tick cadence makes the health FAIL recurring, and the question is left open"
-    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#TD4, #Special Considerations"
+    category: under-specification
+    summary: "A no-purchase tick run satisfies the \"never measured\" gate with an unrepresentative peak"
+    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#TD3"
   - id: F004
     severity: concern
-    category: error-handling
-    summary: "Failure modes of the new I/O paths are only partly enumerated"
-    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#TD4, #TD5, #Technical Decisions"
+    category: scope
+    summary: "Proportionality: heavier than a Low-risk, Effort 2/5 slice requires"
+    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#Technical Scope"
   - id: F005
     severity: concern
-    category: proportionality
-    summary: "Design is heavy for a Low-risk, 2/5-effort slice"
-    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#Technical Scope"
+    category: documentation-consistency
+    summary: "Deviations from the slice plan entry are recorded only in the architecture document"
+    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#TD3, TD4, TD5"
   - id: F006
-    severity: concern
-    category: documentation
-    summary: "The 220 architecture's cross-source arbitration entry becomes stale and is not listed for update"
-    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#Architecture statements superseded"
+    severity: note
+    category: accuracy
+    summary: "Recorded peak is cumulative for multi-cycle daemons, which weakens the \"per-run\" claim"
+    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#TD1"
   - id: F007
     severity: note
-    category: risk
-    summary: "Known limitation: the bound cannot learn from OOM-killed runs"
-    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#Special Considerations"
+    category: edge-case
+    summary: "Stale member unit files can pin the never-measured FAIL"
+    location: "project-documents/user/slices/235-slice.acquisition-memory-bound-kept-current.md#TD2"
 ---
 
 # Review: slice — slice 235
@@ -72,48 +73,66 @@ findings:
 
 ## Findings
 
-### [PASS] Boundaries and dependency direction match the architecture
+### [PASS] Layering, dependency direction and ownership of run accounting
 
-The per-run peak goes on `pass_runs` through a minute-track migration (061). That follows the 220 principle "Operational state has one home", which keeps run accounting in the production database's minute track for every source, including tick. Recording stays in the shared recorder, and the recorder contract (best-effort, never aborts a pass) is kept. Health, the installer and the script all depend on one rule module, `memory_bound.py`. No source imports another source, and the tick database is not touched. Dependencies [233, 234] match the plan entry. The API note (peak on `last_run`, bound verdict not served) matches the plan.
+- The peak is written to `pass_runs` by the pass process itself, at close. This is consistent with the 220 principle "Operational state has one home". It adds no tick-track dependency, and `pass_runs` stays on the minute track.
+- Dependencies flow from the recorder and the CLI into one rule module. The derive rule has a single owner.
+- Each pass's own close path records its measurement, and no observer writes rows. That keeps 922's rule.
+- The "Realtime paths" check is present and correct.
 
-### [NOTE] Deliberate deviations from the plan entry are justified
+### [PASS] Failure modes enumerated for each new I/O path
 
-The plan says health compares against "the live slice cgroup's `memory.max`" and that the install "writes it to the slice unit". The design instead reads `systemctl show` and writes a drop-in. TD4 explains why: an idle slice has no cgroup, so an hourly check would usually find nothing. TD5 explains why the shipped unit stays identical to the repo. Both reasons hold and both intents are met. I'd record the deviations in the plan entry when the slice closes.
+- The cgroup read cannot abort a pass. It logs with `logger.exception` and closes the row with NULL peak columns.
+- `systemctl show` has a timeout, a missing-binary case and a non-zero-exit case.
+- The installer's `systemd-run` has a runtime cap, an exit-code taxonomy (0, 2, other) and a regex on stdout. Writes go through a temp file and one `mv`, so the old drop-in is left intact on failure.
+- A database outage at close and the OOM-kill case are named as accepted losses.
 
-### [CONCERN] Manual-only tick cadence makes the health FAIL recurring, and the question is left open
+### [CONCERN] A no-purchase tick run satisfies the "never measured" gate with an unrepresentative peak
 
-The 220 architecture defers cadence, so tick runs only on demand. It also says "no daily history pull is assumed". An idle month is therefore the normal state for `mt-tick-pass.service`. TD4 FAILs the check whenever a member has no peak in the 30-day window. That puts `mt-health.service` in a failed state hourly after every idle month. The FAIL also exits `mt data health` with code 1, so a real regression in any other check is hard to tell apart from this one. The design follows the plan entry. It still leaves a PM decision unresolved in a design that should settle it, with the alternative (use the newest peak of any age, FAIL only when never measured) described but not chosen. Resolve it before tasking. I recommend the alternative. It keeps the "never measured" failure that keeps #34 visible and drops the false recurring alarm. If the plan's behavior is kept, say so as a decision, not an open question.
+- The Overview and the Excluded list reject backfilling the journal peak because 234's no-purchase firing "is not representative".
+- TD3 counts any run of any outcome toward the peak, and `fetch_peaks` ignores only NULL rows.
+- After the cutover, `sudo mt-run tick` with nothing to buy will record the same kind of small, unrepresentative peak.
+- That single row clears the never-measured FAIL, makes the next install write a bound that omits real tick ingest memory, and lets issue #34 close. The walkthrough says #34 closes "once a real tick run is recorded", but nothing in the mechanism checks that the run was real.
+- Because the tick unit has no timer (`FiringSchedule.manual()`), the next real ingest could be far away. The OOM-kill path then becomes the first signal, and the design says the bound cannot learn from a killed run.
+- Either define "representative" using a column the design already has, such as a tick run that ingested units, or state explicitly that #34 closes by operator attestation and not by the check. The first option needs the `pass_runs` outcome or detail that the design already reads.
 
-### [CONCERN] Failure modes of the new I/O paths are only partly enumerated
+### [CONCERN] Proportionality: heavier than a Low-risk, Effort 2/5 slice requires
 
-The design handles the cgroup read failure, a missing peak, a script exit of 2 and a script exit other than 0 or 2. The following are not covered:
-- **`systemctl show` failure in health.** TD4's table has no row for a non-zero exit, a missing binary or a hang. `loaded_memory_max` parses output, but nothing says whether the check FAILs, errors, or hides behind the table's first matching row. It needs a timeout and an explicit verdict.
-- **Health on a database without migration 061.** The script's "missing column" case is mapped to exit 2. The health row's behavior is not stated, and the window between deploying code and migrating is exactly when it would run.
-- **`systemd-run --wait` hanging.** A DB connect that stalls blocks the installer indefinitely. The recorder has `PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS`, but no timeout is stated for the derivation. The installer should bound it and treat a timeout as a failure.
-- **Drop-in write failure.** Examples are a full disk or a failed rename. The "anything else" branch calls `die` before the reload, which probably covers it, but the design should say so.
+- The plan entry has three mechanisms: record the peak, add a health check, and re-derive at install. The design adds ten included items. These include a new cgroup parser module, a rule module with four constants and four functions, a `systemd-run` wrapper with an exit-code protocol, a drop-in file layout, a fixed-regex stdout validator, a dedicated cutover script, and a shell-lib unit test.
+- Candidates to cut or defer:
+  - **`mt data overview --json`.** The plan places the peak on the API only, and the design admits the JSON output is included only because it shares the API's shape.
+  - **`systemd_unit` column.** The doc keeps it so peaks join by unit name. A fixed kind-to-unit mapping would be a heavier option, so keep the column, but justify it explicitly against the plan's "no new mechanism" framing.
+  - **`systemd-run` plus `EnvironmentFile`.** Check whether `runuser` or `sudo -u` with the env file sourced would meet the same need with fewer moving parts. The doc rejects no lighter alternative.
+  - **`cutover_235_memory_bound.py`.** Justify it against extending `cutover_common` pieces, because 234's pattern is reused almost whole.
+- If all of this is kept, the plan's Effort 2/5 estimate should be revisited.
 
-### [CONCERN] Design is heavy for a Low-risk, 2/5-effort slice
+### [CONCERN] Deviations from the slice plan entry are recorded only in the architecture document
 
-The plan entry sizes this at Risk Low, Effort 2/5. The design has ten included items, a new migration, a `systemd-run`-as-service-user installer library with its own shell unit test, a cutover script, an API field and a rewritten script. Candidates to cut or defer:
-- **The `--dropin` flag and separate render path.** This could be a single code path in the script that prints the value, with the installer formatting the drop-in. Only the one `MemoryMax=<N>G` line is validated before writing.
-- **The CHECK constraint with its drop/re-add DDL.** Two nullable columns written by one code path rarely need a cross-column constraint. If kept, it needs a stated reason.
-- **The "Architecture statements superseded" section and most of the verification walkthrough.** Both restate content from 233 and the plan and can be shortened.
-- **The all-kinds recording justification.** `mt-health` and `mt-accounting` rows get a peak "for uniformity". That is an acceptable cost, but it adds nothing the slice requires.
-The cutover script is justified, because a pending migration blocks `upgrade_production.py`. Nothing the plan assigns to this slice is dropped.
+- The design deliberately departs from the parent slice plan entry in three places:
+  - The health check reads `systemctl show` instead of the live cgroup `memory.max`.
+  - An idle member keeps its newest peak instead of failing when it has "no recorded peak in the window".
+  - The bound goes into a drop-in, not "the slice unit".
+- The reasoning for each is sound. For example, the slice cgroup does not exist while idle.
+- The design commits only to a dated slice-235 entry in the 220 architecture document, under "Architecture statements superseded". The slice plan entry (item 16 in `220-slices…`) is left asserting the old behavior, and the architecture's slice-233 entry will contradict it too.
+- Add the slice plan entry to the list of documents updated, so the two parents do not disagree.
 
-### [CONCERN] The 220 architecture's cross-source arbitration entry becomes stale and is not listed for update
+### [NOTE] Recorded peak is cumulative for multi-cycle daemons, which weakens the "per-run" claim
 
-The 220 architecture's 2026-10-14 entry for slice 233 says `MemoryMax` is "derived from journal peaks by `scripts/acquisition_memory_bound.py`". This slice replaces that with `pass_runs` peaks plus a drop-in. The design lists the superseded 233 design statements but not the architecture entry, and Technical Scope item 10 lists no architecture update. Add a dated entry to the architecture document, as the 233 and 234 slices did.
+- The doc correctly shows the cumulative cgroup counter gives the right maximum over a window.
+- The Value section and the API field, however, call the figure "per-run memory". For `--stop-when-done` daemons that close several rows in one process, later rows carry the process's peak so far, not their own cycle's.
+- The `last_run.memory_peak_bytes` description in TD6 should say "process peak at close".
 
-### [NOTE] Known limitation: the bound cannot learn from OOM-killed runs
+### [NOTE] Stale member unit files can pin the never-measured FAIL
 
-A pass killed by the slice's OOM killer never reaches close, so its peak is never recorded. The design states this openly and keeps the kill visible through the unit's `Result=oom-kill`. Leaving it out of scope is reasonable for this slice.
+- Members are discovered from `/etc/systemd/system/*.service` files that declare the slice.
+- The installer copies unit files in and the design does not say it removes retired ones. A unit that leaves the slice, or is renamed, could stay on disk. It would then be a member that never records a peak, which fails health and blocks every drop-in write.
+- No such case exists today. If it does arise, the failure message names the unit, so the operator can see it. Say in the doc whether install removes retired units or the operator does.
 
 ### Run Digest
 
-- Response length: 6784 chars
+- Response length: 6905 chars
 - Response is newline-free: no
-- Tool calls made: 7
+- Tool calls made: 5
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -121,10 +140,10 @@ A pass killed by the slice's OOM killer never reaches close, so its peak is neve
 - Settings sources: project
 - Reasoning characters: 0
 - Effort: backend default
-- Turns: 8
-- Tokens — prompt / cached / cache write / completion / reasoning: 294274 / 191655 / 102611 / 4900 / not computed
-- Duration: 46.4 s
-- Cost: $0.48 (provider)
+- Turns: 6
+- Tokens — prompt / cached / cache write / completion / reasoning: 244729 / 140606 / 104117 / 5401 / not computed
+- Duration: 50.6 s
+- Cost: $0.49 (provider)
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 7
