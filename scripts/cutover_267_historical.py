@@ -66,6 +66,7 @@ from manta_trading.data.kalshi.constants import (
 #: The last migration this release adds — kalshi_007 (the historical
 #: surface) and kalshi_008 (the amended status) are both applied by the track.
 MIGRATION_ID = "kalshi_008_amended_status"
+KALSHI_TRACK = "kalshi"
 #: Criterion 6: a firing after the archive walk stays under this.
 PASS_BOUND = timedelta(minutes=45)
 #: Decision 2's authenticated figures, derived from the same constants.
@@ -390,7 +391,7 @@ def main(argv: list[str]) -> int:
         say(f"2/6 install {ref}")
         version = install(ref, commit)
         say(f"3/6 migrate ({MIGRATION_ID})")
-        migrate(MIGRATION_ID)
+        migrate(KALSHI_TRACK, MIGRATION_ID)
         status = production_status()
         print(f"    status on the new binary: historical={status.get('historical')}")
         restart_serve_if_active()

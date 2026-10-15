@@ -28,7 +28,6 @@ SERVICE_USER = "manta-trading"
 PASS_UNIT = "mt-kalshi-pass.service"
 PASS_TIMER = "mt-kalshi-pass.timer"
 SERVE_UNIT = "mt-serve.service"
-MIGRATION_TRACK = "kalshi"
 NOTES_DIR = Path("project-documents/user/notes")
 #: How often to look for a running pass to end.
 POLL_SECONDS = 15
@@ -160,7 +159,7 @@ def restart_serve_if_active() -> None:
         print(f"    {SERVE_UNIT} restarted onto the new ref (runbook update procedure)")
 
 
-def _migrate_status() -> tuple[list[str], list[str]]:
+def _migrate_status(track: str) -> tuple[list[str], list[str]]:
     raw = out(
         [
             "uv",
@@ -170,7 +169,7 @@ def _migrate_status() -> tuple[list[str], list[str]]:
             "migrate",
             "status",
             "--track",
-            MIGRATION_TRACK,
+            track,
             "--json",
         ]
     )
@@ -224,13 +223,17 @@ def verify_migrate_target(checkout_env: str, production_env: str) -> str:
     return maintenance[2]
 
 
-def migrate(migration_id: str) -> None:
-    """Apply the kalshi track from this checkout until ``migration_id`` is in."""
+def migrate(track: str, migration_id: str) -> None:
+    """Apply ``track`` from this checkout until ``migration_id`` is in.
+
+    ``verify_migrate_target`` holds for any track on the primary database
+    (kalshi, minute): both are applied through MT_TIMESCALE_MAINTENANCE_URL.
+    """
     dbname = verify_migrate_target(
         Path(".env").read_text(), out(["cat", str(ENV_FILE)], sudo=True)
     )
     print(f"    maintenance URL targets the production database ({dbname})")
-    applied, pending = _migrate_status()
+    applied, pending = _migrate_status(track)
     if migration_id in applied:
         print(f"    {migration_id} already applied")
     elif migration_id in pending:
@@ -243,7 +246,7 @@ def migrate(migration_id: str) -> None:
                 "migrate",
                 "apply",
                 "--track",
-                MIGRATION_TRACK,
+                track,
                 "--json",
             ]
         )
@@ -256,10 +259,10 @@ def migrate(migration_id: str) -> None:
             f"this checkout does not define {migration_id} (applied={applied}, "
             f"pending={pending}) — check out the release ref here first"
         )
-    _, pending = _migrate_status()
+    _, pending = _migrate_status(track)
     if pending:
-        raise CutoverError(f"kalshi track still pending after apply: {pending}")
-    print(f"    {MIGRATION_TRACK} track: 0 pending")
+        raise CutoverError(f"{track} track still pending after apply: {pending}")
+    print(f"    {track} track: 0 pending")
 
 
 def journal_cursor(unit: str = PASS_UNIT) -> str:

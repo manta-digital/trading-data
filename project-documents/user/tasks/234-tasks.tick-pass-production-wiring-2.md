@@ -13,7 +13,7 @@ projectState: >
   checkout. 233's MemoryMax=14G is declared in the repo and not in force.
 dateCreated: 20261014
 dateUpdated: 20261014
-status: not_started
+status: in_progress
 part: 2
 ---
 
@@ -33,74 +33,74 @@ part: 2
 
 ## 5. Deploy: unit, kinds, installer (LLD scope 4, 5) — effort 2
 
-- [ ] **5.1 `mt-tick-pass.service`**
-  - [ ] Create `deploy/systemd/mt-tick-pass.service` modelled on
+- [x] **5.1 `mt-tick-pass.service`**
+  - [x] Create `deploy/systemd/mt-tick-pass.service` modelled on
     `mt-kalshi-pass.service`: oneshot, `Slice=manta-acquisition.slice`,
     `UMask=0002`, `TimeoutStartSec=4h`, no `TimeoutStopSec`, no `[Install]`,
     `ExecStart` running `mt data tick run` the same way the sibling units
     invoke `mt`. No timer file.
-  - [ ] Add a comment block giving the reason for each non-default setting
+  - [x] Add a comment block giving the reason for each non-default setting
     (LLD TD2), briefly.
-  - [ ] Success: `systemd-analyze verify` on the file reports no errors, or the
+  - [x] Success: `systemd-analyze verify` on the file reports no errors, or the
     same warnings the sibling units produce.
 
-- [ ] **5.2 Register in the installer and `mt-run`**
-  - [ ] Add `mt-tick-pass.service` to `UNITS` in `deploy/install-production.sh`
+- [x] **5.2 Register in the installer and `mt-run`**
+  - [x] Add `mt-tick-pass.service` to `UNITS` in `deploy/install-production.sh`
     (service only; no timer entry).
-  - [ ] Add `tick` to `KINDS` in `deploy/mt-run`. Check the usage text and any
+  - [x] Add `tick` to `KINDS` in `deploy/mt-run`. Check the usage text and any
     help listing of kinds, and update them from the same list rather than a
     second literal.
-  - [ ] Check how the installer enables timers: tick must not be enabled or
+  - [x] Check how the installer enables timers: tick must not be enabled or
     started at install.
-  - [ ] Success: `shellcheck` clean on both scripts.
+  - [x] Success: `shellcheck` clean on both scripts.
 
-- [ ] **5.3 Test: deploy tests**
-  - [ ] In `test/unit/deploy/test_units.py`, add assertions for the tick
+- [x] **5.3 Test: deploy tests**
+  - [x] In `test/unit/deploy/test_units.py`, add assertions for the tick
     service (`ExecStart`, `Slice=`, oneshot, `UMask=0002`,
     `TimeoutStartSec=4h`, no `[Install]`, no `TimeoutStopSec`), its presence in
     `UNITS`, `tick` in `KINDS`, and include `mt-tick-pass.service` in
     `test_members_from_real_unit_files`.
-  - [ ] Confirm the manual-iff-no-timer test from Task 1.4 now includes tick
+  - [x] Confirm the manual-iff-no-timer test from Task 1.4 now includes tick
     (service present, timer absent, `is_manual` true).
-  - [ ] Success: `uv run pytest test/unit/deploy test/unit/test_firing_schedule.py`
+  - [x] Success: `uv run pytest test/unit/deploy test/unit/test_firing_schedule.py`
     passes.
 
-- [ ] **5.4 Commit** — `feat: add mt-tick-pass unit and mt-run tick kind`
+- [x] **5.4 Commit** — `feat: add mt-tick-pass unit and mt-run tick kind`
 
 ---
 
 ## 6. `add-tick-env.sh` (LLD TD3) — effort 2
 
-- [ ] **6.1 Write the script**
-  - [ ] Create `deploy/add-tick-env.sh --from <checkout .env>`, modelled on how
+- [x] **6.1 Write the script**
+  - [x] Create `deploy/add-tick-env.sh --from <checkout .env>`, modelled on how
     existing deploy scripts call `deploy/lib/env_add_keys.sh`. Do not change
     `env_add_keys.sh`.
-  - [ ] Keys, defined once in the script: `MT_TICK_DB_URL`,
+  - [x] Keys, defined once in the script: `MT_TICK_DB_URL`,
     `MT_DATABENTO_API_KEY`, `MT_TICK_SPEND_CEILING_USD`,
     `MT_TICK_SPEND_30D_CEILING_USD`, `MT_TICK_ARCHIVE_DIR`.
-  - [ ] Check-then-act: refuse, naming the missing key names only, if any of the
+  - [x] Check-then-act: refuse, naming the missing key names only, if any of the
     five is missing from the source. Never copy `MT_TICK_MAINTENANCE_URL`.
     A key already present in the target is never changed. Values are never
     printed or logged; print a count of keys added.
-  - [ ] After the call, re-assert mode `0640` and owner `root:manta-trading`
+  - [x] After the call, re-assert mode `0640` and owner `root:manta-trading`
     (`env_add_keys` leaves the file at 0600). Log to a file.
-  - [ ] Add `# shellcheck`-clean quoting and `set -euo pipefail`.
-  - [ ] Success: `shellcheck` is clean (`~/.local/bin/shellcheck`).
+  - [x] Add `# shellcheck`-clean quoting and `set -euo pipefail`.
+  - [x] Success: `shellcheck` is clean (`~/.local/bin/shellcheck`).
 
-- [ ] **6.2 Test: the script**
-  - [ ] Add a test following the existing deploy-script tests' pattern (look
+- [x] **6.2 Test: the script**
+  - [x] Add a test following the existing deploy-script tests' pattern (look
     for `env_add_keys` tests under `test/`): run the script against a temp
     target file and temp source with the root-only operations stubbed or made
     parameters. Cover: adds absent keys only; a present key is unchanged; a
     source missing one key is refused and writes nothing; the maintenance key in
     the source is not copied; no value appears in stdout/stderr/log; second run
     adds 0.
-  - [ ] If the chown/chmod cannot be exercised without root, the test asserts
+  - [x] If the chown/chmod cannot be exercised without root, the test asserts
     the script issues them (via an injectable command prefix) rather than
     skipping the check.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **6.3 Commit** — `feat: add add-tick-env.sh for production tick settings`
+- [x] **6.3 Commit** — `feat: add add-tick-env.sh for production tick settings`
 
 ---
 
