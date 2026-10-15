@@ -477,3 +477,49 @@ class TestAcquisitionSlice:
         assert members, "no service names manta-acquisition.slice"
         for name, unit in members.items():
             assert unit["Service"]["Type"] == "oneshot", name
+
+
+# ---------------------------------------------------------------------------
+# Slice 234: the tick pass unit (manual: no timer)
+# ---------------------------------------------------------------------------
+
+TICK_SERVICE = "mt-tick-pass.service"
+
+
+class TestTickUnit:
+    @pytest.fixture(scope="class")
+    def tick(self) -> configparser.ConfigParser:
+        return _parse(_SYSTEMD / TICK_SERVICE)
+
+    def test_runs_the_tick_run_verb_as_a_oneshot_in_the_slice(self, tick) -> None:
+        svc = tick["Service"]
+        assert svc["ExecStart"] == "/opt/manta-trading/.venv/bin/mt data tick run"
+        assert svc["Type"] == "oneshot"
+        assert svc["Slice"] == ACQUISITION_SLICE.name
+        assert svc["User"] == "manta-trading"
+
+    def test_umask_and_timeouts(self, tick) -> None:
+        svc = tick["Service"]
+        assert svc["UMask"] == "0002"
+        assert svc["TimeoutStartSec"] == "4h"
+        assert "TimeoutStopSec" not in svc
+        assert "Restart" not in svc
+
+    def test_no_install_section_and_no_timer(self, tick) -> None:
+        assert not tick.has_section("Install")
+        assert not (_SYSTEMD / "mt-tick-pass.timer").exists()
+
+    def test_installed_but_never_in_the_cutover_enable_hint(self) -> None:
+        text = INSTALLER.read_text()
+        assert TICK_SERVICE in _array_block(text, "UNITS")
+        hint = next(x for x in text.splitlines() if "Cutover (later, explicit)" in x)
+        assert "mt-tick-pass" not in hint
+
+    def test_tick_is_a_mt_run_kind(self) -> None:
+        assert "tick" in _array_block(MT_RUN.read_text(), "KINDS").split()
+
+    def test_the_command_the_unit_runs_exists(self) -> None:
+        from manta_trading.cli.app import app
+
+        result = CliRunner().invoke(app, ["data", "tick", "run", "--help"])
+        assert result.exit_code == 0, result.output

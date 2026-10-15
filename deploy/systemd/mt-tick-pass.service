@@ -1,0 +1,37 @@
+[Unit]
+Description=Manta Trading tick pass (acquisition then ingest; started by hand, no timer)
+Documentation=https://github.com/manta-digital/trading-data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=manta-trading
+Group=manta-trading
+Slice=manta-acquisition.slice
+WorkingDirectory=/opt/manta-trading
+EnvironmentFile=/etc/manta-trading.env
+# The archive under MT_TICK_ARCHIVE_DIR is shared with the dev checkout's
+# tick verbs through the manta-trading group: files must stay group-writable.
+UMask=0002
+# The venv entry point directly — uv is a deploy-time tool, not a runtime
+# dependency; `uv run` at service start could resolve/sync at the wrong moment.
+ExecStart=/opt/manta-trading/.venv/bin/mt data tick run
+# A wall-clock bound, not infinity: this is what ends a hung run (a stuck
+# download, COPY or database call). Acquisition may wait up to its 1800 s
+# budget and ingest loads a year of ES+GC in minutes, so 4 h is generous; the
+# 90 s default would kill a healthy run. A kill loses nothing: units commit
+# one at a time and the next run resumes (design 234, TD2).
+TimeoutStartSec=4h
+# No TimeoutStopSec override: the pass has no clean-stop protocol to wait for.
+# Journald is the log sink — no application-level log files.
+StandardOutput=journal
+StandardError=journal
+# Hardening: minimal additional surface beyond the service user.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+# No Restart= and no timer: the pass is manual (sudo mt-run tick). No
+# [Install] — nothing enables this unit.

@@ -40,6 +40,8 @@ UNITS=(
   mt-health.timer
   mt-accounting-pass.service
   mt-accounting-pass.timer
+  # Manual only, design 234 TD1: no timer, and no [Install] to enable.
+  mt-tick-pass.service
   mt-serve.service
 )
 

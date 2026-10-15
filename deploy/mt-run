@@ -4,9 +4,10 @@
 #   sudo mt-run daily        start a daily pass, stream its output live
 #   sudo mt-run minute       start a minute pass, stream its output live
 #   sudo mt-run kalshi       start a Kalshi collection pass, stream it live
+#   sudo mt-run tick         start a tick pass (acquire + ingest), stream it live
 #   mt-run status            state + last result + recent output of every pass
 #   mt-run follow daily      attach to a running pass's live output
-#                            (also: follow minute, follow kalshi)
+#                            (also: follow <any kind below>)
 #   mt-run <anything else>   run production's mt CLI, e.g. mt-run data caggs status
 #
 # Starting streams output exactly like the old manual invocation, with one
@@ -15,17 +16,19 @@
 # the pass's real exit code when it completes.
 #
 # The timers run the same units automated; mt-run is for out-of-schedule
-# runs and for checking on whatever is currently happening.
+# runs and for checking on whatever is currently happening. tick has no
+# timer: mt-run tick is the only way it runs.
 set -euo pipefail
 
 usage() {
-  sed -n '2,11p' "$0" | sed 's/^# \{0,3\}//'
+  sed -n '2,12p' "$0" | sed 's/^# \{0,3\}//'
+  echo "Pass kinds: ${KINDS[*]}"
   exit 2
 }
 
 # The pass kinds this wrapper drives. Adding a source means adding its kind
 # here and nowhere else in this script (runbook 100, "Adding a source").
-KINDS=(daily minute kalshi)
+KINDS=(daily minute kalshi tick)
 
 is_kind() {
   local candidate

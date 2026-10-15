@@ -6,11 +6,9 @@ lld: user/slices/234-slice.tick-pass-production-wiring.md
 parent: user/architecture/220-slices.data-acquisition-futures-tick-primary-focus.md
 dependencies: [225-slice.ingest-pass-and-proof-parity, 230-slice.operator-surface-full-parity, 231-slice.api-surface-coverage-futures-tick, 233-slice.cross-source-acquisition-arbitration]
 projectState: >
-  Slice design committed; design review rounds 1 and 2 settled (CONCERNS, no
-  open findings). The minute migration chain ends at 059. PassKind has
-  MINUTE, DAILY, KALSHI, HEALTH, ACCOUNTING; no tick unit, no tick timer, no
-  tick keys in /etc/manta-trading.env. The tick passes run only from the dev
-  checkout. 233's MemoryMax=14G is declared in the repo and not in force.
+  Tasks 1–4 implemented on branch 234-slice.tick-pass-production-wiring
+  (PassKind.TICK, manual schedule, migration 060, `mt data tick run`, ingest
+  heartbeat, tick health rows); Tasks 5–10 in part 2 remain.
 dateCreated: 20261014
 dateUpdated: 20261014
 status: in_progress
@@ -302,70 +300,70 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
 
 ## 4. Health: tick database and tick retention (LLD TD5, TD6) — effort 3
 
-- [ ] **4.1 `units_near_deadline` read**
-  - [ ] In `data/tick/manifest_request_reads.py`, add
+- [x] **4.1 `units_near_deadline` read**
+  - [x] In `data/tick/manifest_request_reads.py`, add
     `units_near_deadline(conn, now, window)` selecting units in `SUBMITTED` or
     `DELIVERED`, not `PROVIDER_HOLE`, with `reopened_at IS NULL` and
     `download_deadline < now + window`, deadlines already past included.
     Take state names from `data/tick/constants.py`; do not write them as
     literals. Return job id and deadline.
-  - [ ] Add `TICK_RETENTION_WARN_DAYS = 7` to `data/tick/constants.py`; Task
+  - [x] Add `TICK_RETENTION_WARN_DAYS = 7` to `data/tick/constants.py`; Task
     4.3 passes it as the window.
-  - [ ] Success: the function is typed and uses parameters, not string-built
+  - [x] Success: the function is typed and uses parameters, not string-built
     SQL.
 
-- [ ] **4.2 Test: `units_near_deadline`**
-  - [ ] Integration test on the tick test database: seed units at 3 days out,
+- [x] **4.2 Test: `units_near_deadline`**
+  - [x] Integration test on the tick test database: seed units at 3 days out,
     8 days out, already past, `PROVIDER_HOLE`, reopened, and a non-in-flight
     state; assert only the in-window in-flight, non-holed, non-reopened units
     return, including the past one.
-  - [ ] Success: test passes.
+  - [x] Success: test passes.
 
-- [ ] **4.3 `gather_tick` and the informational line**
-  - [ ] Add a tick health gatherer (new module under `cli/commands/`, keeping
+- [x] **4.3 `gather_tick` and the informational line**
+  - [x] Add a tick health gatherer (new module under `cli/commands/`, keeping
     `health.py` under ~300 lines) that reads through
     `cli/tick_composed.read_line` and `data/tick/line_state.py`. It never opens
     its own pool and shares nothing with the primary connection.
-  - [ ] `tick database`: for every `TickLineState` other than OK, emit an
+  - [x] `tick database`: for every `TickLineState` other than OK, emit an
     informational line using `unavailable_text` as the detail (for example
     `INFO tick database: not configured (MT_TICK_DB_URL unset)`). It must not
     count toward the verdict. OK emits an OK line.
-  - [ ] `tick retention`: emitted only when the database line is OK. It fails
+  - [x] `tick retention`: emitted only when the database line is OK. It fails
     when `units_near_deadline` returns any unit, naming each job id and
     deadline and the action `mt-run tick`; it passes otherwise. When
     `schedule_for(PassKind.TICK)` is manual use `TICK_RETENTION_WARN_DAYS`;
     that is the only case this slice implements.
-  - [ ] Extend `HealthCheck` minimally so a check can be informational (a
+  - [x] Extend `HealthCheck` minimally so a check can be informational (a
     severity field, not a boolean-and-string convention), and update `render`,
     `verdict_line` and the `--json` output so informational checks print and
     are excluded from the verdict.
-  - [ ] Success: a stub tick reader in each `TickLineState` produces the right
+  - [x] Success: a stub tick reader in each `TickLineState` produces the right
     lines and verdict contribution.
 
-- [ ] **4.4 Wire into `data health`**
-  - [ ] In `data_health` (`cli/commands/health.py`), run the tick gather before
+- [x] **4.4 Wire into `data health`**
+  - [x] In `data_health` (`cli/commands/health.py`), run the tick gather before
     the primary connection so tick lines still print when the primary is down.
     A primary outage keeps exit 2 ("could not run") as today. A tick failure
     changes only the tick rows.
-  - [ ] Success: `env -u MT_TICK_DB_URL uv run mt data health` against the dev
+  - [x] Success: `env -u MT_TICK_DB_URL uv run mt data health` against the dev
     database prints the informational tick line, the other rows, and the exit
     code the primary checks alone give.
 
-- [ ] **4.5 Test: health tick semantics**
-  - [ ] Unit tests for each non-OK `TickLineState` (not configured,
+- [x] **4.5 Test: health tick semantics**
+  - [x] Unit tests for each non-OK `TickLineState` (not configured,
     unreachable, migrations pending): informational line, exit code unchanged,
     minute/daily/Kalshi rows still print, no `tick retention` row.
-  - [ ] Integration test: unreachable by pointing `MT_TICK_DB_URL` at a closed
+  - [x] Integration test: unreachable by pointing `MT_TICK_DB_URL` at a closed
     port; retention failure by seeding a `SUBMITTED` unit with a deadline 3 days
     out, asserting `FAIL tick retention` naming job id, deadline and
     `mt-run tick`, and exit 1; holed and reopened units never fail it.
-  - [ ] Test that a primary outage still exits 2 with the tick lines printed.
-  - [ ] Assert the shared health output for an informational check: the
+  - [x] Test that a primary outage still exits 2 with the tick lines printed.
+  - [x] Assert the shared health output for an informational check: the
     `--json` shape (the check present, marked informational, not counted) and
     the `verdict_line` text (unchanged by an informational check).
-  - [ ] Success: tests pass; existing health tests unchanged.
+  - [x] Success: tests pass; existing health tests unchanged.
 
-- [ ] **4.6 Commit** — `feat: add tick database and tick retention health checks`
+- [x] **4.6 Commit** — `feat: add tick database and tick retention health checks`
 
 ---
 

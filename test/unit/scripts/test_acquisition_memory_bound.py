@@ -81,12 +81,12 @@ def test_memory_max_raises_on_no_members() -> None:
 
 def test_members_from_real_unit_files() -> None:
     found = set(amb.members())
-    # Not an exact set: 234 adds its tick unit.
-    assert {
+    assert found >= {
         "mt-minute-pass.service",
         "mt-daily-pass.service",
         "mt-kalshi-pass.service",
-    } <= found
+        "mt-tick-pass.service",
+    }
 
 
 def test_members_excludes_other_slices(tmp_path: Path) -> None:
