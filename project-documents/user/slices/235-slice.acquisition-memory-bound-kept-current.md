@@ -76,8 +76,8 @@ This slice takes the person out of that loop:
 9. `scripts/cutover_235_memory_bound.py`. A pending migration makes
    `upgrade_production.py` refuse, so this release needs its own cutover.
    It is a step list over `cutover_common` (preconditions, timer hold,
-   `migrate`, `install`, report). Only the member firing and the checks in the
-   walkthrough are new.
+   `migrate`, `install`, report). The journal seed (TD7), the member firing
+   and the checks in the walkthrough are new.
 10. Documentation updates: runbook 100's "Adding a source or pass" (the
     hand re-derive step that 233 added is removed), the slice unit's comment,
     the CHANGELOG, a dated slice-235 entry in the 220 architecture document,
@@ -90,14 +90,13 @@ This slice takes the person out of that loop:
 - **Re-deriving between releases.** Writing the drop-in needs root. The
   health unit runs as `manta-trading`. Between releases a drift shows as a
   health FAIL, and any re-run of the installer fixes it.
-- **Backfilling peaks from the journal.** It would not close the gap. The
-  tick unit's journal peak is from 234's no-purchase firing, which is not
-  representative, and the timed members record a peak within a day of the
-  cutover.
+- **Backfilling peaks from the journal beyond the cutover's one-time 30-day
+  seed (TD7).** After the seed, `pass_runs` is the only source.
 - **A peak on `mt data overview`, text or `--json`.** The plan entry places
   it on the API only.
-- **Recording the peak of a pass the OOM killer kills.** See Special
-  Considerations.
+- **Recording the peak of a pass the OOM killer kills.** Such a run never
+  reaches close. Health FAILs on it instead (TD4), and Special
+  Considerations covers the rest.
 - **Serving the bound check over the API.** No source has a health-findings
   endpoint.
 
@@ -255,7 +254,8 @@ cross-language pairing `cutover_common.py` already documents.
 
 Functions:
 
-- `members(unit_dir)`: sorted unit names.
+- `members(unit_dir)`: sorted unit names. An `OSError` reading the
+  directory or a unit file is raised as `MemoryBoundError`, naming the path.
 - `fetch_peaks(conn, units, now)`: one query that returns, per unit, the
   max peak over the window. For a unit with no run in the window it returns
   that unit's newest recorded peak of any age, with its date. Rows with a
@@ -269,6 +269,10 @@ Functions:
   any order and returns `LoadedBound(load_state, max_bytes | None)`, where
   `None` means `infinity`. It raises `MemoryBoundError` on a non-zero exit, a
   missing binary, or a timeout. The command runner is injected for tests.
+- `oom_killed(members, run)`: one `systemctl show <member…>
+  --property=Id --property=Result` call. It returns the members whose
+  `Result` is `oom-kill`, with the same error handling as
+  `loaded_memory_max`.
 
 **Decision: a member idle for the window keeps its newest peak.** The 220
 architecture assumes no tick cadence, so an idle month is the tick unit's
@@ -299,7 +303,9 @@ Verdicts, in this order. Every one is `CheckSeverity.VERDICT`:
 | Condition | Result | Detail |
 |---|---|---|
 | `pass_runs` has no `memory_peak_bytes` (`psycopg.errors.UndefinedColumn`) | FAIL | `pass_runs has no memory_peak_bytes: migration 061 not applied` |
+| Unit files unreadable (`MemoryBoundError` from `members`) | FAIL | the error's text, naming the path |
 | A member has never recorded a peak | FAIL | the error's text, naming each such member |
+| A member's last run was OOM-killed (`Result=oom-kill`) | FAIL | `mt-minute-pass.service was OOM-killed; its peak is unrecorded, so the bound cannot learn from it` |
 | `systemctl show` exits non-zero, is missing, or exceeds `SYSTEMCTL_SHOW_TIMEOUT_SECONDS` | FAIL | `cannot read manta-acquisition.slice: <error>` |
 | `LoadState` ≠ `loaded` | FAIL | `manta-acquisition.slice is <state>` |
 | `MemoryMax` is `infinity` | FAIL | `manta-acquisition.slice has no MemoryMax` |
@@ -310,10 +316,19 @@ A loaded value above the derived one passes. That matches the plan entry,
 which fails only when the bound is too tight. The check reads `pass_runs` on
 health's existing primary connection inside `gather`, in its own
 `conn.transaction()` so that a missing column fails this row and not the
-checks after it. If the primary is down, health already exits 2.
+checks after it. If the primary is down, health already exits 2. Any other
+exception (a database error other than the missing column, an unexpected
+`OSError`) propagates out of `gather` and health exits 2 with the traceback.
+That is how every existing check behaves, because `gather` catches nothing.
 
-Until the tick pass records its first run, this check FAILs. After that, an
-idle tick month does not fail it (TD3).
+The OOM-kill row exists because a killed run cannot fix itself. It never
+reaches close, so its peak is never recorded, the derived bound stays where
+it was, and the next run is killed the same way. Without this row, a bound
+that is too tight would be invisible to the check meant to catch it.
+
+The cutover seeds 30 days of peaks (TD7), so the check is green from the
+cutover on. A member added later FAILs until its first run. An idle tick
+month does not fail it (TD3).
 
 **What the gate does not check.** Any tick run clears "never measured",
 including a run with nothing to buy or ingest, whose peak (about 100 MB in
@@ -389,6 +404,37 @@ exact values and the UI formats them. This is an additive, nullable field,
 so the patch version applies. `check_api_docs.py` and the published OpenAPI
 schema update with it. `systemd_unit` is not served. It is the derivation's
 join key, and the overview already keys lines by `pass`.
+
+### TD7 — The cutover seeds 30 days of peaks from the journal
+
+An empty window is not a neutral starting point. It is a wrong bound. The
+minute pass peaks at about 6.1 GiB on Saturdays and about 100 MiB on every
+other day (journal, 2026-09-15 to 10-15). With a few weekday runs recorded,
+the derivation gives roughly `ceil_GiB(2 × (0.1 + 0.43 + 0.32 + 0.1)) = 2G`.
+Any install before the next Saturday would write that value, the Saturday
+minute pass would be OOM-killed, and the killed run would record nothing to
+raise the bound (TD4). A day-one bound has to come from a full window.
+
+The cutover reads the journal for the past `MEMORY_PEAK_WINDOW_DAYS` as the
+operator, using 233's `Consumed … memory peak` parser, which moves into the
+cutover module with its tests. Each invocation's peak is written to the
+`pass_runs` rows of that unit's pass kind whose `ended_at` falls inside the
+invocation, meaning after the previous stop line and at or before this one.
+A `--stop-when-done` daemon's several rows all get its process peak, as TD1
+records them. Rows that already have a peak are left alone, so a re-run
+changes nothing.
+
+- **The kind-to-unit map is cutover-only.** It lives in the cutover script,
+  is used once, and TD2's single source of members is unaffected. Writing a
+  column on rows the passes already wrote is a data fix, not an observer
+  writing rows.
+- **An invocation with no matching row** (for example a pass that died
+  before opening its row) is reported and skipped.
+- **The seed runs between `migrate` and `install`**, so the cutover's install
+  derives from a full window and writes the drop-in at once.
+
+The tick unit's journal peak (about 100 MB, from 234's firings) clears "never
+measured". TD4's "What the gate does not check" still applies to it.
 
 ### Patterns and Conventions
 
@@ -470,7 +516,7 @@ gain both fields. The migration-chain test that pins the newest id
 ### Consumes from Other Slices
 
 - 233's rule and member regex (moved, unchanged).
-- 234's tick unit as a member. Its missing peak is the expected first FAIL.
+- 234's tick unit as a member. The cutover seeds its peak (TD7).
 - 922's recorder contract. If the database is unreachable at close, the peak
   is lost with the rest of the close, and the abandoned-run sweep later
   closes the row with NULL peak columns.
@@ -507,7 +553,12 @@ gain both fields. The migration-chain test that pins the newest id
      not-found unit, and for `MemoryMax=infinity`.
    - Members are discovered from copies of the real `deploy/systemd` units.
    - Derive covers an idle member using its newest peak and a never-measured
-     member failing; the verdict covers each row in TD4's table.
+     member failing; the verdict covers each row in TD4's table, including
+     the OOM-kill and unreadable-unit-dir rows.
+   - The journal seed's matching (TD7) uses real `Consumed … memory peak`
+     lines from manta9000, including a Saturday minute invocation. It covers
+     a daemon invocation that closed several rows, an invocation with no
+     row, and a re-run that changes nothing.
 2. A unit test of `memory_bound_dropin.sh` with a stub deriver for exit 0,
    exit 0 with malformed stdout, exit 2 and exit 1, writing to a temp
    directory, in the style of
@@ -543,25 +594,26 @@ uv run python scripts/cutover_235_memory_bound.py v<release>
 Steps, each check-then-act, with a report in `project-documents/user/notes/`:
 
 1. **Preconditions, hold timers, migrate 061** (234's pattern).
-2. **Install:** the output shows `MEMORY BOUND NOT RE-DERIVED: …` naming
-   every member, because no row has a peak yet. `systemctl show
-   manta-acquisition.slice -p MemoryMax` still reports the 14G bootstrap
-   value.
-3. **Restart serve.**
-4. **Fire a member:** `sudo mt-run kalshi`. The newest KALSHI row has
+2. **Seed peaks (TD7):** the report lists, per member, the invocations
+   matched and skipped and the max seeded peak. The minute max is within 10%
+   of 233's journal figure (6348.8 MiB on 2026-10-14). All four members have
+   a peak.
+3. **Install:** the output shows `memory bound: MemoryMax=14G written`.
+   `systemctl show manta-acquisition.slice -p MemoryMax` reports
+   15032385536, and `systemctl cat` shows the drop-in.
+4. **Restart serve.**
+5. **Fire a member:** `sudo mt-run kalshi`. The newest KALSHI row has
    `systemd_unit = 'mt-kalshi-pass.service'` and `memory_peak_bytes`
    within 10% of the journal's `memory peak` for that invocation.
-5. **Health:** `/opt/manta-trading/.venv/bin/mt data health` shows
-   `FAIL acquisition memory bound` naming `mt-daily-pass.service`,
-   `mt-minute-pass.service` and `mt-tick-pass.service` as never measured.
-   This is the expected state; Kalshi is no longer listed.
-6. **API:** `curl -s localhost:<port>/api/v1/overview | jq '.passes[] |
+6. **Health:** `/opt/manta-trading/.venv/bin/mt data health` shows
+   `ok acquisition memory bound` with 4 members.
+7. **API:** `curl -s localhost:<port>/api/v1/overview | jq '.passes[] |
    select(.pass=="kalshi") | .last_run.memory_peak_bytes'` is non-null.
-7. **Release timers.**
+8. **Release timers.**
 
-After the cutover, outside the slice's tasks: once a tick run is recorded,
-the next install prints `memory bound: MemoryMax=<N>G written` and health
-reports OK. Issue #34 closes on the operator's confirmation in TD4.
+Issue #34 stays open after the cutover. It closes on the operator's
+confirmation in TD4, once a tick run that ingested units is behind the
+bound.
 
 ## Implementation Notes
 
@@ -586,8 +638,10 @@ Commit after each numbered step.
   with NULL peak columns. The bound therefore cannot learn from the run that
   exceeded it. Such a run is still visible: systemd marks the unit failed
   with `Result=oom-kill` (`mt-run status`, `systemctl --failed`), and the
-  journal keeps its peak. Recording kills is out of scope. If it becomes
-  needed, it is a health check on the unit's `Result`.
+  journal keeps its peak. Health FAILs on it (TD4). The operator's fix is
+  to raise the bound in the drop-in by hand and re-install once a
+  successful run records the larger peak. The FAIL names the unit, and the
+  runbook 100 entry says what to do.
 - **Security:** the installer runs the derivation as `manta-trading`, never
   as root. Root writes only a fixed comment, `[Slice]`, and the one stdout
   line, after checking it against `^MemoryMax=[0-9]+G$`.
