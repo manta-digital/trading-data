@@ -177,10 +177,12 @@ and sits at the entry point (design: Component Structure).
           integer > 0;
     - [ ] at least one `*.service` names the slice, and every one that does is
           `Type=oneshot`.
+  - [ ] Add one negative test that writes a slice file without `MemoryMax`
+        to `tmp_path` and shows the check rejects it. Never edit the real
+        file to prove this.
   - [ ] Do not edit existing tests in the file.
   - [ ] Success: `uv run pytest test/unit/deploy/test_units.py test/unit/scripts/test_acquisition_memory_bound.py -q`
-        passes (walkthrough step 2); deleting the `MemoryMax` line once makes
-        the new class fail (restore it)
+        passes (walkthrough step 2)
   - [ ] Commit: `test: guard manta-acquisition.slice MemoryMax and members`
   - [ ] Effort: 2
 
