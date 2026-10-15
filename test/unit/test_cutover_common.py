@@ -76,3 +76,43 @@ def test_status_failure_to_connect_is_an_error(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(common, "out", fake_out)
     with pytest.raises(common.CutoverError, match="boom"):
         common._migrate_status("minute")
+
+
+class _Done:
+    def __init__(self, stdout: str) -> None:
+        self.stdout = stdout
+
+
+def _preflight_with(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, by_name: str, listing: str
+) -> str:
+    (tmp_path / "deploy").mkdir()
+    (tmp_path / "deploy/install-production.sh").write_text("")
+    (tmp_path / ".env").write_text("")
+    monkeypatch.chdir(tmp_path)
+    sha = "a" * 40
+
+    def fake_run(args: list[str], **_k: object) -> _Done:
+        if args[:2] == ["git", "rev-parse"]:
+            return _Done(sha)
+        if args == ["git", "ls-remote", "origin"]:
+            return _Done(listing)
+        return _Done(by_name)
+
+    monkeypatch.setattr(common, "run", fake_run)
+    return common.preflight(sha)
+
+
+def test_preflight_accepts_a_sha_that_a_remote_ref_points_at(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    listing = f"{'a' * 40}\trefs/heads/234-slice.x\n{'b' * 40}\trefs/heads/main\n"
+    assert _preflight_with(monkeypatch, tmp_path, "", listing) == "a" * 40
+
+
+def test_preflight_refuses_a_sha_no_remote_ref_points_at(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    listing = f"{'b' * 40}\trefs/heads/main\n"
+    with pytest.raises(common.CutoverError, match="not on origin"):
+        _preflight_with(monkeypatch, tmp_path, "", listing)

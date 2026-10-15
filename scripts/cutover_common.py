@@ -105,6 +105,11 @@ def preflight(ref: str) -> str:
         raise CutoverError(f"ref {ref!r} does not exist in this checkout")
     remote = run(["git", "ls-remote", "origin", ref], check=False).stdout.strip()
     if not remote:
+        # A commit SHA is not a ref name; it is on origin when some ref there
+        # points at it (the pushed slice branch's tip, for an untagged cutover).
+        tips = run(["git", "ls-remote", "origin"], check=False).stdout.split()
+        remote = commit if commit in tips else ""
+    if not remote:
         raise CutoverError(
             f"ref {ref!r} is not on origin — the installer clones from GitHub; "
             "push it first"
