@@ -7,7 +7,7 @@ Split from ``manifest_reads.py`` (unit and day-key reads) to keep both under
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, LiteralString
 
@@ -116,6 +116,39 @@ async def swept_candidates(conn: Conn, now: datetime) -> dict[datetime, list[int
     for deadline, unit_id in await cursor.fetchall():
         by_deadline.setdefault(deadline, []).append(int(unit_id))
     return by_deadline
+
+
+@dataclass(frozen=True)
+class NearDeadline:
+    """A provider job with in-flight units whose download deadline is near."""
+
+    job_id: str | None
+    deadline: datetime
+    units: int
+
+
+async def units_near_deadline(
+    conn: Conn, now: datetime, window: timedelta
+) -> list[NearDeadline]:
+    """Jobs holding units at *submitted* or *delivered*, not holes and not
+    reopened, whose deadline falls before ``now + window``; deadlines already
+    past included (234 TD5: what the ``tick retention`` health check names)."""
+    cursor = await conn.execute(
+        "SELECT r.provider_job_id, r.download_deadline, count(*)"
+        " FROM tick_archive_unit u JOIN tick_request r USING (request_id)"
+        " WHERE u.state = ANY(%s) AND u.fetch_status <> %s"
+        " AND u.reopened_at IS NULL AND r.download_deadline < %s"
+        " GROUP BY r.request_id, r.provider_job_id, r.download_deadline"
+        " ORDER BY r.download_deadline, r.request_id",
+        (
+            [UnitState.SUBMITTED.value, UnitState.DELIVERED.value],
+            FetchStatus.PROVIDER_HOLE.value,
+            now + window,
+        ),
+    )
+    return [
+        NearDeadline(row[0], row[1], int(row[2])) for row in await cursor.fetchall()
+    ]
 
 
 async def reopened_unit_ids(

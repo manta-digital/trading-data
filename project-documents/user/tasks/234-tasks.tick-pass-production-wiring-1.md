@@ -173,109 +173,109 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
 
 ## 3. The `mt data tick run` verb (LLD TD2, Data Flow) — effort 4
 
-- [ ] **3.1 Outcome severity fold and run-outcome map**
-  - [ ] In `src/manta_trading/cli/commands/tick_exit.py`, next to
+- [x] **3.1 Outcome severity fold and run-outcome map**
+  - [x] In `src/manta_trading/cli/commands/tick_exit.py`, next to
     `EXIT_BY_OUTCOME`, define once the severity order
     (`STORAGE_ABORT` > `PROVIDER_ABORT` > `REFUSED` > `IN_FLIGHT` > `PARTIAL` >
     `OK`) and a function folding two `TickOutcome`s to the worse.
-  - [ ] Define `PASS_RUN_OUTCOME_BY_TICK_OUTCOME` (table in LLD Data Flow
+  - [x] Define `PASS_RUN_OUTCOME_BY_TICK_OUTCOME` (table in LLD Data Flow
     step 4) with an exhaustiveness assert modelled on
     `PASS_RUN_OUTCOME_BY_SYNC_OUTCOME` in `cli/commands/kalshi.py`. If
     `tick_exit.py` would pass ~300 lines, put the map in a sibling module.
-  - [ ] Add an exhaustiveness assert that the severity order lists every
+  - [x] Add an exhaustiveness assert that the severity order lists every
     `TickOutcome`.
-  - [ ] Success: importing the module fails loudly if a `TickOutcome` member is
+  - [x] Success: importing the module fails loudly if a `TickOutcome` member is
     added to neither structure.
 
-- [ ] **3.2 Test: fold and map**
-  - [ ] Unit tests: the fold is symmetric; every ordered pair resolves to the
+- [x] **3.2 Test: fold and map**
+  - [x] Unit tests: the fold is symmetric; every ordered pair resolves to the
     higher-severity member; `OK` is the identity; the map covers every member
     with the LLD's values.
-  - [ ] A test asserting the severity order agrees with `EXIT_BY_OUTCOME`
+  - [x] A test asserting the severity order agrees with `EXIT_BY_OUTCOME`
     severity as the LLD describes: derive the expectation from the exit
     vocabulary (storage and provider exits ranked above refused, in-flight,
     partial), not from a copy of the same list.
-  - [ ] Success: tests pass.
-  - [ ] Commit — `feat: add tick outcome severity fold and pass-run outcome map`
+  - [x] Success: tests pass.
+  - [x] Commit — `feat: add tick outcome severity fold and pass-run outcome map`
 
-- [ ] **3.3 Ingest per-batch progress callback**
-  - [ ] Add an optional thread-safe callback field to `IngestInputs`
+- [x] **3.3 Ingest per-batch progress callback**
+  - [x] Add an optional thread-safe callback field to `IngestInputs`
     (`data/tick/ingest_pass.py`) that receives the row count of each `COPY`
     batch a worker commits. Default is "none"; the existing `mt data tick
     ingest` path must behave exactly as today.
-  - [ ] Thread it through to `_copy` in `data/tick/ingest_worker.py` and call it
+  - [x] Thread it through to `_copy` in `data/tick/ingest_worker.py` and call it
     once per batch with the batch's row count. Only a count crosses the worker
     boundary (LLD Data Flow step 2).
-  - [ ] Workers are threads: `ingest_pass.py` runs `ingest_unit` through
+  - [x] Workers are threads: `ingest_pass.py` runs `ingest_unit` through
     `asyncio.to_thread` (confirmed at design time). The callback is passed
     straight through; the reporter it feeds (3.5) is the only shared state and
     is thread-safe. Add no other concurrency primitive.
-  - [ ] Counts are rows `COPY`'d inside the unit's open transaction, not yet
+  - [x] Counts are rows `COPY`'d inside the unit's open transaction, not yet
     committed. They are a liveness signal only; a unit that rolls back still
     reported its rows. Document this on the field.
-  - [ ] Success: with a counting callback, a unit fixture load reports batch
+  - [x] Success: with a counting callback, a unit fixture load reports batch
     counts that sum to the unit's loaded row count; with no callback, behaviour
     and existing tests are unchanged.
 
-- [ ] **3.4 Test: callback**
-  - [ ] Unit/integration tests alongside the existing ingest worker tests: sum
+- [x] **3.4 Test: callback**
+  - [x] Unit/integration tests alongside the existing ingest worker tests: sum
     of reported counts equals rows loaded; no callback is a no-op; a failing
     unit reports only what it committed or nothing, as the worker's
     transaction semantics dictate (assert what the code does and document it).
-  - [ ] Success: tests pass; existing ingest tests unchanged.
-  - [ ] Commit — `feat: add optional per-batch progress hook to tick ingest`
+  - [x] Success: tests pass; existing ingest tests unchanged.
+  - [x] Commit — `feat: add optional per-batch progress hook to tick ingest`
 
-- [ ] **3.5 Heartbeat throttle**
-  - [ ] Add `TICK_HEARTBEAT_SECONDS = 30` to `data/tick/constants.py`.
-  - [ ] New small module (beside the `run` verb) holding a throttled reporter:
+- [x] **3.5 Heartbeat throttle**
+  - [x] Add `TICK_HEARTBEAT_SECONDS = 30` to `data/tick/constants.py`.
+  - [x] New small module (beside the `run` verb) holding a throttled reporter:
     it accumulates counts from the callback and calls
     `recorder.progress(run_id, phase="ingest", done=<rows loaded>,
     total=<rows expected>)` at most once per `TICK_HEARTBEAT_SECONDS`, using an
     injectable clock. `total` is the sum of `provider_record_count` over the
     pass's units; if any selected unit's count is `None`, pass `total=None`
     rather than a partial sum. It is thread-safe.
-  - [ ] Success: calls arrive at most once per interval with a fake clock; the
+  - [x] Success: calls arrive at most once per interval with a fake clock; the
     final count is flushed once when ingest ends.
 
-- [ ] **3.6 Test: heartbeat**
-  - [ ] Unit tests with a fake clock and a fake recorder: N rapid batches yield
+- [x] **3.6 Test: heartbeat**
+  - [x] Unit tests with a fake clock and a fake recorder: N rapid batches yield
     one progress call per interval; `total` is `None` when any unit lacks a
     count; the closing flush happens exactly once; concurrent callers do not
     lose counts.
-  - [ ] Success: tests pass.
-  - [ ] Commit — `feat: add throttled ingest heartbeat reporter`
+  - [x] Success: tests pass.
+  - [x] Commit — `feat: add throttled ingest heartbeat reporter`
 
-- [ ] **3.7 `mt data tick run`: core flow**
-  - [ ] Add the verb beside the other tick verbs (a sibling module of
+- [x] **3.7 `mt data tick run`: core flow**
+  - [x] Add the verb beside the other tick verbs (a sibling module of
     `tick_store_cmds.py` if that file would exceed ~300 lines) and register it
     in `cli/commands/tick.py`. No options (LLD CLI Contract).
-  - [ ] Flow, per LLD Data Flow: `pass_run_recorder(settings)`; `recorder.open(
+  - [x] Flow, per LLD Data Flow: `pass_run_recorder(settings)`; `recorder.open(
     PassKind.TICK)`; run the acquisition pass over the full universe with the
     same entry the `pass` verb uses; then run the ingest pass, always, whatever
     the acquisition outcome; fold the two outcomes; close the row with the
     mapped outcome, the exit code `EXIT_BY_OUTCOME[combined]`, and the detail
     `acquire=<o> ingest=<o>`.
-  - [ ] Reuse the existing pass entry points. Copy no pass logic; no new spend
+  - [x] Reuse the existing pass entry points. Copy no pass logic; no new spend
     path; no new exit code. Print one concise summary line per pass using the
     existing renderers; no new `--json` shape.
-  - [ ] Success: `uv run mt data tick run --help` shows the verb with no
+  - [x] Success: `uv run mt data tick run --help` shows the verb with no
     options.
 
-- [ ] **3.8 `mt data tick run`: failure paths and progress**
-  - [ ] A preflight refusal or lock-held refusal of either pass still attempts
+- [x] **3.8 `mt data tick run`: failure paths and progress**
+  - [x] A preflight refusal or lock-held refusal of either pass still attempts
     the other, then exits `EXIT_PREFLIGHT` (1) and closes the row `FAILED` with
     the refusal text.
-  - [ ] An unexpected exception closes the row `FAILED` with the exception type
+  - [x] An unexpected exception closes the row `FAILED` with the exception type
     and re-raises (logged with `logger.exception`). The recorder is best-effort:
     a down primary database loses the row and nothing else.
-  - [ ] Report phase progress through `recorder.progress` for the five
+  - [x] Report phase progress through `recorder.progress` for the five
     acquisition phases and `ingest`, and attach the Task 3.5 heartbeat reporter
     to the ingest pass.
-  - [ ] Success: each path above is reachable from a fake-pass harness (the
+  - [x] Success: each path above is reachable from a fake-pass harness (the
     tests in Task 3.9 exercise them).
 
-- [ ] **3.9 Test: `run` with mocked passes**
-  - [ ] Unit tests with fake acquisition and ingest passes and a fake recorder:
+- [x] **3.9 Test: `run` with mocked passes**
+  - [x] Unit tests with fake acquisition and ingest passes and a fake recorder:
     ingest runs after each of `REFUSED`, `PROVIDER_ABORT` and `IN_FLIGHT`
     (Success Criteria Functional 3); exit code equals
     `EXIT_BY_OUTCOME[combined]`; row outcome follows the map; detail names both
@@ -283,20 +283,20 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
     the other pass attempted; an unexpected exception closes `FAILED` and
     re-raises; a recorder returning no run id (primary down) does not change
     the exit code.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **3.10 Test: `run` integration, and the orphaned row**
-  - [ ] One integration run on the test cluster (throwaway primary + tick
+- [x] **3.10 Test: `run` integration, and the orphaned row**
+  - [x] One integration run on the test cluster (throwaway primary + tick
     databases, empty universe or fixture units, no provider calls): the verb
     exits 0 and one `TICK` row closes `COMPLETE`.
-  - [ ] Orphan test (LLD TD2): seed an open `TICK` row for this host with a
+  - [x] Orphan test (LLD TD2): seed an open `TICK` row for this host with a
     dead pid; call `recorder.open(PassKind.TICK)`; assert the old row closed as
     `abandoned: pid … gone` and the new row is open. This pins
     `PassRunRecorder._close_stale`.
-  - [ ] Success: both tests pass on the test cluster. If the run test hits a
+  - [x] Success: both tests pass on the test cluster. If the run test hits a
     known integration flake, re-run it in isolation first.
 
-- [ ] **3.11 Commit** — `feat: add mt data tick run verb`
+- [x] **3.11 Commit** — `feat: add mt data tick run verb`
 
 ---
 

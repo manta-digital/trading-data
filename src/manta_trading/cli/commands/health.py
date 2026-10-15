@@ -29,6 +29,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any
 
 import psycopg
@@ -76,6 +77,16 @@ OHLCV_CAGG_VIEWS: tuple[str, ...] = (
 )
 
 
+class CheckSeverity(StrEnum):
+    """Whether a check counts toward the verdict (234 TD6)."""
+
+    VERDICT = "verdict"
+    """Fails health when it fails."""
+
+    INFORMATIONAL = "informational"
+    """Printed, never counted: the tick database's state."""
+
+
 @dataclass(frozen=True)
 class HealthCheck:
     """One verdict: what was checked, whether it passed, and the number."""
@@ -83,6 +94,11 @@ class HealthCheck:
     name: str
     ok: bool
     detail: str
+    severity: CheckSeverity = CheckSeverity.VERDICT
+
+    @property
+    def counted(self) -> bool:
+        return self.severity is CheckSeverity.VERDICT
 
 
 def _ago(now: datetime, then: datetime) -> str:
@@ -210,26 +226,39 @@ def verdict_line(checks: list[HealthCheck]) -> str:
     ``pass_runs`` cannot drift apart (slice 922, Decision 2: the health
     verdict lives in the detail, not the outcome).
     """
-    failing = sum(1 for c in checks if not c.ok)
+    counted = [c for c in checks if c.counted]
+    failing = sum(1 for c in counted if not c.ok)
     if failing == 0:
         return "healthy"
-    return f"UNHEALTHY: {failing} of {len(checks)} checks failing"
+    return f"UNHEALTHY: {failing} of {len(counted)} checks failing"
+
+
+def is_healthy(checks: list[HealthCheck]) -> bool:
+    """Every counted check passed; informational ones never decide it."""
+    return all(c.ok for c in checks if c.counted)
+
+
+def _status(check: HealthCheck) -> str:
+    if check.ok:
+        return "OK  "
+    return "FAIL" if check.counted else "INFO"
+
+
+def render_lines(checks: list[HealthCheck]) -> list[str]:
+    width = max(len(c.name) for c in checks)
+    return [f"{_status(c)} {c.name:<{width}}  {c.detail}" for c in checks]
 
 
 def render(checks: list[HealthCheck]) -> str:
-    width = max(len(c.name) for c in checks)
-    lines = [
-        f"{'OK  ' if c.ok else 'FAIL'} {c.name:<{width}}  {c.detail}" for c in checks
-    ]
-    lines.append(verdict_line(checks))
-    return "\n".join(lines)
+    return "\n".join([*render_lines(checks), verdict_line(checks)])
 
 
 def data_health(
     ctx: typer.Context,
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
-    """Check data freshness, cagg lag, minute session mass, and Kalshi phase recency.
+    """Check data freshness, cagg lag, minute session mass, Kalshi phase recency,
+    and the tick database and retention.
 
     Exit 0 when every check passes, 1 when any fails, 2 when the checks could
     not run (no database URL, unreachable database or provider).
@@ -247,6 +276,11 @@ def data_health(
     # Slice 922: the health run records itself so `mt data overview` can show
     # the verdict and when it was reached. Decision 2 puts the verdict in the
     # detail, not the outcome: a run that answered "UNHEALTHY" did its job.
+    # Slice 234 TD6: the tick rows are read first, on their own connection, so
+    # they print even when the primary is down. They never change the exit.
+    from manta_trading.cli.commands.health_tick import gather_tick
+
+    tick_checks = gather_tick(settings, now=datetime.now(UTC))
     with pass_run_recorder(settings) as recorder:
         run_id = recorder.open(PassKind.HEALTH) if recorder is not None else None
         try:
@@ -254,7 +288,7 @@ def data_health(
                 str(settings.timescale_db_url),
                 connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
             ) as conn:
-                checks = gather(conn, settings)
+                checks = [*gather(conn, settings), *tick_checks]
         except (psycopg.OperationalError, psycopg.errors.QueryCanceled) as exc:
             # QueryCanceled is the session-mass statement timeout: exit 2
             # (could not run) rather than reporting a mass we did not measure.
@@ -265,10 +299,12 @@ def data_health(
                     exit_code=EXIT_UNAVAILABLE,
                     detail=str(exc),
                 )
+            if not json_output:
+                print_result("\n".join(render_lines(tick_checks)), json_mode=False)
             print_error(f"health check could not run: {exc}", json_mode=json_output)
             raise typer.Exit(EXIT_UNAVAILABLE) from exc
 
-        healthy = all(c.ok for c in checks)
+        healthy = is_healthy(checks)
         exit_code = EXIT_HEALTHY if healthy else EXIT_UNHEALTHY
         if recorder is not None:
             recorder.close(

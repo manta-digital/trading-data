@@ -103,6 +103,8 @@ def _settings(**overrides):
     s = MagicMock()
     s.timescale_db_url = "postgresql://ts/db"
     s.eodhd_api_key = "k"
+    # 234: health reads the tick line too; unset means "not configured".
+    s.tick_db_url = None
     for k, v in overrides.items():
         setattr(s, k, v)
     return s
@@ -170,7 +172,8 @@ class TestCommand:
             result = runner.invoke(app, ["data", "health", "--json"])
         payload = json.loads(result.output)
         assert payload["healthy"] is False
-        assert [c["name"] for c in payload["checks"]] == ["a", "b"]
+        # 234: the tick database row follows the primary checks.
+        assert [c["name"] for c in payload["checks"]] == ["a", "b", "tick database"]
 
 
 # ---------------------------------------------------------------------------

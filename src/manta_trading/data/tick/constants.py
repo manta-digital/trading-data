@@ -396,3 +396,9 @@ TICK_API_CHECKOUT_TIMEOUT_SECONDS = 5
 #: Least interval between two ingest heartbeats ``mt data tick run`` writes to its
 #: ``pass_runs`` row; ``progress_updated_at`` moving is the run's liveness signal.
 TICK_HEARTBEAT_SECONDS = 30
+#: Days ahead of a job's download deadline at which ``tick retention`` fails
+#: health while the tick pass has no timer (234 TD5). With a timer, the window
+#: becomes "before the next firing".
+TICK_RETENTION_WARN_DAYS = 7
+#: What an operator runs to collect in-flight units: the production tick pass.
+TICK_RUN_UNIT_COMMAND = "mt-run tick"

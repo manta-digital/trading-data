@@ -64,6 +64,8 @@ def _settings(**overrides: Any) -> MagicMock:
     s = MagicMock()
     s.timescale_db_url = "postgresql://ts/db"
     s.eodhd_api_key = "k"
+    # 234: health reads the tick line too; unset means "not configured".
+    s.tick_db_url = None
     for key, value in overrides.items():
         setattr(s, key, value)
     return s
