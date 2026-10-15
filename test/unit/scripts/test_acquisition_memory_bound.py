@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -95,3 +96,54 @@ def test_members_excludes_other_slices(tmp_path: Path) -> None:
     (tmp_path / "none.service").write_text("[Service]\nType=oneshot\n")
     (tmp_path / "other.service").write_text("[Service]\nSlice=system.slice\n")
     assert amb.members(tmp_path) == ["in.service"]
+
+
+CANNED = {
+    "mt-minute-pass.service": [MINUTE_G_LINE],
+    "mt-daily-pass.service": [DAILY_M_LINE],
+    "mt-kalshi-pass.service": [KALSHI_FRACTIONAL_M_LINE],
+}
+
+
+@pytest.fixture
+def canned_journal(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+    journal = dict(CANNED)
+    monkeypatch.setattr(amb, "members", lambda: sorted(journal))
+    monkeypatch.setattr(amb, "read_journal", lambda unit: journal[unit])
+    return journal
+
+
+def test_main_prints_members_and_result(
+    canned_journal: dict[str, list[str]],
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert amb.main() == 0
+    out = capsys.readouterr().out
+    for unit in CANNED:
+        assert unit in out
+    assert "MemoryMax=14G" in out
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_main_exits_2_naming_a_member_without_a_peak(
+    canned_journal: dict[str, list[str]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    canned_journal["mt-daily-pass.service"] = [NO_PEAK_LINE]
+    assert amb.main() == 2
+    assert "mt-daily-pass.service" in capsys.readouterr().err
+
+
+def test_main_exits_2_on_a_failed_journal_read(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    failed = subprocess.CompletedProcess(
+        args=[], returncode=1, stdout="", stderr="Failed to open journal"
+    )
+    monkeypatch.setattr(amb.subprocess, "run", lambda *a, **k: failed)
+    assert amb.main() == 2
+    err = capsys.readouterr().err
+    assert "Failed to open journal" in err
+    assert ".service" in err
