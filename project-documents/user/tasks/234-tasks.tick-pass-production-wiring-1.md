@@ -13,7 +13,7 @@ projectState: >
   checkout. 233's MemoryMax=14G is declared in the repo and not in force.
 dateCreated: 20261014
 dateUpdated: 20261014
-status: not_started
+status: in_progress
 part: 1
 ---
 
@@ -73,58 +73,58 @@ Effort scale: 1 (trivial) to 5 (hardest).
 
 ## 1. Pass kind and manual schedule (LLD TD1) — effort 2
 
-- [ ] **1.1 Add `PassKind.TICK`**
-  - [ ] In `src/manta_trading/data/acquisition/pass_runs.py`, add `TICK = "tick"`
+- [x] **1.1 Add `PassKind.TICK`**
+  - [x] In `src/manta_trading/data/acquisition/pass_runs.py`, add `TICK = "tick"`
     to `PassKind` with a one-line docstring in the style of its siblings.
-  - [ ] Grep the repo for every `match`/`if` on `PassKind` and for every
+  - [x] Grep the repo for every `match`/`if` on `PassKind` and for every
     `for kind in PassKind` loop (`src`, `scripts`, `test`). List each in the
     commit message body and handle tick explicitly in each (Tasks 1.2–1.4 cover
     the schedule callers). No site may fall through to a default for tick.
-  - [ ] Success: `PassKind("tick")` resolves; mypy is clean on the touched files.
+  - [x] Success: `PassKind("tick")` resolves; mypy is clean on the touched files.
 
-- [ ] **1.2 Add `FiringSchedule.manual()` and the `schedule_for` branch**
-  - [ ] In `src/manta_trading/firing_schedule.py`, add a classmethod `manual()`
+- [x] **1.2 Add `FiringSchedule.manual()` and the `schedule_for` branch**
+  - [x] In `src/manta_trading/firing_schedule.py`, add a classmethod `manual()`
     returning a schedule with no times, and an `is_manual` property that is true
     only for it (not for any other empty schedule).
-  - [ ] `describe()` returns `manual (no timer)` for a manual schedule.
-  - [ ] `schedule_for(PassKind.TICK, ...)` returns `FiringSchedule.manual()`.
+  - [x] `describe()` returns `manual (no timer)` for a manual schedule.
+  - [x] `schedule_for(PassKind.TICK, ...)` returns `FiringSchedule.manual()`.
     The unreachable-branch `AssertionError` at the end stays.
-  - [ ] `next_firing_at` keeps raising on a schedule with no times. Do not make
+  - [x] `next_firing_at` keeps raising on a schedule with no times. Do not make
     it return `None` or a sentinel.
-  - [ ] Success: `schedule_for(PassKind.TICK).is_manual` is true and every other
+  - [x] Success: `schedule_for(PassKind.TICK).is_manual` is true and every other
     kind's is false.
 
-- [ ] **1.3 Make every `schedule_for` caller handle a manual schedule**
-  - [ ] `_pass_line` in `src/manta_trading/cli/commands/overview.py`: check
+- [x] **1.3 Make every `schedule_for` caller handle a manual schedule**
+  - [x] `_pass_line` in `src/manta_trading/cli/commands/overview.py`: check
     `is_manual` first and produce a pass line whose next firing reads `manual`.
     Remove the `RuntimeError` catch that exists to absorb an empty schedule; if
     other behaviour depends on it, keep the catch only for that and say why in a
     comment.
-  - [ ] `render_next_firings` in `src/manta_trading/cli/rendering/overview.py`:
+  - [x] `render_next_firings` in `src/manta_trading/cli/rendering/overview.py`:
     print `tick manual` for a manual kind instead of a time.
-  - [ ] The API model `_pass_line` in `api_server/models/operations.py`: confirm
+  - [x] The API model `_pass_line` in `api_server/models/operations.py`: confirm
     the next-firing field can carry "manual" (or its absence) without a schema
     break; if it cannot, stop and raise it with the Project Manager.
-  - [ ] Grep for any other caller of `schedule_for` or `next_firing_at` and
+  - [x] Grep for any other caller of `schedule_for` or `next_firing_at` and
     handle each.
-  - [ ] Success: `mt data overview` with a tick row renders without exception.
+  - [x] Success: `mt data overview` with a tick row renders without exception.
 
-- [ ] **1.4 Test: schedule and callers**
-  - [ ] In `test/unit/test_firing_schedule.py`, update the three tests that
+- [x] **1.4 Test: schedule and callers**
+  - [x] In `test/unit/test_firing_schedule.py`, update the three tests that
     iterate `PassKind` so a firing is asserted only for kinds that are not
     manual.
-  - [ ] Add one test (same file, no new guard module) asserting that
+  - [x] Add one test (same file, no new guard module) asserting that
     `schedule_for(kind).is_manual` holds if and only if
     `deploy/systemd/mt-{kind}-pass.timer` is absent, for every pass kind that
     has a `mt-{kind}-pass.service` file. Tick has its service after Task 5.1 (part 2);
     until then the test covers the kinds that already have units, and Task 5.3
     (part 2) confirms tick is included.
-  - [ ] Add tests: `describe()` text; `next_firing_at` still raises on a manual
+  - [x] Add tests: `describe()` text; `next_firing_at` still raises on a manual
     schedule; overview `_pass_line` and `render_next_firings` for tick.
-  - [ ] Add a test that the API overview response (find the existing test with
+  - [x] Add a test that the API overview response (find the existing test with
     `grep -rn "api/v1/overview" test/`) lists a `tick` pass whose next firing
     carries the manual value chosen in Task 1.3.
-  - [ ] Success: `uv run pytest test/unit/test_firing_schedule.py` and the
+  - [x] Success: `uv run pytest test/unit/test_firing_schedule.py` and the
     overview unit and API tests pass; ruff and mypy clean on touched files.
     Tests that seed a `pass_runs` row for every kind against the test cluster
     wait for Task 2.2, because the cluster rejects `tick` until migration 060
@@ -137,36 +137,36 @@ seeding tests, so Tasks 1 and 2 commit together at 2.4.)
 
 ## 2. Migration 060 and the API enum (LLD Database/Storage, API Contracts) — effort 2
 
-- [ ] **2.1 Write migration `060_pass_kind_tick`**
-  - [ ] In `src/manta_trading/market/schema/migrations/minute.py`, append the
+- [x] **2.1 Write migration `060_pass_kind_tick`**
+  - [x] In `src/manta_trading/market/schema/migrations/minute.py`, append the
     migration after `059_seed_cme_metals_calendar`. Follow the `kalshi_007`
     pattern: `DROP CONSTRAINT IF EXISTS pass_runs_pass_check`, then
     `ADD CONSTRAINT … CHECK ({_pass_kind_check_sql()})`.
-  - [ ] Check the migration registry for any position or count assertion that a
+  - [x] Check the migration registry for any position or count assertion that a
     new entry affects (migration-order notes near `055`).
-  - [ ] Success: the migration is listed by `mt data migrate status --track
+  - [x] Success: the migration is listed by `mt data migrate status --track
     minute` as pending against a database at 059.
 
-- [ ] **2.2 Test: migration 060**
-  - [ ] New `test/integration/test_migration_060_pass_kind_tick.py`, modelled on
+- [x] **2.2 Test: migration 060**
+  - [x] New `test/integration/test_migration_060_pass_kind_tick.py`, modelled on
     `test_migration_055_pass_runs.py`. Create a throwaway database at `055`,
     apply through `060`, and assert an insert with pass `tick` is accepted
     while an unknown pass is still rejected.
-  - [ ] Add the 060 id to any chain-end assertion that lists the expected last
+  - [x] Add the 060 id to any chain-end assertion that lists the expected last
     migration, except the known stale `chain_ends_at_052` test.
-  - [ ] Run the tests that seed a `pass_runs` row for every kind
+  - [x] Run the tests that seed a `pass_runs` row for every kind
     (`test_922_overview_nfr.py` and any found by grep for `for kind in
     PassKind` under `test/integration`) now that 060 applies.
-  - [ ] Success: the new test passes; no new failure in
+  - [x] Success: the new test passes; no new failure in
     `test_schema_migrations.py` or the every-kind seeding tests.
 
-- [ ] **2.3 Regenerate the API docs**
-  - [ ] Run `scripts/dump_openapi.py` to rewrite `docs/api/openapi.json`; the
+- [x] **2.3 Regenerate the API docs**
+  - [x] Run `scripts/dump_openapi.py` to rewrite `docs/api/openapi.json`; the
     `pass` enum gains `tick`. Run `scripts/check_api_docs.py`.
-  - [ ] Success: the diff of `openapi.json` is the enum addition only (plus any
+  - [x] Success: the diff of `openapi.json` is the enum addition only (plus any
     next-firing description change from Task 1.3); the schema test passes.
 
-- [ ] **2.4 Commit (Tasks 1 and 2 together)** —
+- [x] **2.4 Commit (Tasks 1 and 2 together)** —
   `feat: add PassKind.TICK, manual schedule and migration 060`
 
 ---
