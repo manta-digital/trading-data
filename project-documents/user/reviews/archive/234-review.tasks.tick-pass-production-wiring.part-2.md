@@ -6,7 +6,7 @@ slice: tick-pass-production-wiring
 conventionsSource: AGENTS.md
 projectRules: []
 project: trading-data
-verdict: CONCERNS
+verdict: PASS
 verdictSource: stated
 sourceDocument: project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md
 aiModel: claude-sonnet-5-5
@@ -14,137 +14,110 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261014
 dateUpdated: 20261014
-reviewedSha: 6cc42bcd731b61d42aaa1332807792d4119e0645
+reviewedSha: e0da9e17ed546c8f40e100c41d928bf79e3b4797
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 4
-durationSeconds: 52.0
+toolCallsMade: 6
+durationSeconds: 28.4
 runId: run-20261015-p5-7ef29d51
 squadronVersion: 0.21.9
 findings:
   - id: F001
     severity: pass
     category: coverage
-    summary: "Success-criteria coverage across both parts"
+    summary: "Success criteria coverage across parts 1 and 2"
     location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md"
   - id: F002
-    severity: concern
-    category: task-sizing
-    summary: "Task 7 is oversized, and its tests and commit are batched at the end"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:107-178"
+    severity: pass
+    category: sequencing
+    summary: "Sequencing and test-with pattern"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:34-321"
   - id: F003
     severity: concern
-    category: safety
-    summary: "The production migration needs a recorded Project Manager designation"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:135-137, 263-275"
+    category: task-sizing
+    summary: "Task 7.2 bundles scaffolding and five cutover steps"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:121-149"
   - id: F004
     severity: concern
-    category: safety
-    summary: "Task 10.3 starts real tick passes with no purchase guard"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:277-285"
+    category: task-sizing
+    summary: "Task 7.1 touches unknown callers with weak scoping"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:109-119"
   - id: F005
     severity: concern
-    category: sequencing
-    summary: "The release-ref task never says who pushes"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:256-261"
+    category: process
+    summary: "Task 9.2 ties the record of known failures to a commit that may not exist"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:256-259"
   - id: F006
-    severity: concern
-    category: hallucination-trap
-    summary: "A hardcoded byte value sits next to a \"parse from the unit\" instruction"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:157-160"
-  - id: F007
-    severity: concern
-    category: task-clarity
-    summary: "Task 9.3 contradicts itself about recording known failures"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:246-250"
-  - id: F008
-    severity: note
-    category: consistency
-    summary: "A forward reference between parts uses inconsistent task numbers"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:63-64"
-  - id: F009
     severity: note
     category: scope
-    summary: "Scope and outward-facing actions to confirm"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:223-226, 291-296"
-  - id: F010
+    summary: "Proportionality and scope"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:57-66"
+  - id: F007
     severity: note
-    category: proportionality
-    summary: "Proportionality is acceptable"
-    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md"
+    category: safety
+    summary: "Destructive-DB gating is handled"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:130-133"
+  - id: F008
+    severity: note
+    category: coverage
+    summary: "Verification of TD2 double start is placed in execution, not as an automated test"
+    location: "project-documents/user/tasks/234-tasks.tick-pass-production-wiring-2.md:301-304"
 ---
 
 # Review: tasks — slice 234
 
-**Verdict:** CONCERNS
+**Verdict:** PASS
 **Model:** claude-sonnet-5-5
 
 ## Findings
 
-### [PASS] Success-criteria coverage across both parts
+### [PASS] Success criteria coverage across parts 1 and 2
 
-Each LLD criterion that falls in part 2 maps to a task:
-- **Functional 7 (`add-tick-env.sh`):** Tasks 6.1–6.2.
-- **Technical 3 (deploy tests):** Task 5.3.
-- **Technical 6 (static checks and test tiers):** Task 9.
-- **Technical 7 (runbook 100):** Task 8.1.
-- **Technical 8 (Kalshi contract diff and slice-mapping rows):** Tasks 8.2–8.3.
-- **Integration 1 (cutover report):** Tasks 7 and 10.2.
-- **Integration 2 (`mt-serve` serving `/api/v1/futures/*`):** Task 10.3.
-- **Architecture supersession and the realtime-paths and API answers:** Task 8.4.
+Part 2 covers every slice criterion that is not in part 1.
+- Functional 7 (`add-tick-env.sh`) is covered by Tasks 6.1–6.2.
+- Technical 3 (deploy tests) is covered by 5.3.
+- Technical 6 (static checks and test tiers) is covered by 9.1–9.2.
+- Technical 7 (runbook 100) is covered by 8.1.
+- Technical 8 (the 220 obligations) is covered by 8.2–8.3.
+- Integration 1 and 2 (cutover report, `/api/v1/futures/*`) are covered by 10.2–10.3.
+- The superseded architecture statements are covered by 8.4.
+- The cutover's nine steps in TD4 map one-to-one onto 7.2 and 7.4.
 
-Criteria in part 1 (Functional 1–6, Technical 1, 2, 4 and 5) are covered there, including the openapi regeneration in Task 2.3. The slice states no NFR, so no load test or CI-gating task is required. No task fails to trace to a criterion.
+I checked part 1 only by grep. It carries `openapi.json` regeneration, the heartbeat, the abandoned-row test, `units_near_deadline` and the manual-iff-no-timer test, so I found no gap between the two parts.
 
-### [CONCERN] Task 7 is oversized, and its tests and commit are batched at the end
+### [PASS] Sequencing and test-with pattern
 
-Task 7 (effort 4) holds four pieces of work with one commit and no tests until 7.4:
-- a refactor of shared `cutover_common.migrate`, which has existing callers;
-- nine cutover steps, split across 7.2 and 7.3;
-- one test task covering every step;
-- a single commit, 7.5.
+Dependencies run in order: unit and kinds (5), then env script (6), then cutover script (7), then docs (8), then validation (9), then execution (10). Each implementation task is followed by its test task. The commit checkpoints are spread across the file: 5.4, 6.3, 7.1, 7.3, 7.5, 8.5, 9.3 and 10.4. No dependency is circular. The LLD's step 7 → step 8 adjacency is kept by 7.4 and tested in 7.5. The merge is correctly left to Phase 7 (10.4).
 
-This breaks the test-with pattern, since 7.1–7.3 have no tests directly after them. It also puts a behaviour-preserving refactor (7.1) and new feature code into one `feat:` commit. Suggested fix:
-- Make 7.1 its own `refactor:` commit with the `migrate` track test.
-- Split 7.4 so steps 1–5 are tested right after 7.2 and steps 6–9 right after 7.3, each with a commit.
-- Alternatively, split Task 7 into 7a (generalise `migrate`) and 7b (the script).
+### [CONCERN] Task 7.2 bundles scaffolding and five cutover steps
 
-### [CONCERN] The production migration needs a recorded Project Manager designation
+Task 7.2 covers the module scaffolding and report writer, timer hold and release, the `--pm-designation` gate, and cutover steps 1–5. Those steps include a chgrp/chmod pass, a migration and an install. Its only success criterion is "the module imports; a dry listing shows steps 1–5", so a junior AI gets no feedback until 7.3. Split off the scaffolding (STEPS runner, report, hold/release in `finally`, `--pm-designation`) as its own sub-task with a small test, then add the steps. Alternatively, move the 7.3 scaffolding tests ahead of the step implementations.
 
-Step 3 runs migration 060 against the production minute database. It is an `ALTER … DROP/ADD CONSTRAINT`. CLAUDE.md allows destructive or ALTER statements only on a database the process created or one the Project Manager explicitly designated. The task says the single Project Manager act is the `add-tick-env.sh` run, and "Every other step needs no Project Manager action." That claim conflicts with the rule for the migration (and the `mt-serve` restart). Add an explicit precondition to 10.2: the Project Manager confirms the cutover may migrate production. Alternatively, cite where the existing 227 and 921 cutover pattern records that standing authorization.
+### [CONCERN] Task 7.1 touches unknown callers with weak scoping
 
-### [CONCERN] Task 10.3 starts real tick passes with no purchase guard
+The task says "others found by grep" and "check how `verify_migrate_target` and `_migrate_status` pick the track", so its size is unknown. The existing `scripts/cutover_*` files include 265, 267, 268, 921 and 922. The success criterion names only the 267, 921 and 227 tests, and not the 265, 268 and 922 callers. Add a requirement that every `cutover_*.py` caller is updated, and that each caller's test (if one exists) runs. If a caller has no test, state that.
 
-The estimate-only guard protects only the cutover's step 8 firing. Task 10.3 then runs `sudo mt-run tick` and a concurrent double start, which are full-universe passes with production spend ceilings set. The slice's own risk section says availability can move between check and firing, so a later run can buy. Nothing in 10.3 re-runs the estimate-only check first or says what to do if a run purchased. Add a pre-run estimate-only step, plus an instruction to record each run's purchase count and stop if it is non-zero. The double-start check does not need two real passes. It could use the already-active unit state or a run that finds nothing wanted.
+### [CONCERN] Task 9.2 ties the record of known failures to a commit that may not exist
 
-### [CONCERN] The release-ref task never says who pushes
+The known pre-existing failures are to be recorded "in the body of the Task 9.3 commit if one is made, otherwise in the Task 10.4 commit". That ties a validation record to a commit that is conditional and unrelated to it, and 10.4 is a docs commit. Record the list in the cutover or closeout notes instead, or in the report. This is minor.
 
-Task 10.1 says "Confirm the slice commits are pushed to origin", but no task performs the push. Step 1 of the cutover requires the ref on origin, and a push is outward-facing. State it explicitly. Either "push the slice branch (with Project Manager approval)" or "stop and ask the Project Manager to push if it is not on origin".
+### [NOTE] Proportionality and scope
 
-### [CONCERN] A hardcoded byte value sits next to a "parse from the unit" instruction
+The tests are scoped to the slice criteria. There are no unrelated test tasks and no load test, which fits because the slice restates no NFR. The 6.2 testing of the root-only chown/chmod through an injectable prefix is justified by Functional 7's `0640 root:manta-trading` requirement. The split into two task files is reasonable for a slice of this size. Every task traces to a slice criterion or to the standing 220 obligations, so I found no scope creep.
 
-Step 8 says to compare `memory.max` with "the value parsed from the installed `manta-acquisition.slice` `MemoryMax` (14G = 15032385536 bytes)". This is the trap in CLAUDE.md: if the parse returns nothing, the nearby literal becomes the expected value and the check passes against a constant. Remove the byte figure from the instruction. Make the step fail if the parse yields nothing, and keep 14G only as a test-fixture value in 7.4.
+### [NOTE] Destructive-DB gating is handled
 
-### [CONCERN] Task 9.3 contradicts itself about recording known failures
+Migration 060 drops and re-adds a constraint on production. The task makes that step refuse to run without `--pm-designation` (7.2), and 10.1 requires the Project Manager's explicit designation. This complies with CLAUDE.md. The push to origin also waits on Project Manager confirmation, and the issue #33/#34 posts wait on confirmation too.
 
-Task 9.2 requires the known failures seen to be "recorded in the commit message body". Task 9.3 commits "only if fixes were needed", otherwise noting the result "in the next commit body". If no fixes are needed, there is no commit to carry the record. Task 9 is also mostly a re-run of the per-task checks, so consider folding it into Task 10. Alternatively, record the result in the cutover report or closeout commit and drop the conditional commit.
+### [NOTE] Verification of TD2 double start is placed in execution, not as an automated test
 
-### [NOTE] A forward reference between parts uses inconsistent task numbers
-
-Part 1 Task 1.4 says "Task 5.2 confirms tick is included" in the manual-iff-no-timer test. In part 2 that confirmation sits in Task 5.3. Align the reference so the check is not missed.
-
-### [NOTE] Scope and outward-facing actions to confirm
-
-- **CHANGELOG (8.5):** the CHANGELOG entry is not in the LLD scope. It is harmless and bounded by "do not bump a version", but it is an addition.
-- **GitHub issues (10.4):** closing issue #33 and commenting on #34 are outward-facing. They are instructed explicitly, but they should wait for the cutover report to show `memory.max` in force and `oom_kill` 0. The task already ties them to the report.
-
-### [NOTE] Proportionality is acceptable
-
-Ten tasks across two files for a slice with a nine-step production cutover is reasonable. Tasks 5.1–5.2 (the unit file and the `UNITS` and `KINDS` registration), 6 and 8 are well sized. The tests in 5.3, 6.2 and 7.4 each trace to a design requirement. The cutover tests in 7.4 are numerous, but each lists a behaviour from TD4.
+The slice asks for "a deploy-tier or cutover check" that starts the unit twice and asserts one `TICK` row. Task 10.3 does this manually during execution. That satisfies the slice wording. Any future regression would not be caught automatically, but adding a test is not required by the slice.
 
 ### Run Digest
 
-- Response length: 7239 chars
+- Response length: 5065 chars
 - Response is newline-free: no
-- Tool calls made: 4
+- Tool calls made: 6
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -154,10 +127,10 @@ Ten tasks across two files for a slice with a nine-step production cutover is re
 - Effort: backend default
 - Turns: not computed
 - Tokens — prompt / cached / completion / reasoning: not computed / not computed / not computed / not computed
-- Duration: 52.0 s
+- Duration: 28.4 s
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 10
+- Finding-shaped matches — whole response: 8
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 10
-- Finding-shaped matches — surviving validation: 10
+- Finding-shaped matches — in findings section: 8
+- Finding-shaped matches — surviving validation: 8
