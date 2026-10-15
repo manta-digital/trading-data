@@ -7,7 +7,7 @@ dependencies: [226-slice.proof-on-existing-data]
 interfaces: [234-slice.tick-pass-production-wiring]
 dateCreated: 20261014
 dateUpdated: 20261014
-status: not_started
+status: complete
 ---
 
 # Slice Design: Cross-Source Acquisition Arbitration
@@ -376,6 +376,19 @@ Run from the checkout root on manta9000.
 
    Expected: three members (minute, daily, Kalshi), each with its 30-day
    peak (minute about 6.2 G), and the result in GiB (about 14). Exit 0.
+   Actual, 2026-10-14:
+
+   ```
+   mt-daily-pass.service            426.1 MiB
+   mt-kalshi-pass.service           318.1 MiB
+   mt-minute-pass.service          6348.8 MiB
+   sum 6.93 GiB x 2 -> MemoryMax=14G (30-day window)
+   ```
+
+   Peaks move as the 30-day window slides; the result must equal the
+   `MemoryMax=` in the slice file. Exit 2 with the unit named on stderr means
+   a member's journal could not be read or holds no `memory peak` line
+   (for example a unit that has never fired).
 2. **Set the bound.** Write the result into
    `deploy/systemd/manta-acquisition.slice`, then run:
 
@@ -383,14 +396,15 @@ Run from the checkout root on manta9000.
    uv run pytest test/unit/deploy/test_units.py test/unit/scripts/test_acquisition_memory_bound.py -q
    ```
 
-   Expected: all pass.
+   Expected: all pass (60 tests on 2026-10-14).
 3. **Check the file.**
 
    ```bash
    systemd-analyze verify deploy/systemd/manta-acquisition.slice
    ```
 
-   Expected: no output about `MemoryMax`.
+   Expected: no output at all, exit 0 (as on 2026-10-14). Findings and
+   measured outputs: `user/notes/2026-10-14-233-findings.md`.
 
 ## Risk Assessment
 
