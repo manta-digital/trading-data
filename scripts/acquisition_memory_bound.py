@@ -31,6 +31,7 @@ ACQUISITION_SLICE = "manta-acquisition.slice"
 
 SYSTEMD_DIR = Path(__file__).resolve().parents[1] / "deploy" / "systemd"
 
+MIB = 1024**2
 GIB = 1024**3
 
 # systemd formats sizes base-1024 (format_bytes); a bare number is bytes.
@@ -97,7 +98,11 @@ def read_journal(unit: str) -> list[str]:
         "--since",
         f"-{JOURNAL_WINDOW_DAYS}d",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        # A host without journalctl is an environment error, not a bug.
+        raise MemoryBoundError(f"{unit}: cannot run journalctl: {exc}") from exc
     if result.returncode != 0:
         raise MemoryBoundError(
             f"{unit}: journalctl exited {result.returncode}: {result.stderr.strip()}"
@@ -114,6 +119,7 @@ def derive(
 
 
 def main() -> int:
+    """Print each member's peak and the bound; exit 0, or 2 on a failed read."""
     try:
         peaks, result = derive(members(), read_journal)
     except MemoryBoundError as exc:
@@ -122,7 +128,7 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     for unit, peak in peaks.items():
-        print(f"{unit:<28} {peak / 1024**2:>9.1f} MiB")
+        print(f"{unit:<28} {peak / MIB:>9.1f} MiB")
     total = sum(peaks.values()) / GIB
     print(
         f"sum {total:.2f} GiB x {MEMORY_BOUND_HEADROOM} -> MemoryMax={result}G "

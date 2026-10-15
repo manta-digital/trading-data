@@ -91,10 +91,15 @@ def test_members_from_real_unit_files() -> None:
 
 def test_members_excludes_other_slices(tmp_path: Path) -> None:
     (tmp_path / "in.service").write_text(
-        "[Service]\nType=oneshot\n  Slice = manta-acquisition.slice \n"
+        "[Service]\nType=oneshot\n  Slice = manta-acquisition.slice \n",
+        encoding="utf-8",
     )
-    (tmp_path / "none.service").write_text("[Service]\nType=oneshot\n")
-    (tmp_path / "other.service").write_text("[Service]\nSlice=system.slice\n")
+    (tmp_path / "none.service").write_text(
+        "[Service]\nType=oneshot\n", encoding="utf-8"
+    )
+    (tmp_path / "other.service").write_text(
+        "[Service]\nSlice=system.slice\n", encoding="utf-8"
+    )
     assert amb.members(tmp_path) == ["in.service"]
 
 
@@ -142,8 +147,19 @@ def test_main_exits_2_on_a_failed_journal_read(
     failed = subprocess.CompletedProcess(
         args=[], returncode=1, stdout="", stderr="Failed to open journal"
     )
-    monkeypatch.setattr(amb.subprocess, "run", lambda *a, **k: failed)
+    monkeypatch.setattr(amb.subprocess, "run", lambda *args, **kwargs: failed)
     assert amb.main() == 2
     err = capsys.readouterr().err
     assert "Failed to open journal" in err
     assert ".service" in err
+
+
+def test_main_exits_2_without_journalctl(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def missing(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("journalctl")
+
+    monkeypatch.setattr(amb.subprocess, "run", missing)
+    assert amb.main() == 2
+    assert "cannot run journalctl" in capsys.readouterr().err
