@@ -187,46 +187,46 @@ part: 2
 
 ## 8. Documentation and standing 220 obligations — effort 2
 
-- [ ] **8.1 Runbook 100**
-  - [ ] In `project-documents/user/runbooks/100-production-operations.md`: add
+- [x] **8.1 Runbook 100**
+  - [x] In `project-documents/user/runbooks/100-production-operations.md`: add
     the tick unit row to "The units" (oneshot, no timer, manual via `sudo
     mt-run tick`, `TimeoutStartSec=4h`), the five tick keys to "Environment
     file" (and a note that `MT_TICK_MAINTENANCE_URL` is never present), the
     `add-tick-env.sh` one-time step, the retention health row and its action,
     and the "stage a source under `/data`" note from the LLD Special
     Considerations. Add a Revision Log line.
-  - [ ] Success: every statement matches the unit file, `KINDS`, and script.
+  - [x] Success: every statement matches the unit file, `KINDS`, and script.
 
-- [ ] **8.2 Kalshi contract diff (standing 220 obligation)**
-  - [ ] Diff the tick pass contract (`data/tick/pass_contract.py`, the new
+- [x] **8.2 Kalshi contract diff (standing 220 obligation)**
+  - [x] Diff the tick pass contract (`data/tick/pass_contract.py`, the new
     `run` verb) against the Kalshi original (`cli/commands/kalshi.py` pass:
     recorder use, outcome map, exit codes, best-effort contract). Record the
     differences and why each is justified in the slice design's section or a
     short note in `project-documents/user/notes/`, wherever the other 220
     slices record theirs (look at 225/230 for precedent).
-  - [ ] Success: a written diff exists with no unexplained difference.
+  - [x] Success: a written diff exists with no unexplained difference.
 
-- [ ] **8.3 Data-correctness contract mapping rows**
-  - [ ] Add the 234 rows to the slice-mapping table of the data-correctness
+- [x] **8.3 Data-correctness contract mapping rows**
+  - [x] Add the 234 rows to the slice-mapping table of the data-correctness
     contract (find it with `grep -rl "slice-mapping"` under `project-documents`;
     the table is referenced from the 220 architecture and slice plan). Rows
     state which invariants 234 touches (the pass-run record and health lines;
     no data invariant changes).
-  - [ ] Success: table rows present in the format of the neighbouring rows.
+  - [x] Success: table rows present in the format of the neighbouring rows.
 
-- [ ] **8.4 Architecture Revision Log and Cadence text**
-  - [ ] In `220-arch.data-acquisition-futures-tick-primary-focus.md`, reword the
+- [x] **8.4 Architecture Revision Log and Cadence text**
+  - [x] In `220-arch.data-acquisition-futures-tick-primary-focus.md`, reword the
     Cadence sentence "no `schedule_for` branch, no `PassKind.TICK` firing
     calendar" and the Escalation sentence "deadline before the next scheduled
     firing" to match the slice (LLD "Architecture statements superseded"), and
     add the two Revision Log entries. Preserve any "User-Provided Concept"
     sections exactly.
-  - [ ] Realtime-paths and API answers: confirm the LLD's two answers are
+  - [x] Realtime-paths and API answers: confirm the LLD's two answers are
     recorded in the slice plan entry for 234 (update it if the plan entry still
     says three env keys or omits `run`).
-  - [ ] Success: the architecture text and the LLD no longer contradict.
+  - [x] Success: the architecture text and the LLD no longer contradict.
 
-- [ ] **8.5 Commit** — `docs: record 234 runbook, contract diff, and architecture revisions`
+- [x] **8.5 Commit** — `docs: record 234 runbook, contract diff, and architecture revisions`
 
 ---
 
