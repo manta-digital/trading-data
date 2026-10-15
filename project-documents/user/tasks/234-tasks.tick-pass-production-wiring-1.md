@@ -41,7 +41,11 @@ part: 1
   pass "accepts" a thread-safe per-batch callback, handed over by 225. In the
   code it does not: `IngestInputs` (`data/tick/ingest_pass.py`) has no such
   field and `_copy` in `ingest_worker.py` reports nothing per batch. Task 3.3
-  adds both ends.
+  adds both ends. The LLD's Excluded list bars changes to "the tick pass
+  logic"; the callback is an optional, additive reporting hook that LLD Data
+  Flow step 2 requires, and Task 3.3 may not change what is loaded, checked or
+  committed. This reading is flagged for the Project Manager's confirmation
+  before Task 3.3 starts.
 - Constraints that bind every task:
   - Nothing is bought. No test or script may call the provider's purchase path.
   - Destructive SQL only against a database the process created (CLAUDE.md).
@@ -113,14 +117,21 @@ Effort scale: 1 (trivial) to 5 (hardest).
     `schedule_for(kind).is_manual` holds if and only if
     `deploy/systemd/mt-{kind}-pass.timer` is absent, for every pass kind that
     has a `mt-{kind}-pass.service` file. Tick has its service after Task 5.1 (part 2);
-    until then the test covers the kinds that already have units, and Task 5.2
-    confirms tick is included.
+    until then the test covers the kinds that already have units, and Task 5.3
+    (part 2) confirms tick is included.
   - [ ] Add tests: `describe()` text; `next_firing_at` still raises on a manual
     schedule; overview `_pass_line` and `render_next_firings` for tick.
+  - [ ] Add a test that the API overview response (find the existing test with
+    `grep -rn "api/v1/overview" test/`) lists a `tick` pass whose next firing
+    carries the manual value chosen in Task 1.3.
   - [ ] Success: `uv run pytest test/unit/test_firing_schedule.py` and the
-    overview unit tests pass; ruff and mypy clean on touched files.
+    overview unit and API tests pass; ruff and mypy clean on touched files.
+    Tests that seed a `pass_runs` row for every kind against the test cluster
+    wait for Task 2.2, because the cluster rejects `tick` until migration 060
+    applies.
 
-- [ ] **1.5 Commit** — `feat: add PassKind.TICK and manual firing schedule`
+(No commit here: `PassKind.TICK` without migration 060 breaks every-kind
+seeding tests, so Tasks 1 and 2 commit together at 2.4.)
 
 ---
 
@@ -143,8 +154,11 @@ Effort scale: 1 (trivial) to 5 (hardest).
     while an unknown pass is still rejected.
   - [ ] Add the 060 id to any chain-end assertion that lists the expected last
     migration, except the known stale `chain_ends_at_052` test.
+  - [ ] Run the tests that seed a `pass_runs` row for every kind
+    (`test_922_overview_nfr.py` and any found by grep for `for kind in
+    PassKind` under `test/integration`) now that 060 applies.
   - [ ] Success: the new test passes; no new failure in
-    `test_schema_migrations.py`.
+    `test_schema_migrations.py` or the every-kind seeding tests.
 
 - [ ] **2.3 Regenerate the API docs**
   - [ ] Run `scripts/dump_openapi.py` to rewrite `docs/api/openapi.json`; the
@@ -152,7 +166,8 @@ Effort scale: 1 (trivial) to 5 (hardest).
   - [ ] Success: the diff of `openapi.json` is the enum addition only (plus any
     next-firing description change from Task 1.3); the schema test passes.
 
-- [ ] **2.4 Commit** — `feat: add migration 060 pass_kind_tick and regenerate openapi`
+- [ ] **2.4 Commit (Tasks 1 and 2 together)** —
+  `feat: add PassKind.TICK, manual schedule and migration 060`
 
 ---
 
@@ -181,8 +196,10 @@ Effort scale: 1 (trivial) to 5 (hardest).
     vocabulary (storage and provider exits ranked above refused, in-flight,
     partial), not from a copy of the same list.
   - [ ] Success: tests pass.
+  - [ ] Commit — `feat: add tick outcome severity fold and pass-run outcome map`
 
-- [ ] **3.3 Ingest per-batch progress callback**
+- [ ] **3.3 Ingest per-batch progress callback** (after the Project Manager
+  confirms the scope reading in the Context Summary)
   - [ ] Add an optional thread-safe callback field to `IngestInputs`
     (`data/tick/ingest_pass.py`) that receives the row count of each `COPY`
     batch a worker commits. Default is "none"; the existing `mt data tick
@@ -205,10 +222,10 @@ Effort scale: 1 (trivial) to 5 (hardest).
     unit reports only what it committed or nothing, as the worker's
     transaction semantics dictate (assert what the code does and document it).
   - [ ] Success: tests pass; existing ingest tests unchanged.
+  - [ ] Commit — `feat: add optional per-batch progress hook to tick ingest`
 
 - [ ] **3.5 Heartbeat throttle**
-  - [ ] Add `TICK_HEARTBEAT_SECONDS = 30` to `data/tick/constants.py`
-    (and `TICK_RETENTION_WARN_DAYS = 7`, used by Task 4.1).
+  - [ ] Add `TICK_HEARTBEAT_SECONDS = 30` to `data/tick/constants.py`.
   - [ ] New small module (beside the `run` verb) holding a throttled reporter:
     it accumulates counts from the callback and calls
     `recorder.progress(run_id, phase="ingest", done=<rows loaded>,
@@ -225,6 +242,7 @@ Effort scale: 1 (trivial) to 5 (hardest).
     count; the closing flush happens exactly once; concurrent callers do not
     lose counts.
   - [ ] Success: tests pass.
+  - [ ] Commit — `feat: add throttled ingest heartbeat reporter`
 
 - [ ] **3.7 Implement `mt data tick run`**
   - [ ] Add the verb beside the other tick verbs (a sibling module of
@@ -273,7 +291,7 @@ Effort scale: 1 (trivial) to 5 (hardest).
   - [ ] Success: both tests pass on the test cluster. If the run test hits a
     known integration flake, re-run it in isolation first.
 
-- [ ] **3.10 Commit** — `feat: add mt data tick run with outcome fold and ingest heartbeat`
+- [ ] **3.10 Commit** — `feat: add mt data tick run verb`
 
 ---
 
@@ -286,6 +304,8 @@ Effort scale: 1 (trivial) to 5 (hardest).
     `download_deadline < now + window`, deadlines already past included.
     Take state names from `data/tick/constants.py`; do not write them as
     literals. Return job id and deadline.
+  - [ ] Add `TICK_RETENTION_WARN_DAYS = 7` to `data/tick/constants.py`; Task
+    4.3 passes it as the window.
   - [ ] Success: the function is typed and uses parameters, not string-built
     SQL.
 
