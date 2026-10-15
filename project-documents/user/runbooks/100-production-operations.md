@@ -101,7 +101,7 @@ would either do nothing or install a second, unrelated copy.
 | `mt-accounting-pass.service` | oneshot pass | `mt data accounting` — counts expected vs covered minute symbol-sessions; records the universe line `mt data overview` prints |
 | `mt-accounting-pass.timer` | timer | fires the accounting pass **daily at 16:30 UTC**, after the day's collecting firings |
 | `mt-serve.service` | long-running | the API server; `Restart=on-failure` |
-| `manta-acquisition.slice` | grouping | home for acquisition passes; carries no resource limits yet |
+| `manta-acquisition.slice` | grouping | home for acquisition passes; bounded by `MemoryMax`, derived by `scripts/acquisition_memory_bound.py` (slice 233); in force from the release that follows 234 |
 
 ### Adding a source or pass
 
@@ -128,7 +128,13 @@ it; the steps are:
    unit names are derived from the kind. A scheduled-only check (health,
    accounting) does not need this; `mt-run status` lists every `mt-*` timer
    regardless.
-7. **Install and enable explicitly:** `sudo ./deploy/install-production.sh
+7. **If the unit sets `Slice=manta-acquisition.slice`, re-derive the
+   slice's `MemoryMax`:** `uv run python scripts/acquisition_memory_bound.py`,
+   then copy the result into `MemoryMax=` in
+   `deploy/systemd/manta-acquisition.slice` and the inputs and date into its
+   comment. The script exits 2 until the new unit has run once and logged a
+   `memory peak`; that is intended, since there is no default peak.
+8. **Install and enable explicitly:** `sudo ./deploy/install-production.sh
    --ref <tag>` then `sudo systemctl enable --now mt-<name>.timer`. The
    installer enables nothing on purpose.
 
@@ -728,7 +734,13 @@ Checklist for a new bounded pass (e.g. a Kalshi pass):
 6. Add the kind to `KINDS` in `deploy/mt-run` — that one line is what gives
    the source its `mt-run {kind}`, `mt-run follow {kind}`, and its row in
    `mt-run status`; the wrapper derives the unit name from the kind.
-7. PM: re-run the install script, then `sudo systemctl enable --now
+7. **If the unit sets `Slice=manta-acquisition.slice`, re-derive the
+   slice's `MemoryMax`:** `uv run python scripts/acquisition_memory_bound.py`,
+   then copy the result into `MemoryMax=` in
+   `deploy/systemd/manta-acquisition.slice` and the inputs and date into its
+   comment. The script exits 2 until the new unit has run once and logged a
+   `memory peak`; that is intended, since there is no default peak.
+8. PM: re-run the install script, then `sudo systemctl enable --now
    mt-{name}-pass.timer`.
 
 Two limits of the pattern, stated so they are not rediscovered:
@@ -737,9 +749,14 @@ Two limits of the pattern, stated so they are not rediscovered:
   plausible shape for Databento tick capture) is a `Type=simple` unit like
   `mt-serve` — with historical backfill as a separate pass unit.
 - systemd serializes a unit only against **itself**. Two different pass units
-  run concurrently with no priority and no queue; cross-source arbitration does
-  not exist yet (Future Work 4 in the foundation-cleanup slice plan). Until it
-  does, avoid overlap by choosing `OnCalendar` times by hand.
+  run concurrently with no priority and no queue. Calendar stagger is the
+  arbitration mechanism, kept on purpose (slice 233): minute and daily share
+  EODHD's quota, which is why they start 30 minutes apart, and the overlaps
+  measured so far (Kalshi × tick, Kalshi × heavy minute pass) slowed nothing.
+  Choose `OnCalendar` times by hand so passes do not overlap. Reopen this if a
+  pass slows measurably when it overlaps another (`pass_runs` durations), or
+  when a `Type=simple` streaming source arrives, since a continuous load
+  cannot be staggered.
 
 ## Pausing a source
 
