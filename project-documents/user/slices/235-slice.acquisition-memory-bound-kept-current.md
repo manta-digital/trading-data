@@ -56,18 +56,18 @@ This slice takes the person out of that loop:
 
 1. Migration `061_pass_runs_memory_peak` on the minute track (primary
    database): two nullable columns on `pass_runs`, `memory_peak_bytes` and
-   `systemd_unit`, with a CHECK that both are null or both are set.
+   `systemd_unit`.
 2. A cgroup reader, `manta_trading/data/acquisition/cgroup_peak.py`: this
    process's service unit name and its `memory.peak`.
 3. `PassRunRecorder.close` and `PassRunRepository.close` record the peak.
    Every pass kind gets it, because all six close through the same recorder.
 4. The rule module, `manta_trading/data/acquisition/memory_bound.py`. It holds
    the headroom and window constants, member discovery from installed unit
-   files, the derivation from `pass_runs`, the loaded-value read, and the
-   drop-in text. It is the only place the rule exists.
+   files, the derivation from `pass_runs`, and the loaded-value read. It is
+   the only place the rule exists.
 5. `scripts/acquisition_memory_bound.py` is rewritten as a thin entry point
-   over the module. It reads `pass_runs` instead of the journal and gains
-   `--dropin`.
+   over the module. It reads `pass_runs` instead of the journal and prints
+   `MemoryMax=<N>G` as its only stdout line.
 6. The health check `acquisition memory bound`, in
    `cli/commands/health_memory_bound.py`.
 7. `deploy/lib/memory_bound_dropin.sh`, sourced by `install-production.sh`:
@@ -78,7 +78,8 @@ This slice takes the person out of that loop:
    `upgrade_production.py` refuse, so this release needs its own cutover.
 10. Documentation updates: runbook 100's "Adding a source or pass" (the
     hand re-derive step that 233 added is removed), the slice unit's comment,
-    and the CHANGELOG.
+    the CHANGELOG, and a dated slice-235 entry in the 220 architecture
+    document (see "Architecture statements superseded").
 
 **Excluded**
 
@@ -134,7 +135,7 @@ data/acquisition/daemon/pass_run_recorder.py   close() reads the peak, never rai
 data/acquisition/memory_bound.py       the rule: constants, members, derive, loaded value, drop-in text
 market/schema/migrations/minute.py     061_pass_runs_memory_peak
 cli/commands/health_memory_bound.py    the health row
-scripts/acquisition_memory_bound.py    CLI over memory_bound (print | --dropin)
+scripts/acquisition_memory_bound.py    CLI over memory_bound: report on stderr, MemoryMax=<N>G on stdout
 deploy/lib/memory_bound_dropin.sh      install step: derive as service user, write drop-in
 deploy/install-production.sh           sources the lib, calls it before daemon-reload
 deploy/systemd/manta-acquisition.slice comment rewritten; MemoryMax=14G stays as the bootstrap value
@@ -151,13 +152,13 @@ pass process (in mt-*-pass.service cgroup)
        └─ UPDATE pass_runs SET …, memory_peak_bytes, systemd_unit
 
 /etc/systemd/system/*.service with Slice=manta-acquisition.slice ──► members
-pass_runs: max(memory_peak_bytes) per systemd_unit, ended_at in last 30 d ──► peaks
-memory_bound.derive(members, peaks) ──► ceil_GiB(2 × Σ peaks)  | MemoryBoundError(member)
+pass_runs: max(memory_peak_bytes) per systemd_unit, ended_at in last 30 d (else newest) ──► peaks
+memory_bound.derive(members, peaks) ──► ceil_GiB(2 × Σ peaks)  | MemoryBoundError(never-measured member)
 
         ┌─ health:   systemctl show manta-acquisition.slice → LoadState, MemoryMax
         │            FAIL unless loaded, finite and ≥ derived
 derive ─┤
-        └─ install:  systemd-run --uid=manta-trading … acquisition_memory_bound.py --dropin
+        └─ install:  systemd-run --uid=manta-trading … acquisition_memory_bound.py
                      exit 0 → write manta-acquisition.slice.d/memory-bound.conf → daemon-reload
                      exit 2 → loud "NOT RE-DERIVED: <reason>", value in force unchanged
 ```
@@ -192,17 +193,16 @@ integer.
   which an RSS figure would miss.
 - **Read at close, not at exit.** The close is the last thing a pass writes,
   and teardown after it allocates nothing of note.
-- **All kinds, not only members.** The recorder does not know about slices.
-  `mt-health` and `mt-accounting` rows get a peak too. That costs nothing
-  and makes the overview uniform. The derivation selects members by unit
-  name (TD2).
+- **No slice logic in the recorder.** Any row closed under a service gets a
+  peak; the derivation selects members by unit name (TD2).
 - **Outside a service there is no peak.** A pass run from a shell is in a
   `session-N.scope` or `user@….service/app.slice` cgroup. That counter
   covers unrelated processes, so it is not recorded. Both columns stay
   NULL and the recorder logs one WARNING:
   `pass_runs: not in a systemd service cgroup (<path>); no memory peak
   recorded`. NULL here means "not measured", and the derivation treats a
-  member with no measured run as a failure. Nothing stands in for it.
+  member that was never measured as a failure (TD3). Nothing stands in for
+  it.
 - **Recording never aborts a pass** (922's recorder contract). An `OSError`
   or `ValueError` from the read is logged with `logger.exception`, and the
   row closes with NULL peak columns.
@@ -243,25 +243,36 @@ cross-language pairing `cutover_common.py` already documents.
 | `MEMORY_BOUND_HEADROOM` | `2` | Multiplier over the summed peaks (233 Decision 2) |
 | `MEMORY_PEAK_WINDOW_DAYS` | `30` | Window on `pass_runs.ended_at`. It replaces `JOURNAL_WINDOW_DAYS` |
 | `ACQUISITION_SLICE` | `"manta-acquisition.slice"` | The slice bounded |
-| `MEMORY_BOUND_DROPIN` | `"memory-bound.conf"` | Drop-in file name under `<slice>.d/` |
+| `SYSTEMCTL_SHOW_TIMEOUT_SECONDS` | `10` | Bound on the `systemctl show` call (TD4) |
 
 Functions:
 
 - `members(unit_dir)`: sorted unit names.
-- `fetch_peaks(conn, units, now)`: one query that returns `{unit: max bytes}`
-  over the window, for rows with a non-null peak, of any outcome.
+- `fetch_peaks(conn, units, now)`: one query that returns, per unit, the
+  max peak over the window. For a unit with no run in the window it returns
+  that unit's newest recorded peak of any age, with its date. Rows with a
+  NULL peak are ignored; any outcome counts.
 - `derive(members, peaks)`: returns `(peaks, gib)`. It raises
-  `MemoryBoundError` naming every member with no peak, not only the first:
-  `mt-tick-pass.service: no recorded memory peak in the last 30 days`. With
+  `MemoryBoundError` naming every member that has never recorded a peak, not
+  only the first: `mt-tick-pass.service: no memory peak ever recorded`. With
   no members it raises `no unit declares Slice=manta-acquisition.slice`.
 - `loaded_memory_max(run)`: runs `systemctl show manta-acquisition.slice
   --property=LoadState --property=MemoryMax`. It parses `key=value` lines in
   any order and returns `LoadedBound(load_state, max_bytes | None)`, where
-  `None` means `infinity`. The command runner is injected for tests.
-- `render_dropin(peaks, gib, derived_at)`: the drop-in text.
+  `None` means `infinity`. It raises `MemoryBoundError` on a non-zero exit, a
+  missing binary, or a timeout. The command runner is injected for tests.
 
-Any outcome counts toward the peak. A run that ended FAILED still used that
-memory.
+**Decision: a member idle for the window keeps its newest peak.** The 220
+architecture assumes no tick cadence, so an idle month is the tick unit's
+normal state. Under the plan entry's wording ("no recorded peak in the
+window") health would fail hourly after every idle month. That alarm would
+hide real regressions in the other checks. The newest peak of any age is that
+member's last measured use, not a placeholder. It is reported with its date.
+The failure that matters stays: a member that has never been measured fails
+derivation, and that keeps issue #34 visible until a real tick run. Timed
+members always have a run in the window, so for them the rule is unchanged.
+Any outcome counts toward the peak, because a run that ended FAILED still
+used that memory.
 
 ### TD4 — Health judges the value systemd has loaded
 
@@ -279,7 +290,9 @@ Verdicts, in this order. Every one is `CheckSeverity.VERDICT`:
 
 | Condition | Result | Detail |
 |---|---|---|
-| A member has no peak in the window | FAIL | the error's text, naming each such member |
+| `pass_runs` has no `memory_peak_bytes` (`psycopg.errors.UndefinedColumn`) | FAIL | `pass_runs has no memory_peak_bytes: migration 061 not applied` |
+| A member has never recorded a peak | FAIL | the error's text, naming each such member |
+| `systemctl show` exits non-zero, is missing, or exceeds `SYSTEMCTL_SHOW_TIMEOUT_SECONDS` | FAIL | `cannot read manta-acquisition.slice: <error>` |
 | `LoadState` ≠ `loaded` | FAIL | `manta-acquisition.slice is <state>` |
 | `MemoryMax` is `infinity` | FAIL | `manta-acquisition.slice has no MemoryMax` |
 | loaded < derived | FAIL | `MemoryMax 14 GiB < derived 16 GiB (peaks: …); the next install writes 16G` |
@@ -287,14 +300,12 @@ Verdicts, in this order. Every one is `CheckSeverity.VERDICT`:
 
 A loaded value above the derived one passes. That matches the plan entry,
 which fails only when the bound is too tight. The check reads `pass_runs` on
-health's existing primary connection inside `gather`. If the primary is down,
-health already exits 2.
+health's existing primary connection inside `gather`, in its own
+`conn.transaction()` so that a missing column fails this row and not the
+checks after it. If the primary is down, health already exits 2.
 
-**Consequence the PM should know about.** The tick pass is manual. Until it
-completes one run that records a peak, and again whenever it has not run for
-30 days, this check FAILs. That makes `mt-health.service` a failed unit
-hourly. The plan entry asks for exactly this, and it is what keeps
-issue #34 visible. See the open question in Special Considerations.
+Until the tick pass records its first real run, this check FAILs, which keeps
+issue #34 visible. After that, an idle tick month does not fail it (TD3).
 
 ### TD5 — The install writes a drop-in; it never edits the shipped unit
 
@@ -306,30 +317,40 @@ before step 6's `daemon-reload`. The function runs:
 systemd-run --quiet --wait --pipe --collect \
   --uid=manta-trading --gid=manta-trading \
   -p EnvironmentFile=/etc/manta-trading.env -p WorkingDirectory=/opt/manta-trading \
-  /opt/manta-trading/.venv/bin/python scripts/acquisition_memory_bound.py --dropin
+  -p RuntimeMaxSec=${MEMORY_BOUND_DERIVE_TIMEOUT_SECONDS} \
+  /opt/manta-trading/.venv/bin/python scripts/acquisition_memory_bound.py
 ```
 
 `systemd-run` parses the environment file exactly as the pass units do, so
 the derivation sees the same `MT_TIMESCALE_DB_URL` and the same database role.
-Exit codes:
+The script connects with `PASS_RUN_DB_CONNECT_TIMEOUT_SECONDS`.
+`MEMORY_BOUND_DERIVE_TIMEOUT_SECONDS=120`, defined once in the lib, bounds the
+whole run: a stalled query is killed by systemd, never left hanging the
+installer. Exit codes:
 
-- **0:** stdout is the drop-in text. The function writes it to a temp file in
-  `manta-acquisition.slice.d/` and moves it over `memory-bound.conf`
-  (mode 0644, root), then prints `memory bound: MemoryMax=<N>G written`.
-- **2** (the script's "cannot derive": a member with no peak, an unreachable
-  database, or a missing column): prints a banner on stderr,
+- **0:** stdout must be exactly one line matching `^MemoryMax=[0-9]+G$`;
+  anything else is treated as a bug (below). The function writes a temp file
+  in `manta-acquisition.slice.d/` holding a one-line comment ("written by
+  install-production.sh from pass_runs, slice 235; inputs are in the install
+  log; do not edit"), `[Slice]` and that line. It moves the temp file over
+  `memory-bound.conf` (mode 0644, root) and prints
+  `memory bound: MemoryMax=<N>G written`. The script's report of members and
+  peaks goes to stderr, which lands in the install log.
+- **2** (the script's "cannot derive": a member never measured, an
+  unreachable database, or a missing column): prints a banner on stderr,
   `MEMORY BOUND NOT RE-DERIVED: <reason>`, followed by the value that stays
   in force. The install continues. Failing the install here would block
   every release until a paid tick run. The health check keeps failing until
   the cause is fixed, so this path is loud, not silent.
-- **Anything else** is a bug. The function calls `die` with the output,
-  before the reload, so the half-done install stays inert. This is the
-  installer's existing failure posture.
+- **Anything else**, including a timeout kill and malformed stdout, calls
+  `die` with the output, before the reload, so the half-done install stays
+  inert. A failed `mkdir`, temp write or `mv` also calls `die` at the same
+  point; the old drop-in, if any, is untouched because the `mv` is the only
+  step that replaces it. This is the installer's existing failure posture.
 
 **Why a drop-in.** The shipped file stays identical to the repo, and the
 installer keeps copying it unconditionally. The derived value has its own
-file with its own comment, and `systemctl cat manta-acquisition.slice` shows
-both. Rewriting the installed unit's `MemoryMax=` line was rejected: the
+file, and `systemctl cat manta-acquisition.slice` shows both. Rewriting the installed unit's `MemoryMax=` line was rejected: the
 installed file would differ from the release it came from.
 
 **Order with the migration.** A cutover migrates before it installs (234's
@@ -348,8 +369,8 @@ join key, and the overview already keys lines by `pass`.
 
 ### Patterns and Conventions
 
-- The pure rules (cgroup-line parse, `systemctl show` parse, derive, verdict,
-  drop-in text) take values in and return values out. The I/O is three thin
+- The pure rules (cgroup-line parse, `systemctl show` parse, derive, verdict)
+  take values in and return values out. The I/O is three thin
   functions, matching health's existing style.
 - Errors name the unit. `MemoryBoundError` is raised only for "cannot
   derive". Everything else propagates with its traceback.
@@ -367,11 +388,11 @@ join key, and the overview already keys lines by `pass`.
 
 ### Architecture statements superseded
 
-- 233 design, "the result is copied by hand into
-  `deploy/systemd/manta-acquisition.slice`", and the
-  `scripts/acquisition_memory_bound.py` docstring: replaced by TD5.
-- 233 design, "peaks come from the journal": replaced by TD1. The rule
-  itself (2 × Σ 30-day peaks, rounded up to whole GiB) is unchanged.
+- The 220 architecture's 2026-10-14 slice-233 entry ("derived from journal
+  peaks by `scripts/acquisition_memory_bound.py`") and 233's design (hand
+  copy, journal peaks): replaced by TD1, TD3 and TD5. The implementation
+  adds a dated slice-235 entry to the architecture document saying so. The
+  2 × Σ peaks, whole-GiB rule is unchanged; the idle-member case is TD3's.
 
 ## Implementation Details
 
@@ -383,10 +404,6 @@ Migration `061_pass_runs_memory_peak`, minute track, idempotent:
 ALTER TABLE pass_runs
     ADD COLUMN IF NOT EXISTS memory_peak_bytes BIGINT,
     ADD COLUMN IF NOT EXISTS systemd_unit      TEXT;
-ALTER TABLE pass_runs DROP CONSTRAINT IF EXISTS pass_runs_memory_peak_check;
-ALTER TABLE pass_runs ADD CONSTRAINT pass_runs_memory_peak_check CHECK (
-    (memory_peak_bytes IS NULL AND systemd_unit IS NULL)
- OR (memory_peak_bytes > 0     AND systemd_unit IS NOT NULL));
 ```
 
 No index. The derivation scans at most 30 days of rows for a handful of
@@ -408,22 +425,7 @@ gain both fields. The migration-chain test that pins the newest id
 
 | Invocation | Output | Exit |
 |---|---|---|
-| `uv run python scripts/acquisition_memory_bound.py` | members, their 30-day peaks, `sum … x 2 -> MemoryMax=NG`, and the loaded value | 0 / 2 cannot derive |
-| `… --dropin` | the drop-in text on stdout, nothing else | 0 / 2 cannot derive |
-
-Drop-in text:
-
-```ini
-# Written by install-production.sh from pass_runs (slice 235); do not edit.
-# Rule: MemoryMax = ceil_GiB(2 x sum of each member's max 30-day memory peak).
-# Derived 2026-10-20T14:03Z: mt-daily-pass.service 426.1 MiB,
-#   mt-kalshi-pass.service 318.1 MiB, mt-minute-pass.service 6348.8 MiB,
-#   mt-tick-pass.service 1210.0 MiB; sum 8.11 GiB -> 17G.
-[Slice]
-MemoryMax=17G
-```
-
-(The numbers above show the format only. The real ones come from `pass_runs`.)
+| `uv run python scripts/acquisition_memory_bound.py` | stderr: members, their peaks (with dates for idle members), `sum … x 2`; stdout: `MemoryMax=<N>G` only | 0 / 2 cannot derive |
 
 ## Integration Points
 
@@ -454,7 +456,7 @@ MemoryMax=17G
 2. A failure to read the cgroup files never changes a pass's outcome or exit
    code. It logs at ERROR and the row closes with NULL peak columns.
 3. `scripts/acquisition_memory_bound.py` derives from `pass_runs`. It names
-   every member with no peak in the window and exits 2. It no longer calls
+   every member that has never recorded a peak and exits 2. It no longer calls
    `journalctl`.
 4. `mt data health` prints an `acquisition memory bound` row with the
    verdicts in TD4's table. A FAIL makes the command exit 1.
@@ -462,7 +464,8 @@ MemoryMax=17G
    `/etc/systemd/system/manta-acquisition.slice.d/memory-bound.conf` when the
    derivation succeeds. When it exits 2, the installer prints the
    `MEMORY BOUND NOT RE-DERIVED` banner and completes. On any other exit,
-   the installer stops before `daemon-reload`.
+   including a timeout or malformed output, the installer stops before
+   `daemon-reload`.
 6. `/api/v1/overview` and `mt data overview --json` carry
    `last_run.memory_peak_bytes`.
 
@@ -475,21 +478,23 @@ MemoryMax=17G
    - The `systemctl show` parse uses real output for the loaded slice, for a
      not-found unit, and for `MemoryMax=infinity`.
    - Members are discovered from copies of the real `deploy/systemd` units.
-   - Derive and verdict are covered for each table row in TD4.
-   - The drop-in text is checked.
-2. A unit test of `memory_bound_dropin.sh` with a stub deriver for exits 0,
-   2 and 1, writing to a temp directory, in the style of
+   - Derive covers an idle member using its newest peak and a never-measured
+     member failing; the verdict covers each row in TD4's table.
+2. A unit test of `memory_bound_dropin.sh` with a stub deriver for exit 0,
+   exit 0 with malformed stdout, exit 2 and exit 1, writing to a temp
+   directory, in the style of
    `test/unit/test_setup_backup.py`.
 3. Integration tests against the test cluster:
-   - Migration 061 applies twice cleanly, and the CHECK rejects a peak
-     without a unit.
+   - Migration 061 applies twice cleanly.
    - `PassRunRepository.close` writes both columns.
-   - `fetch_peaks` honors the window and ignores NULL rows.
+   - `fetch_peaks` honors the window, falls back to the newest peak for an
+     idle unit, and ignores NULL rows.
    - The overview API returns the field.
 4. `ruff check`, scoped `ruff format`, mypy (one invocation over the source
    and test paths) and `shellcheck` on the new lib and the installer: all
    clean.
-5. Runbook 100, the slice file comment and the CHANGELOG are updated.
+5. Runbook 100, the slice file comment, the CHANGELOG and the 220
+   architecture document are updated.
    Runbook 100's add-a-pass step no longer contains a hand re-derive.
 
 ### Integration Requirements
@@ -501,21 +506,6 @@ MemoryMax=17G
 
 ### Verification Walkthrough
 
-**Dev (before the cutover)**
-
-1. `uv run pytest test/unit -k "cgroup_peak or memory_bound or health"`:
-   all pass.
-2. Run a pass from a shell against the test database. Its row has NULL peak
-   columns and the log shows the "not in a systemd service cgroup" WARNING:
-
-   ```
-   psql "$MT_TIMESCALE_TEST_URL" -c "SELECT pass, systemd_unit, memory_peak_bytes FROM pass_runs ORDER BY started_at DESC LIMIT 1"
-   ```
-
-3. `uv run python scripts/acquisition_memory_bound.py` against production
-   before the cutover exits 2 and names the missing column. This proves the
-   cannot-derive path is not a traceback.
-
 **Cutover** (one command, operator account; tag first)
 
 ```
@@ -524,34 +514,26 @@ uv run python scripts/cutover_235_memory_bound.py v<release>
 
 Steps, each check-then-act, with a report in `project-documents/user/notes/`:
 
-1. **Preconditions:** the ref exists here and on origin, and 061 is the only
-   pending primary migration.
-2. **Hold timers:** stop each acquisition timer and wait out its pass.
-3. **Migrate:** apply 061, then confirm both columns and the CHECK exist.
-4. **Install:** the output shows `MEMORY BOUND NOT RE-DERIVED: …` naming
+1. **Preconditions, hold timers, migrate 061** (234's pattern).
+2. **Install:** the output shows `MEMORY BOUND NOT RE-DERIVED: …` naming
    every member, because no row has a peak yet. `systemctl show
    manta-acquisition.slice -p MemoryMax` still reports the 14G bootstrap
    value.
-5. **Restart serve.**
-6. **Fire a member:** `sudo mt-run kalshi`. The newest KALSHI row has
+3. **Restart serve.**
+4. **Fire a member:** `sudo mt-run kalshi`. The newest KALSHI row has
    `systemd_unit = 'mt-kalshi-pass.service'` and `memory_peak_bytes`
    within 10% of the journal's `memory peak` for that invocation.
-7. **Health:** `/opt/manta-trading/.venv/bin/mt data health` shows
-   `FAIL acquisition memory bound  mt-daily-pass.service, mt-minute-pass.service,
-   mt-tick-pass.service: no recorded memory peak in the last 30 days`. This
-   is the expected state; Kalshi is no longer listed.
-8. **API:** `curl -s localhost:<port>/api/v1/overview | jq '.passes[] |
+5. **Health:** `/opt/manta-trading/.venv/bin/mt data health` shows
+   `FAIL acquisition memory bound` naming `mt-daily-pass.service`,
+   `mt-minute-pass.service` and `mt-tick-pass.service` as never measured.
+   This is the expected state; Kalshi is no longer listed.
+6. **API:** `curl -s localhost:<port>/api/v1/overview | jq '.passes[] |
    select(.pass=="kalshi") | .last_run.memory_peak_bytes'` is non-null.
-9. **Release timers:** start the timers again, as they were found.
+7. **Release timers.**
 
-**After the cutover (outside the slice's tasks)**
-
-- Within a day the daily and minute timers fill their peaks, and health
-  then names only `mt-tick-pass.service`.
-- After a real tick run, the next release install prints
-  `memory bound: MemoryMax=<N>G written`.
-  `systemctl cat manta-acquisition.slice` shows the drop-in, and health
-  reports OK. Issue #34 closes then.
+After the cutover, outside the slice's tasks: once a real tick run is
+recorded, the next install prints `memory bound: MemoryMax=<N>G written`,
+health reports OK, and issue #34 closes.
 
 ## Implementation Notes
 
@@ -578,16 +560,6 @@ Commit after each numbered step.
   with `Result=oom-kill` (`mt-run status`, `systemctl --failed`), and the
   journal keeps its peak. Recording kills is out of scope. If it becomes
   needed, it is a health check on the unit's `Result`.
-- **Open question for the PM: a manual member and the 30-day window.** Per
-  the plan entry, health fails whenever `mt-tick-pass.service` has no
-  recorded run in the last 30 days, both before its first real run and
-  during any later idle month. The alternative is: for a member with no run
-  in the window, use its newest recorded peak of any age, shown with its
-  date, and FAIL only when it has never recorded one. That keeps the
-  failure for "never measured" and drops the recurring one for "not run
-  lately". The design follows the plan entry unless the PM chooses the
-  alternative.
 - **Security:** the installer runs the derivation as `manta-trading`, never
-  as root, and root only writes the file the derivation printed. The drop-in
-  content is one integer and comments rendered by our own code. The function
-  rejects output that lacks a single `MemoryMax=<N>G` line before writing it.
+  as root. Root writes only a fixed comment, `[Slice]`, and the one stdout
+  line, after checking it against `^MemoryMax=[0-9]+G$`.
