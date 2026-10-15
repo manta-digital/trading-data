@@ -42,8 +42,12 @@ status: not_started
 **Conventions for every task below**
 
 - Run from the repository root. Confirm with `pwd` before file or shell work.
+- **Target branch:** read `cf config get git.integration_branch`; empty means
+  `main`. Call it the target. Section 0 starts on the slice branch
+  `233-slice.cross-source-acquisition-arbitration`, which already exists (or is
+  forked from the target per the Git Rules) before the first commit.
 - `ruff format` only the files the task touched. Before each commit, run
-  `git diff main --stat` and look for deletions in files you did not mean to
+  `git diff <target> --stat` and look for deletions in files you did not mean to
   change (ruff rewrites whole files).
 - mypy: one invocation covering the kalshi source paths plus tests, never a
   narrower run (project memory: narrower runs report false errors).
@@ -73,8 +77,8 @@ status: not_started
         the same shape and mark it "synthetic" in the note and in the test
         fixture comment.** Do not skip the form.
   - [ ] Commit: `docs: record 233 baseline host facts and peaks`
-  - [ ] Success: the note holds the table results, three maxima (minute about
-        6.2 G) and the fixture lines; committed
+  - [ ] Success: the note holds the table results, three maxima, each
+        taken from journal output, and the fixture lines; committed
   - [ ] Effort: 1
 
 ---
@@ -105,14 +109,16 @@ and sits at the entry point (design: Component Structure).
         `test/unit/test_drill_228_fingerprint.py` does). Tests:
     - [ ] parser on the task 0.1 fixture lines (both forms, plus the line with
           no clause);
-    - [ ] discovery against the real `deploy/systemd/` returns exactly the
-          minute, daily and Kalshi services, and against a `tmp_path` excludes
+    - [ ] discovery against the real `deploy/systemd/` includes the minute,
+          daily and Kalshi services (not an exact set: 234 will add a unit),
+          and against a `tmp_path` excludes
           a unit with no `Slice=` or another slice;
     - [ ] max-peak raises on empty input and on lines with no peak;
     - [ ] rule: 6.2 G + 426 M + 317 M gives 14; an exact-GiB sum is not rounded
           up; an empty mapping raises.
+  - [ ] Commit: `feat: add memory-bound parser, rule and discovery`
   - [ ] Success: `uv run pytest test/unit/scripts -q` passes; functions < 50
-        lines
+        lines; committed
   - [ ] Effort: 2
 
 - [ ] **1.2 Entry point, with its tests**
@@ -130,17 +136,19 @@ and sits at the entry point (design: Component Structure).
         output names all three members and the result; a member with no peak
         line gives exit 2 with the member named; a failing read gives exit 2;
         no file is created.
+  - [ ] Commit: `feat: add memory-bound entry point`
   - [ ] Success: `uv run pytest test/unit/scripts -q` passes; the script is
-        < 300 lines; ruff clean on both files
+        < 300 lines; ruff clean on both files; committed
   - [ ] Effort: 2
 
-- [ ] **1.3 Run on the host and commit**
+- [ ] **1.3 Run on the host and record**
   - [ ] Run `uv run python scripts/acquisition_memory_bound.py` (walkthrough
-        step 1). Expected: three members, minute about 6.2 G, about 14 GiB,
-        exit 0. Paste the output into the findings note.
+        step 1). Paste the output into the findings note. Compare the members
+        and result with the design's Success Criteria 1 and note any
+        difference there; do not adjust the script to match.
   - [ ] Scoped `ruff format` and mypy per the conventions above.
-  - [ ] Commit: `feat: add acquisition memory-bound derivation script`
-  - [ ] Success: output recorded; checks clean; committed
+  - [ ] Commit: `docs: record 233 derivation output`
+  - [ ] Success: exit 0 with the output recorded; checks clean; committed
   - [ ] Effort: 1
 
 ---
@@ -156,8 +164,9 @@ and sits at the entry point (design: Component Structure).
         `manta.slice`, no I/O controller honouring weights on either NVMe
         device; cite the 233 design, Technical Decision 1).
   - [ ] Add `MemoryMax=<N>G` under `[Slice]`, `N` being the script's result.
+  - [ ] Commit: `feat: set MemoryMax on manta-acquisition.slice`
   - [ ] Success: `systemd-analyze verify deploy/systemd/manta-acquisition.slice`
-        prints nothing about `MemoryMax` (walkthrough step 3)
+        prints nothing about `MemoryMax` (walkthrough step 3); committed
   - [ ] Effort: 1
 
 - [ ] **2.2 Drift guard, and commit**
@@ -165,14 +174,14 @@ and sits at the entry point (design: Component Structure).
         `test/unit/deploy/test_units.py`, using its existing `_parse` and
         `_SYSTEMD`. It stands alone and does not import the script. It asserts:
     - [ ] the slice file declares `MemoryMax` in `[Slice]` as `<integer>G`,
-          integer > 0, and declares neither `CPUWeight` nor `IOWeight`;
+          integer > 0;
     - [ ] at least one `*.service` names the slice, and every one that does is
           `Type=oneshot`.
   - [ ] Do not edit existing tests in the file.
   - [ ] Success: `uv run pytest test/unit/deploy/test_units.py test/unit/scripts/test_acquisition_memory_bound.py -q`
         passes (walkthrough step 2); deleting the `MemoryMax` line once makes
         the new class fail (restore it)
-  - [ ] Commit: `feat: set MemoryMax on manta-acquisition.slice`
+  - [ ] Commit: `test: guard manta-acquisition.slice MemoryMax and members`
   - [ ] Effort: 2
 
 ---
@@ -193,12 +202,14 @@ found, stop and tell the Project Manager instead of editing a guessed place.
         comment. Say the script exits 2 until the new unit has run once
         (intended: no default). Renumber and fix any step-number reference.
   - [ ] Rewrite the second "limit of the pattern" bullet ("systemd serializes
-        a unit only against itself …"): stagger is kept, for provider quota
+        a unit only against itself … cross-source arbitration does not exist
+        yet"): stagger is kept, for provider quota
         (minute and daily share EODHD's allowance, 30 minutes apart) and
         because Kalshi × tick and Kalshi × heavy-minute overlaps measured
         harmless. Name the two reopen triggers from Technical Decision 3.
+  - [ ] Commit: `docs: update runbook 100 for the slice memory bound`
   - [ ] Success: "carries no resource limits yet" and "does not exist yet" are
-        gone; steps are numbered consecutively
+        gone; steps are numbered consecutively; committed
   - [ ] Effort: 1
 
 - [ ] **3.2 Plan, Revision Log, CHANGELOG**
@@ -216,7 +227,7 @@ found, stop and tell the Project Manager instead of editing a guessed place.
         entry. A runaway acquisition pass is now killed inside its own slice
         rather than the host's OOM killer choosing among PostgreSQL backends;
         the bound takes effect at the release that follows 234.
-  - [ ] Commit: `docs: record 233 arbitration decision in runbook, plan, log`
+  - [ ] Commit: `docs: record 233 arbitration decision in plan, log, changelog`
   - [ ] Success: item 4 checked with original wording intact; the log entry
         is last; the CHANGELOG makes no claim that the bound is in force
   - [ ] Effort: 1
@@ -228,11 +239,14 @@ found, stop and tell the Project Manager instead of editing a guessed place.
 - [ ] **4.1 Checks and unit tier**
   - [ ] `ruff check` on touched `.py` files, scoped `ruff format --check`,
         mypy per the conventions.
-  - [ ] `git diff main --stat` shows only: the script, its test package,
-        `test_units.py`, the slice file, the three documents, the runbook,
-        the CHANGELOG and the findings note. Nothing under `src/`.
+  - [ ] `git diff <target> --stat` shows only: the script, its test package,
+        `test_units.py`, the slice file, the runbook, the 900 plan, the 220
+        architecture document, the CHANGELOG and the findings note. Nothing
+        under `src/`.
   - [ ] `uv run python scripts/run_tests.py unit`. Fix any failure not in the
         known pre-existing list; re-run a suspected flake in isolation first.
+  - [ ] Commit any fix these checks required (`fix:` or `style:`); if none,
+        there is nothing to commit.
   - [ ] Success: clean; green apart from known pre-existing failures, each
         listed in the findings note
   - [ ] Effort: 1
