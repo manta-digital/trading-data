@@ -156,7 +156,7 @@ The baseline was measured read-only on 2026-10-14.
 | The slice's cgroup | `/manta.slice/manta-acquisition.slice`, the only child of `manta.slice` | Weights divide a parent's share among siblings. With no sibling, a weight on this slice divides nothing. |
 | Where the database work runs | `system.slice/system-postgresql.slice/postgresql@17-{main,tick}.service` | A pass's write load is mostly spent in its cluster's backends, which are outside the acquisition slice. |
 | NVMe schedulers | `nvme0n1 [none]`, `nvme1n1 [none]` | `io.weight` needs BFQ or the `io.cost` controller. |
-| `io.cost` | `/sys/fs/cgroup/io.cost.qos` absent | Neither is active, so `IOWeight` is inert on every unit. |
+| `io.cost` | `/sys/fs/cgroup/io.cost.qos` and `io.cost.model` present but empty: no device configured (corrected 2026-10-14; first read said "absent") | Neither is active, so `IOWeight` is inert on every unit. |
 | Devices | `nvme0n1`: `/` and production `17/main`; `nvme1n1`: `/data` (`17/tick`, the archive, backups) | The minute and tick write paths share no device. 226 confirmed this: production's device stayed flat under tick load. |
 | CPU | Ryzen 9 5950X, 32 threads; 226 under tick load: 9.8 % / 15.4 % busy (median / p95) | Weights are work-conserving and act only under saturation. There was none to arbitrate. |
 | Memory | 125.7 GiB; production cluster ≈ 100 GiB resident plus cache; slice members unbounded | This is the one shared resource where a single bad pass can hurt production, and `MemoryMax` bounds it. |
