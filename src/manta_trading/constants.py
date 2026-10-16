@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 from typing import Final
+from zoneinfo import ZoneInfo
 
 DISTRIBUTION_NAME: Final[str] = "manta-trading-data"
 """PyPI distribution name for this package (slice 908).
@@ -1367,3 +1368,57 @@ correcting the measurement corrects every span limit at once. Daily and coarser
 values are the calendar's own ratios. No per-granularity maximum span is
 written anywhere — it is computed from this table and the live ceiling.
 """
+
+
+# -- Off-tape prints (slice 171) ----------------------------------------------
+
+
+class OffTape(IntFlag):
+    """Which of a minute bar's prices are off-tape (slice 171).
+
+    Stored in ``minute_ohlcv.off_tape``: ``NULL`` = not evaluated, ``0`` =
+    evaluated and clean. The eligible-value SQL renders from these bits.
+    """
+
+    OPEN = 1
+    HIGH = 2
+    LOW = 4
+    CLOSE = 8
+    ALL = 15
+
+
+OFF_TAPE_PRICE_BITS: Final[dict[str, OffTape]] = {
+    "open": OffTape.OPEN,
+    "high": OffTape.HIGH,
+    "low": OffTape.LOW,
+    "close": OffTape.CLOSE,
+}
+"""Each ``minute_ohlcv`` price column and the bit that marks it (slice 171)."""
+
+
+class PrintMode(StrEnum):
+    """Which prints a bars read serves (slice 171): raw or tape-eligible."""
+
+    ALL = "all"
+    ELIGIBLE = "eligible"
+
+
+OFF_TAPE_DAY_TZ: Final[ZoneInfo] = ZoneInfo("America/New_York")
+"""Timezone whose calendar date defines a detector day (slice 171)."""
+
+OFF_TAPE_WINDOW_BARS: Final[int] = 10
+"""Detector K: bars on each side whose median close forms the envelope (171)."""
+
+OFF_TAPE_SCALE_MULTIPLE: Final[float] = 10.0
+"""Detector M: threshold multiple of the median |close change| (slice 171)."""
+
+OFF_TAPE_MIN_FRACTION: Final[float] = 0.003
+"""Detector R: threshold floor as a fraction of the close (slice 171)."""
+
+OFF_TAPE_SWEEP_LOCK_TIMEOUT: Final[str] = "30s"
+"""lock_timeout for one chunk rewrite in the off-tape sweep (slice 171)."""
+
+PRINTS_ELIGIBLE_1M_ONLY_MESSAGE: Final[str] = (
+    "prints=eligible is served at 1m only until the eligible rollups are built"
+)
+"""Rejection for prints=eligible above 1m until slice 172 (slice 171)."""
