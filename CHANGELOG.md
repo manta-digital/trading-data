@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-10-15
+
 ### Fixed
 - 5m, 15m, 1h and 4h bars no longer drop Monday, Tuesday and early Wednesday of every week. Under the weekly minute firing a Saturday pass lands the whole week, but the minute caggs only refreshed the last 3 days. Migration 061 widens the refresh window to 10 days and moves compression to 14 days. The existing holes (2026-05-13/14, 2026-08-28 to 09-05, and every Mon-Wed from 2026-09-14) were re-materialized by hand on 2026-10-15.
 
