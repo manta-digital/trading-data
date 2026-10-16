@@ -130,6 +130,10 @@ data_app.add_typer(universes_app, name="universes")
 data_app.add_typer(restore_app, name="restore")
 data_app.add_typer(kalshi_app, name="kalshi")
 data_app.add_typer(tick_app, name="tick")
+# `mt data off-tape` (slice 171) lives in its own module.
+from manta_trading.cli.commands.off_tape import off_tape_app  # noqa: E402
+
+data_app.add_typer(off_tape_app, name="off-tape")
 
 
 _DEFAULT_LISTS_CONFIG: Path = Path("config/symbol-lists.yaml")

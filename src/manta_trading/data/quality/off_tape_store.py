@@ -26,6 +26,13 @@ FROM minute_ohlcv
 WHERE symbol = %s AND time >= %s AND time < %s
 ORDER BY time
 """
+_RANGE_COLUMNS = ["symbol", "time", "open", "high", "low", "close", "off_tape"]
+_READ_RANGE = """
+SELECT symbol, time, open::float8, high::float8, low::float8, close::float8, off_tape
+FROM minute_ohlcv
+WHERE time >= %s AND time < %s
+ORDER BY symbol, time
+"""
 _MASK_TABLE = "_off_tape_masks"
 
 
@@ -61,6 +68,35 @@ def read_days(
     return frame
 
 
+def iter_symbol_frames(
+    conn: psycopg.Connection, start: datetime, end: datetime, *, batch: int = 200_000
+) -> Iterator[pd.DataFrame]:
+    """One frame per symbol of every bar in ``[start, end)``, streamed.
+
+    Server-side cursor ordered by ``(symbol, time)``, so memory holds about
+    one batch plus one symbol. Needs an open transaction (named cursor).
+    """
+    pending: list[tuple[object, ...]] = []
+    with conn.cursor(name="off_tape_frames") as cursor:
+        cursor.execute(_READ_RANGE, (start, end))
+        while rows := cursor.fetchmany(batch):
+            pending.extend(rows)
+            last = pending[-1][0]
+            done = [row for row in pending if row[0] != last]
+            pending = [row for row in pending if row[0] == last]
+            yield from _frames(done)
+    yield from _frames(pending)
+
+
+def _frames(rows: list[tuple[object, ...]]) -> Iterator[pd.DataFrame]:
+    if not rows:
+        return
+    frame = pd.DataFrame(rows, columns=_RANGE_COLUMNS)
+    frame["time"] = pd.to_datetime(frame["time"], utc=True)
+    for _, group in frame.groupby("symbol", sort=False):
+        yield group.reset_index(drop=True)
+
+
 def write_masks(conn: psycopg.Connection, masks: pd.DataFrame) -> int:
     """Set ``off_tape`` from ``masks`` (``symbol, time, mask``); rows updated.
 
@@ -77,9 +113,13 @@ def write_masks(conn: psycopg.Connection, masks: pd.DataFrame) -> int:
         with cur.copy(f"COPY {_MASK_TABLE} (symbol, time, mask) FROM STDIN") as copy:
             for row in masks[["symbol", "time", "mask"]].itertuples(index=False):
                 copy.write_row((row.symbol, row.time.to_pydatetime(), int(row.mask)))
+        # Constant time bounds let the planner prune to the chunks touched;
+        # without them a large join can scan the whole hypertable.
         cur.execute(
             f"UPDATE minute_ohlcv AS m SET off_tape = t.mask FROM {_MASK_TABLE} t"
             " WHERE m.symbol = t.symbol AND m.time = t.time"
+            " AND m.time >= %s AND m.time <= %s",
+            (masks["time"].min().to_pydatetime(), masks["time"].max().to_pydatetime()),
         )
         updated = cur.rowcount
         cur.execute(f"DROP TABLE pg_temp.{_MASK_TABLE}")
