@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tape-eligible 1m bars: `prints=eligible`** (slice 171). EODHD's minute bars include off-tape trades (late-reported, average-price, prior-reference) that showed up as the same tall spikes on every timeframe. `GET /api/v1/bars/{symbol}?granularity=1m&prints=eligible` and `mt data get SYMBOL 1m --prints eligible` serve each off-tape price clamped into the bar's eligible range, and leave out minutes whose four prices are all off-tape (price and volume). The default stays `prints=all` (raw, unchanged); the response's new `prints` field says which was served. `prints=eligible` above 1m is a `422` until slice 172 builds eligible rollups.
+- **Off-tape marks on every minute bar.** Migration 062 adds `minute_ohlcv.off_tape`, a bitmask of which of open, high, low and close are off-tape. Raw prices are never changed. Both minute insert paths mark bars in the insert transaction.
+- **`mt data off-tape sweep --maintenance-url URL [--dry-run]`** marks existing history once, chunk by chunk, resumable by rerunning. About 50 h for current history in one process; passes stay live.
+- **Two `mt data health` lines:** `off-tape unevaluated` fails when the last collected session's ET day holds unmarked bars; `off-tape share` fails when its marked share leaves 0.13%–0.69%.
+
 ## [0.23.2] - 2026-10-15
 
 ### Fixed

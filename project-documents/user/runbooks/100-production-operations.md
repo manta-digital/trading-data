@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20261014
+dateUpdated: 20261016
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -419,6 +419,77 @@ SQL of its own and never calls the provider; the next pass does the fetching.
 It refuses to run while `mt-minute-pass.service` or `mt-daily-pass.service` is
 active, and commits per symbol, so a run that dies is resumed by rerunning.
 Rows before 2026-07-16 are never touched.
+
+### `off-tape unevaluated` and `off-tape share` (slice 171)
+
+Every minute bar carries an `off_tape` mark saying which of its open, high,
+low and close are off-tape prints (late-reported, average-price,
+prior-reference trades: the tall isolated wicks). Both lines judge the ET day
+of the session `minute session mass` judges.
+
+- **`off-tape unevaluated` FAIL** (`N of M bars have no off-tape mark`): some
+  bars were committed without a mark. Both insert paths mark in the insert
+  transaction, so this means a path skipped marking, or the history sweep
+  has not reached that day (only possible before the sweep has finished).
+  Action: run the sweep (below); it marks exactly the chunks holding unmarked
+  bars. If the count reappears after a clean sweep, a writer is bypassing
+  `mark_inserted`: file an issue with the line.
+- **`off-tape share` FAIL** (`X of M bars marked (s%; bounds a–b)`): the
+  day's marked share left `[OFF_TAPE_SHARE_FLOOR, OFF_TAPE_SHARE_CEILING]`
+  (0.13%–0.69%, measured over the universe week of 2026-10-05, where it ran
+  0.26%–0.35%). **Zero or near-zero** means the detector stopped running
+  while bars still arrived. **A flood** means the provider changed its bars
+  or the detector broke. Either way the raw bars are untouched and
+  `prints=all` (the default) is unaffected; only `prints=eligible` readers
+  see the effect. Compare a few marked bars by hand:
+  `SELECT time, open, high, low, close, off_tape FROM minute_ohlcv WHERE
+  symbol = 'SPY' AND off_tape <> 0 ORDER BY time DESC LIMIT 20;`
+- `no completed session to judge`: same cause as for `minute session mass`.
+
+### Off-tape history sweep: `mt data off-tape sweep` (slice 171)
+
+Marks every `minute_ohlcv` chunk that still holds an unmarked (`NULL`) bar,
+oldest first, one chunk per transaction. Needed once, after the release that
+applies migration 062; new bars are marked at insert. Measured on the test
+cluster: one production-sized chunk (10.1 M rows) in about 400 s, so all
+history is about 50 h in one process. Passes stay live while it runs.
+
+It needs the maintenance (DDL) URL, passed explicitly, from an interactive
+shell (the URL is deliberately not in the service environment):
+
+```bash
+export MT_TIMESCALE_MAINTENANCE_URL='postgresql://...'      # interactive shell only
+mt-run data off-tape sweep --maintenance-url "$MT_TIMESCALE_MAINTENANCE_URL" --dry-run
+# chunks: 1216 total, 1216 to sweep (1215 compressed, 1 uncompressed)
+nohup mt-run data off-tape sweep --maintenance-url "$MT_TIMESCALE_MAINTENANCE_URL" \
+    > ~/off-tape-sweep.log 2>&1 &
+```
+
+Each chunk logs `off-tape sweep: <chunk> rows=N marked=s% elapsed=Ts`.
+
+- **Resume:** rerun the same command. Progress is the data itself (a chunk is
+  done when it holds no `NULL` mark); a killed run rolls its current chunk
+  back and the rerun redoes it. Nothing else to clean up.
+- **Done:** `--dry-run` reports `0 to sweep`, and
+  `SELECT count(*) FROM minute_ohlcv WHERE off_tape IS NULL` is `0`.
+
+| Output / exit | Meaning | Action |
+|---|---|---|
+| `swept N chunk(s)`, exit 0 | Every pending chunk is marked | none |
+| `deferred while a minute pass runs: <chunk>`, exit 0 | The newest chunk was skipped because `pass_runs` shows an open minute pass (it writes there) | rerun after the pass ends |
+| `still locked after retry: <chunks>`, exit 1 | A writer held those chunks past `OFF_TAPE_SWEEP_LOCK_TIMEOUT` (30 s) twice | rerun; the rest are done |
+| `stopped: raw checksum changed in <chunk>`, exit 1 | Raw prices or volume differed after the rewrite. Should be impossible; the chunk rolled back | stop and investigate; do not rerun blindly |
+| traceback, exit 1 | Any other failure; the chunk rolled back | read the error; rerun resumes |
+
+Effects to expect while it runs:
+
+- An insert into the chunk being rewritten waits for that chunk's
+  transaction (at most one chunk rewrite, about 400 s). That only happens
+  for deep backfill into old chunks.
+- Each chunk's `UPDATE` logs a continuous-aggregate invalidation for its
+  range. The minute caggs' policies look back 10 days, so older entries stay
+  in the log. The values are unchanged (`off_tape` is in no aggregate); a
+  later wide manual refresh re-materializes those ranges at its normal cost.
 
 ## Running the acquisition passes
 
@@ -1087,6 +1158,8 @@ runs unchanged against a newer additive schema.
 
 ## Revision Log
 
+- 2026-10-16 (slice 171): the `off-tape unevaluated` and `off-tape share`
+  health lines, and the one-time `mt data off-tape sweep`.
 - 2026-10-14 (slice 234): the tick pass unit `mt-tick-pass.service` (manual,
   `mt-run tick`), its five environment keys and `deploy/add-tick-env.sh`, the
   `tick database` and `tick retention` health rows, `mt-run data tick …` as

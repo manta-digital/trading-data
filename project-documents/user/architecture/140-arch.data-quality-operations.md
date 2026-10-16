@@ -9,7 +9,7 @@ dependencies:
 relatedReference: user/reference/data-correctness-architecture.md
 archIndex: 140
 dateCreated: 20260429
-dateUpdated: 20260809
+dateUpdated: 20261016
 status: complete
 ---
 
@@ -1738,6 +1738,41 @@ they explicitly opt out with `adjusted=False`.
 
 Adjustment is applied at read time by the caller via `adjusted()`.
 Caggs do not store adjusted prices.
+
+## Off-tape marks (slice 171)
+
+*(Architecture amendment, 2026-10-16 — slice 171.)* EODHD's 1-minute bars
+include trades the consolidated tape keeps out of a bar's high, low and last
+price (late-reported, average-price, prior-reference). They appear as tall
+isolated wicks and survive into every rollup.
+
+### Storage
+
+- `minute_ohlcv.off_tape smallint`, nullable (migration 062): the
+  `OffTape` bitmask (`OPEN=1, HIGH=2, LOW=4, CLOSE=8, ALL=15`) of which prices
+  are off-tape. `NULL` = not evaluated, `0` = evaluated and clean.
+- Raw prices are never modified; the mask is an annotation (see the amended
+  "Outlier handling — Non-Goal" in
+  [120-arch-adjustment-policy.md](120-arch-adjustment-policy.md)).
+- A bar's mask is a function of its symbol's whole ET day (the calendar date
+  in America/New_York) and nothing else. Both minute insert paths re-mark every
+  ET day a frame touches, in the insert transaction; `mt data off-tape sweep`
+  marks history chunk by chunk. Both produce the same masks.
+
+### Read API
+
+`TimescaleMinuteDataDB.get_minute_data` gains `prints: PrintMode = ALL`.
+`ELIGIBLE` clamps each marked price into the range of the bar's unmarked
+prices and drops all-marked minutes (price and volume); adjustment applies
+after the clamp. `ELIGIBLE` is 1m-only until slice 172 builds eligible
+rollups. `/api/v1/bars` exposes the same choice as `prints`. The SQL is
+rendered once, in `market/schema/eligible_sql.py`, from `OffTape`.
+
+### Health
+
+`mt data health` fails when the last collected session's ET day holds any
+`NULL` mark, or when its marked share lies outside
+`[OFF_TAPE_SHARE_FLOOR, OFF_TAPE_SHARE_CEILING]` (measured 2026-10-16).
 
 ## References
 

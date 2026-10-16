@@ -14,7 +14,7 @@ projectState: >
   detector exists outside the repository. Nothing in this slice is built.
 dateCreated: 20261016
 dateUpdated: 20261016
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Off-Tape Prints
@@ -70,13 +70,13 @@ status: not_started
 
 ## Section 1 — Fixtures, detector, calibration (effort 3/5)
 
-- [ ] **1.1 Cut detector fixtures from production bars**
-  - [ ] Write `scripts/cut_off_tape_fixtures.py` (developer-run, read-only;
+- [x] **1.1 Cut detector fixtures from production bars**
+  - [x] Write `scripts/cut_off_tape_fixtures.py` (developer-run, read-only;
         `scripts/cut_tick_fixtures.py` is the docstring/format model). It reads
         whole ET days of `minute_ohlcv` (`time, symbol, open, high, low, close,
         volume`) and writes one CSV per symbol-day to
         `test/fixtures/off_tape/{SYMBOL}_{YYYY-MM-DD}.csv`.
-  - [ ] Cut every fixture listed in the design's Technical Requirements:
+  - [x] Cut every fixture listed in the design's Technical Requirements:
     1. SPY 2026-09-08, SPY 2026-09-11, AVGO 2026-06-03, MSFT 2026-08-05;
     2. the earnings set: MSFT 07-29, AAPL 07-30, SMCI 07-21, PLTR 08-03,
        TSLA 07-22, MU 06-24, LULU 09-03, AMZN 07-30, CRM 08-26, AMD 08-04,
@@ -89,13 +89,13 @@ status: not_started
        prototype rule (design "The detector rule") and taking a day with zero
        marks between 09:30 and 16:00 ET; record the choice in the script
        docstring.
-  - [ ] Add `test/fixtures/off_tape/README.md` naming each file, its source
+  - [x] Add `test/fixtures/off_tape/README.md` naming each file, its source
         query date and why it exists. No synthetic-only fixtures.
-  - [ ] Success: every listed file exists, holds the whole ET day, and the
+  - [x] Success: every listed file exists, holds the whole ET day, and the
         script reruns to byte-identical output.
 
-- [ ] **1.2 Define constants**
-  - [ ] In `constants.py`: `OffTape` (`IntFlag`: `OPEN=1, HIGH=2, LOW=4,
+- [x] **1.2 Define constants**
+  - [x] In `constants.py`: `OffTape` (`IntFlag`: `OPEN=1, HIGH=2, LOW=4,
         CLOSE=8, ALL=15`), `PrintMode` (`StrEnum`: `ALL="all"`,
         `ELIGIBLE="eligible"`), `OFF_TAPE_WINDOW_BARS = 10`,
         `OFF_TAPE_SCALE_MULTIPLE = 10`, `OFF_TAPE_MIN_FRACTION = 0.003`,
@@ -104,26 +104,26 @@ status: not_started
         message for `prints=eligible` above 1m ("prints=eligible is served at
         1m only until the eligible rollups are built"), and the ET day bounds (04:00, 20:00, `America/New_York`) if no
         existing constant already holds them (search first; reuse if found).
-  - [ ] Each constant has a one-line comment naming slice 171.
-  - [ ] Success: `ruff` and `mypy` clean.
+  - [x] Each constant has a one-line comment naming slice 171.
+  - [x] Success: `ruff` and `mypy` clean.
 
-- [ ] **1.3 Implement the detector**
-  - [ ] Create `src/manta_trading/data/quality/off_tape.py` with
+- [x] **1.3 Implement the detector**
+  - [x] Create `src/manta_trading/data/quality/off_tape.py` with
         `mark_day(bars: pd.DataFrame) -> pd.Series` (int masks, same index):
         one symbol, one ET day, rows ordered by time. Pure, no I/O.
-  - [ ] Implement exactly the rule in the design ("The detector rule"):
+  - [x] Implement exactly the rule in the design ("The detector rule"):
         by-row before/after medians of `K` closes, one-sided at the day's
         edges, larger side's median |Δclose| as scale, `threshold =
         max(M × scale, R × close)`, two-sided envelope, each of o/h/l/c
         marked independently. The prototype `detect4.py` (session scratchpad,
         may be gone) matches this rule; the design is authoritative.
-  - [ ] Add a helper `split_et_days(bars) -> Iterator[(date, frame)]` in the
+  - [x] Add a helper `split_et_days(bars) -> Iterator[(date, frame)]` in the
         same module, so every caller assigns days identically.
-  - [ ] Raise `ValueError` on more than one symbol or more than one ET day.
-  - [ ] Success: module under ~300 lines; `ruff`, `mypy` clean.
+  - [x] Raise `ValueError` on more than one symbol or more than one ET day.
+  - [x] Success: module under ~300 lines; `ruff`, `mypy` clean.
 
-- [ ] **1.4 Detector tests**
-  - [ ] `test/unit/data/quality/test_off_tape.py`, driven by the 1.1 fixtures:
+- [x] **1.4 Detector tests**
+  - [x] `test/unit/data/quality/test_off_tape.py`, driven by the 1.1 fixtures:
     1. SPY 09-08: 07:35–07:38 ET values at 770.19 marked; 16:01–16:04 ET highs
        770.3516 marked HIGH; 16:52 and 17:26 ET lows 724.228 marked LOW;
     2. SPY 09-11 17:33 ET high 787.5169 marked; AVGO 06-03 16:15 ET low
@@ -138,35 +138,35 @@ status: not_started
     7. a bar whose open or close is marked also has HIGH or LOW marked
        (the design's 8,171-bar observation) on every fixture;
     8. `ValueError` on two symbols and on two ET days.
-  - [ ] Success: all pass. **If any fixture assertion fails at the starting
+  - [x] Success: all pass. **If any fixture assertion fails at the starting
         calibration, do not change the assertion: go to 1.5.**
 
-- [ ] **1.5 Calibrate and record**
-  - [ ] Write `scripts/measure_off_tape_share.py` (read-only): runs the
+- [x] **1.5 Calibrate and record**
+  - [x] Write `scripts/measure_off_tape_share.py` (read-only): runs the
         detector over every symbol for the most recent complete trading week
         and reports marked share (bars with mask ≠ 0), regular-hours marks,
         and the prior-close match rate (marked values equal to one of the
         previous 30 official daily closes, against unmarked values).
-  - [ ] Run it. If 1.4 passes at `K=10, M=10, R=0.003`, keep them. If not,
+  - [x] Run it. If 1.4 passes at `K=10, M=10, R=0.003`, keep them. If not,
         adjust only `M`/`R`, rerun 1.4 and this script, and record each tried
         set and its result. **If no set passes 1.4, stop and tell the
         Project Manager.**
-  - [ ] Set `OFF_TAPE_SHARE_FLOOR` and `OFF_TAPE_SHARE_CEILING` in
+  - [x] Set `OFF_TAPE_SHARE_FLOOR` and `OFF_TAPE_SHARE_CEILING` in
         `constants.py` from the measured weekly share: floor = half the lowest
         daily share in the week, ceiling = twice the highest. Comment cites
         the measurement date.
-  - [ ] Write `project-documents/user/notes/{YYYY-MM-DD}-171-calibration.md`
+  - [x] Write `project-documents/user/notes/{YYYY-MM-DD}-171-calibration.md`
         (front matter per `file-naming-conventions.md`): chosen K/M/R, weekly
         and per-day share, regular-hours count, prior-close match rates, the
         earnings-set result, detector throughput (bars/s).
-  - [ ] Success: 1.4 passes; constants and note committed together.
+  - [x] Success: 1.4 passes; constants and note committed together.
 
-- [ ] **1.6 Commit:** `feat: add off-tape print detector with production fixtures`
+- [x] **1.6 Commit:** `feat: add off-tape print detector with production fixtures`
 
 ## Section 2 — Eligible-value SQL (effort 2/5)
 
-- [ ] **2.1 Implement the renderer**
-  - [ ] Create `src/manta_trading/market/schema/eligible_sql.py` rendering,
+- [x] **2.1 Implement the renderer**
+  - [x] Create `src/manta_trading/market/schema/eligible_sql.py` rendering,
         from `OffTape` only (no literal bits in the module):
         `eligible_low()`/`eligible_high()` (`LEAST`/`GREATEST` over
         `CASE WHEN COALESCE(off_tape,0) & <bit> = 0 THEN <col> END`),
@@ -174,76 +174,76 @@ status: not_started
         open/high/low/close, and `has_eligible_price()`
         (`COALESCE(off_tape,0) <> 15`). An optional table alias parameter
         lets 172 use it inside a cagg.
-  - [ ] Add a Python mirror `eligible_bar(o, h, l, c, mask)` returning the
+  - [x] Add a Python mirror `eligible_bar(o, h, l, c, mask)` returning the
         clamped values or `None` for an all-marked bar, in `off_tape.py`,
         for tests and reasoning only.
-  - [ ] Success: `ruff`, `mypy` clean; no literal `15` or bit values outside
+  - [x] Success: `ruff`, `mypy` clean; no literal `15` or bit values outside
         `constants.py`.
 
-- [ ] **2.2 Renderer tests**
-  - [ ] Unit test: rendered text uses `OffTape` values (patch-free check by
+- [x] **2.2 Renderer tests**
+  - [x] Unit test: rendered text uses `OffTape` values (patch-free check by
         building expected strings from the enum).
-  - [ ] Integration test (`test/integration/test_eligible_sql.py`, throwaway
+  - [x] Integration test (`test/integration/test_eligible_sql.py`, throwaway
         DB): insert one bar per case — each single bit, HIGH|LOW, OPEN|CLOSE,
         ALL, 0 and `NULL` — and assert the rendered SQL's output equals
         `eligible_bar` for every case; ALL is excluded by the predicate;
         `NULL` behaves as clean.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **2.3 Commit:** `feat: add eligible-value SQL renderer`
+- [x] **2.3 Commit:** `feat: add eligible-value SQL renderer`
 
 ## Section 3 — Migration 062 (effort 1/5)
 
-- [ ] **3.1 Add the migration**
-  - [ ] Append `062_minute_ohlcv_off_tape` to `MINUTE_MIGRATIONS` in
+- [x] **3.1 Add the migration**
+  - [x] Append `062_minute_ohlcv_off_tape` to `MINUTE_MIGRATIONS` in
         `market/schema/migrations/minute.py`:
         `ALTER TABLE minute_ohlcv ADD COLUMN IF NOT EXISTS off_tape smallint`
         (nullable, no default, no index). Follow 061's entry shape.
-  - [ ] Update `test_chain_ends_at_061` in `test/unit/test_schema_migrations.py`
+  - [x] Update `test_chain_ends_at_061` in `test/unit/test_schema_migrations.py`
         to end at 062 and any count comment beside it.
-  - [ ] Update `migrations/README.md` if it lists migrations.
+  - [x] Update `migrations/README.md` if it lists migrations.
 
-- [ ] **3.2 Migration test**
-  - [ ] `test/integration/test_migration_062_off_tape.py`: on a throwaway DB
+- [x] **3.2 Migration test**
+  - [x] `test/integration/test_migration_062_off_tape.py`: on a throwaway DB
         with at least one compressed chunk, the migration applies, is
         idempotent on rerun, the column is nullable `smallint`, existing rows
         read `NULL`, and an `UPDATE` of `off_tape` on a compressed chunk
         succeeds without changing raw columns.
-  - [ ] Success: test passes; unit migration tests pass.
+  - [x] Success: test passes; unit migration tests pass.
 
-- [ ] **3.3 Commit:** `feat: add migration 062 off_tape column`
+- [x] **3.3 Commit:** `feat: add migration 062 off_tape column`
 
 ## Section 4 — `mark_days` and the insert paths (effort 3/5)
 
-- [ ] **4.1 Implement `mark_days`**
-  - [ ] Create `src/manta_trading/data/quality/off_tape_store.py` with
+- [x] **4.1 Implement `mark_days`**
+  - [x] Create `src/manta_trading/data/quality/off_tape_store.py` with
         `mark_days(conn, symbol, et_days) -> int` (rows updated). It reads the
         whole ET days in one `(symbol, time)` range read, runs `mark_day` per
         day, and updates rows whose stored mask differs (`NULL` always
         differs) from a temp table in one statement. Uses the caller's
         connection and transaction; never commits.
-  - [ ] Add `et_days_of(times) -> set[date]` beside `split_et_days`, used by
+  - [x] Add `et_days_of(times) -> set[date]` beside `split_et_days`, used by
         both insert paths.
-  - [ ] Success: `ruff`, `mypy` clean.
+  - [x] Success: `ruff`, `mypy` clean.
 
-- [ ] **4.2 Wire the acquisition insert path**
-  - [ ] In `_insert_minute_bars` (`data/acquisition/daemon/minute.py`), after
+- [x] **4.2 Wire the acquisition insert path**
+  - [x] In `_insert_minute_bars` (`data/acquisition/daemon/minute.py`), after
         the `INSERT ... ON CONFLICT DO NOTHING`, call `mark_days(conn, symbol,
         et_days_of(<frame times>))` inside the same transaction.
-  - [ ] On exception: `logger.exception`, re-raise. Trace what the pass does
+  - [x] On exception: `logger.exception`, re-raise. Trace what the pass does
         with that symbol's write failure and its gap rows today; record it in
         the calibration note under "Insert failure path". It must match the
         design's failure table row 1 (no unevaluated rows committed). **If it
         does not, stop and tell the Project Manager.**
 
-- [ ] **4.3 Wire `write_minute_data_bulk`**
-  - [ ] Same call in `TimescaleMinuteDB.write_minute_data_bulk`
+- [x] **4.3 Wire `write_minute_data_bulk`**
+  - [x] Same call in `TimescaleMinuteDB.write_minute_data_bulk`
         (`market/timescale_minute_db.py`), same transaction, same failure
         handling. Return-value semantics unchanged except that a marking
         failure is a failed write.
 
-- [ ] **4.4 Insert path and agreement tests**
-  - [ ] `test/integration/test_off_tape_marking.py`, throwaway DB, real
+- [x] **4.4 Insert path and agreement tests**
+  - [x] `test/integration/test_off_tape_marking.py`, throwaway DB, real
         fixtures loaded through each path:
     1. every inserted row has non-`NULL` `off_tape`; masks equal `mark_day`
        on the fixture;
@@ -256,14 +256,14 @@ status: not_started
     4. a later frame adding bars to a day re-marks that whole day;
     5. a detector that raises (monkeypatched) rolls the symbol's insert back:
        zero rows committed.
-  - [ ] Success: tests pass; existing daemon and minute-db tests pass.
+  - [x] Success: tests pass; existing daemon and minute-db tests pass.
 
-- [ ] **4.5 Commit:** `feat: mark off-tape prints in both minute insert paths`
+- [x] **4.5 Commit:** `feat: mark off-tape prints in both minute insert paths`
 
 ## Section 5 — Health checks (effort 2/5)
 
-- [ ] **5.1 Implement the checks**
-  - [ ] In `cli/commands/health.py` `gather`, add two `HealthCheck`s over the
+- [x] **5.1 Implement the checks**
+  - [x] In `cli/commands/health.py` `gather`, add two `HealthCheck`s over the
         last collected minute session (reuse `select_judged_session` /
         `fetch_candidate_sessions` from `minute_session_mass.py`; do not
         redefine the session):
@@ -272,53 +272,53 @@ status: not_started
     2. **off-tape share:** FAIL when the share of rows with a non-zero mask
        lies outside `[OFF_TAPE_SHARE_FLOOR, OFF_TAPE_SHARE_CEILING]`,
        naming the share and bounds.
-  - [ ] Keep `health.py` near its current size; if it passes ~300 lines, put
+  - [x] Keep `health.py` near its current size; if it passes ~300 lines, put
         the two checks in `cli/commands/health_off_tape.py` (the
         `health_tick.py` pattern).
 
-- [ ] **5.2 Health tests**
-  - [ ] Unit tests: each check's PASS, both FAIL states (NULL present; share
+- [x] **5.2 Health tests**
+  - [x] Unit tests: each check's PASS, both FAIL states (NULL present; share
         below floor; share above ceiling), and rendered lines.
-  - [ ] Success: tests pass; existing health tests pass.
+  - [x] Success: tests pass; existing health tests pass.
 
-- [ ] **5.3 Commit:** `feat: add off-tape health checks`
+- [x] **5.3 Commit:** `feat: add off-tape health checks`
 
 ## Section 6 — History sweep (effort 4/5)
 
-- [ ] **6.1 Implement chunk selection and dry run**
-  - [ ] Create `market/maintenance/off_tape_sweep.py` (`rechunk.py` and
+- [x] **6.1 Implement chunk selection and dry run**
+  - [x] Create `market/maintenance/off_tape_sweep.py` (`rechunk.py` and
         `cagg_repair.py` are the structure models). List `minute_ohlcv`
         chunks oldest first with compressed state, and select those holding
         any `NULL` `off_tape` (resume = data state, no progress table).
-  - [ ] Defer the newest chunk while `pass_runs` shows a running minute
+  - [x] Defer the newest chunk while `pass_runs` shows a running minute
         pass (`PassRunRepository`, `PassKind`).
-  - [ ] `--dry-run` prints chunks remaining, compressed/uncompressed counts
+  - [x] `--dry-run` prints chunks remaining, compressed/uncompressed counts
         and whether the newest chunk is deferred; writes nothing.
 
-- [ ] **6.2 Implement the per-chunk rewrite**
-  - [ ] Per the design's Sweep steps: read the chunk's rows widened to whole
+- [x] **6.2 Implement the per-chunk rewrite**
+  - [x] Per the design's Sweep steps: read the chunk's rows widened to whole
         ET days at both edges, compute masks with `mark_day` per symbol-day
         (via `split_et_days`), and write only rows inside the chunk.
-  - [ ] Compressed chunk: one transaction with
+  - [x] Compressed chunk: one transaction with
         `SET LOCAL lock_timeout = OFF_TAPE_SWEEP_LOCK_TIMEOUT` (from 1.2):
         raw checksum → `decompress_chunk` → `UPDATE` every row from a temp
         table → checksum → `compress_chunk`. Uncompressed: the `UPDATE` only.
-  - [ ] Share the mask-write SQL with `mark_days` (extract a helper in
+  - [x] Share the mask-write SQL with `mark_days` (extract a helper in
         `off_tape_store.py`); do not duplicate it.
-  - [ ] Failure table (design "Failure handling"): lock timeout → skip,
+  - [x] Failure table (design "Failure handling"): lock timeout → skip,
         retry once at end of run, exit non-zero naming unlocked chunks;
         checksum mismatch → roll back, stop, exit non-zero naming the chunk;
         any other exception → `logger.exception`, roll back, re-raise.
 
-- [ ] **6.3 Add the CLI**
-  - [ ] Create `cli/commands/off_tape.py` with a Typer app registered in
+- [x] **6.3 Add the CLI**
+  - [x] Create `cli/commands/off_tape.py` with a Typer app registered in
         `data.py` as `mt data off-tape` (the `health` registration is the
         model). Command `sweep` with `--maintenance-url` (required, never read
         from the environment inside the tool) and `--dry-run`. Logs one line
         per chunk: rows, marked share, elapsed.
 
-- [ ] **6.4 Sweep integration tests**
-  - [ ] `test/integration/test_off_tape_sweep.py`, throwaway DB with fixture
+- [x] **6.4 Sweep integration tests**
+  - [x] `test/integration/test_off_tape_sweep.py`, throwaway DB with fixture
         bars across at least three chunks, two compressed:
     1. after the sweep: no `NULL`, chunks recompressed, raw checksums
        unchanged, masks equal the insert-path masks for the same days;
@@ -333,69 +333,69 @@ status: not_started
     6. `mt data accounting` counts, `data_status` and the coverage index read
        the same before and after the sweep;
     7. `--dry-run` writes nothing.
-  - [ ] Success: tests pass.
+  - [x] Success: tests pass.
 
-- [ ] **6.5 Measure one production-sized chunk**
-  - [ ] On the test cluster, load one full production chunk's worth of bars
+- [x] **6.5 Measure one production-sized chunk**
+  - [x] On the test cluster, load one full production chunk's worth of bars
         (copy one 7-day chunk's rows from production read-only via a
         developer-run script, or the largest available), compress it, and
         time the sweep of that chunk. Record elapsed, rows/s and the
         projected full-history duration in the calibration note.
-  - [ ] **If the projection exceeds the gap between weekly minute passes,
+  - [x] **If the projection exceeds the gap between weekly minute passes,
         stop and tell the Project Manager** (workers are a design change).
-  - [ ] Success: measurement recorded.
+  - [x] Success: measurement recorded.
 
-- [ ] **6.6 Commit:** `feat: add resumable off-tape history sweep`
+- [x] **6.6 Commit:** `feat: add resumable off-tape history sweep`
 
 ## Section 7 — `prints` at 1m (effort 3/5)
 
-- [ ] **7.1 Read path**
-  - [ ] `get_minute_data(..., prints: PrintMode = PrintMode.ALL)` in
+- [x] **7.1 Read path**
+  - [x] `get_minute_data(..., prints: PrintMode = PrintMode.ALL)` in
         `market/timescale_minute_db.py`. `ELIGIBLE` selects the
         `eligible_sql` expressions and filters by `has_eligible_price()`;
         adjusted-on-read multiplies after the eligible values. `ALL` SQL is
         unchanged. `ELIGIBLE` with a non-1m request raises `ValueError`.
-  - [ ] Unit/integration tests: `ALL` output identical to today's on a
+  - [x] Unit/integration tests: `ALL` output identical to today's on a
         fixture day; `ELIGIBLE` equals `eligible_bar` row by row; all-marked
         minutes absent (price and volume); adjusted values clamp first.
-  - [ ] Known-value test: for every value in design success criterion 1
+  - [x] Known-value test: for every value in design success criterion 1
         (SPY 09-08 770.19, 770.3516 highs, 724.228 lows; SPY 09-11 787.5169;
         AVGO 06-03 295.4665; MSFT 08-05 384.28), load the fixture day and
         assert the value appears in `ALL` output at its minute and in no
         o/h/l/c of the `ELIGIBLE` output at that minute.
 
-- [ ] **7.2 API route**
-  - [ ] `api_server/routes/bars.py`: query parameter `prints: PrintMode =
+- [x] **7.2 API route**
+  - [x] `api_server/routes/bars.py`: query parameter `prints: PrintMode =
         PrintMode.ALL`. `ELIGIBLE` with granularity ≠ 1m → 422 with the
         message constant from 1.2.
-  - [ ] `BarsResponse` (`api_server/models/responses.py`) gains `prints`
+  - [x] `BarsResponse` (`api_server/models/responses.py`) gains `prints`
         echoing the mode served.
-  - [ ] Admission, staleness and 404 behaviour unchanged.
-  - [ ] Tests in `test/integration/api_server/`: default response has
+  - [x] Admission, staleness and 404 behaviour unchanged.
+  - [x] Tests in `test/integration/api_server/`: default response has
         `prints: "all"` and today's bars exactly; `prints=eligible` 1m drops
         the SPY 09-08 770.x highs (fixture); `prints=eligible` at 5m → 422
         with the message; invalid value → 422.
 
-- [ ] **7.3 CLI `mt data get` and CSV export**
-  - [ ] Add `--prints all|eligible` (default `all`) passed to
+- [x] **7.3 CLI `mt data get` and CSV export**
+  - [x] Add `--prints all|eligible` (default `all`) passed to
         `get_minute_data`; non-1m with `eligible` exits with the same message.
-  - [ ] Test: option parses and reaches `get_minute_data`.
+  - [x] Test: option parses and reaches `get_minute_data`.
 
-- [ ] **7.4 Load test case**
-  - [ ] In `test/load/test_187_api_nfr.py`, add a `prints=eligible` 1m case
+- [x] **7.4 Load test case**
+  - [x] In `test/load/test_187_api_nfr.py`, add a `prints=eligible` 1m case
         at the admission ceiling under the same bound as the existing
         `prints=all` case. Run the bars load tests (allow the tier its full
         time; do not cap under 90 minutes if running the whole tier).
-  - [ ] Success: passes; elapsed recorded in the calibration note.
+  - [x] Success: passes; elapsed recorded in the calibration note.
 
-- [ ] **7.5 Commit:** `feat: serve tape-eligible 1m bars via prints parameter`
+- [x] **7.5 Commit:** `feat: serve tape-eligible 1m bars via prints parameter`
 
 ## Section 8 — Documentation (effort 2/5)
 
-- [ ] **8.1 API references**
-  - [ ] Regenerate `docs/api/openapi.json` with `scripts/dump_openapi.py`;
+- [x] **8.1 API references**
+  - [x] Regenerate `docs/api/openapi.json` with `scripts/dump_openapi.py`;
         `scripts/check_api_docs.py` passes.
-  - [ ] `docs/api/reference.md` and `docs/api/agents.md`: the `prints`
+  - [x] `docs/api/reference.md` and `docs/api/agents.md`: the `prints`
         parameter, 1m-only rule and 422, the `prints` response field, the
         all-marked-minute absence, and that the default stays `all` until
         slice 172. Add a worked example; `test_api_docs_examples.py` passes.

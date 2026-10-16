@@ -6,7 +6,7 @@ parent: user/architecture/120-arch.data-acquisition.md
 relatedSlices: [127, 128]
 archIndex: 120
 dateCreated: 20260427
-dateUpdated: 20260427
+dateUpdated: 20261016
 status: accepted
 ---
 
@@ -307,6 +307,27 @@ Reasoning:
 
 The Stage-A verifier and the Stage-B `verify-against-eodhd-eod` checker
 flag inconsistencies; they do not mutate stored data.
+
+### Amendment: tape-eligibility marks (2026-10-16, slice 171)
+
+**Pending PM sign-off at review.**
+
+- **Unchanged:** no removal, smoothing or forward-fill at storage time, and
+  raw values stay immutable. Every stored price is the provider's.
+- **Added:** `minute_ohlcv.off_tape` marks which of a bar's open, high, low
+  and close are off-tape prints. The marks are annotations beside the raw
+  values, the advisory home point 3 above anticipated.
+- **Added:** serving may choose eligible values. `prints=eligible` clamps
+  marked prices into the range of the bar's unmarked prices; `prints=all`
+  serves raw. Slice 171 keeps `all` the default; slice 172 makes `eligible`
+  the default once the rollups are built.
+- **Why this is not outlier cleaning:** point 1's objection is that
+  outlier-ness is a strategy's opinion. Tape eligibility is not: the
+  exchanges' own rules already keep late-reported, average-price and
+  prior-reference trades out of a bar's high, low and last price. The
+  detector approximates that rule from bars because EODHD does not provide
+  sale conditions; a provider that does would replace the detector, not the
+  model.
 
 ## Stage B is provider-coupled by design (slice 128)
 
