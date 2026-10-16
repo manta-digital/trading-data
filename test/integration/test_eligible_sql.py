@@ -48,7 +48,9 @@ def conn(ephemeral_db: str) -> Any:
         yield connection
 
 
-def _select(conn: psycopg.Connection, where: str = "TRUE") -> dict[int, tuple]:
+def _select(
+    conn: psycopg.Connection[Any], where: str = "TRUE"
+) -> dict[int, tuple[float, ...]]:
     columns = ", ".join(
         eligible_sql.eligible_value(name, "b")
         for name in ("open", "high", "low", "close")
@@ -59,7 +61,7 @@ def _select(conn: psycopg.Connection, where: str = "TRUE") -> dict[int, tuple]:
     return {row[0]: tuple(float(value) for value in row[1:]) for row in rows}
 
 
-def test_sql_equals_python_mirror(conn: psycopg.Connection) -> None:
+def test_sql_equals_python_mirror(conn: psycopg.Connection[Any]) -> None:
     eligible = _select(conn, eligible_sql.has_eligible_price("b"))
     for index, mask in enumerate(CASES):
         expected = eligible_bar(
@@ -68,18 +70,18 @@ def test_sql_equals_python_mirror(conn: psycopg.Connection) -> None:
         assert eligible.get(index) == expected, f"mask={mask}"
 
 
-def test_all_marked_excluded_by_predicate(conn: psycopg.Connection) -> None:
+def test_all_marked_excluded_by_predicate(conn: psycopg.Connection[Any]) -> None:
     eligible = _select(conn, eligible_sql.has_eligible_price("b"))
     assert CASES.index(int(OffTape.ALL)) not in eligible
     assert len(eligible) == len(CASES) - 1
 
 
-def test_null_reads_as_clean(conn: psycopg.Connection) -> None:
+def test_null_reads_as_clean(conn: psycopg.Connection[Any]) -> None:
     raw = (float(OPEN), float(HIGH), float(LOW), float(CLOSE))
     eligible = _select(conn)
     assert eligible[CASES.index(None)] == raw == eligible[CASES.index(0)]
 
 
-def test_marked_high_falls_to_highest_eligible(conn: psycopg.Connection) -> None:
+def test_marked_high_falls_to_highest_eligible(conn: psycopg.Connection[Any]) -> None:
     eligible = _select(conn)
     assert eligible[CASES.index(int(OffTape.HIGH))][1] == float(OPEN)

@@ -9,7 +9,8 @@ dateUpdated: 20261016
 # Off-tape detector fixtures (slice 171)
 
 Whole ET days of production `minute_ohlcv`, cut on 2026-10-16 by
-`scripts/cut_off_tape_fixtures.py` (rerun it to reproduce them byte for byte).
+`scripts/cut_off_tape_fixtures.py --db-url "$MT_TIMESCALE_DB_URL"` (rerun it to
+reproduce them byte for byte).
 Columns: `time` (UTC), `symbol`, `open`, `high`, `low`, `close`, `volume`, as
 stored. No synthetic fixtures.
 

@@ -26,6 +26,7 @@ import time as clock
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
 
 import pandas as pd
 import psycopg
@@ -99,7 +100,7 @@ class SweepReport:
     deferred: str | None = None
 
 
-def list_chunks(conn: psycopg.Connection) -> list[Chunk]:
+def list_chunks(conn: psycopg.Connection[Any]) -> list[Chunk]:
     rows = conn.execute(_CHUNKS, (MINUTE_OHLCV_TABLE,)).fetchall()
     return [
         Chunk(name, start, end, bool(compressed))
@@ -107,17 +108,17 @@ def list_chunks(conn: psycopg.Connection) -> list[Chunk]:
     ]
 
 
-def _has_null(conn: psycopg.Connection, chunk: Chunk) -> bool:
+def _has_null(conn: psycopg.Connection[Any], chunk: Chunk) -> bool:
     row = conn.execute(_HAS_NULL, (chunk.start, chunk.end)).fetchone()
     return bool(row and row[0])
 
 
-def minute_pass_running(conn: psycopg.Connection) -> bool:
+def minute_pass_running(conn: psycopg.Connection[Any]) -> bool:
     """True when ``pass_runs`` holds an open minute pass."""
     return bool(PassRunRepository(lambda: nullcontext(conn)).open_runs(PassKind.MINUTE))
 
 
-def plan(conn: psycopg.Connection) -> SweepPlan:
+def plan(conn: psycopg.Connection[Any]) -> SweepPlan:
     """Pending chunks oldest first; the newest is held back during a pass."""
     chunks = list_chunks(conn)
     pending = [chunk for chunk in chunks if _has_null(conn, chunk)]
@@ -127,7 +128,7 @@ def plan(conn: psycopg.Connection) -> SweepPlan:
     return SweepPlan(pending, deferred)
 
 
-def _checksum(conn: psycopg.Connection, chunk: Chunk) -> tuple[object, ...]:
+def _checksum(conn: psycopg.Connection[Any], chunk: Chunk) -> tuple[object, ...]:
     row = conn.execute(_RAW_CHECKSUM, (chunk.start, chunk.end)).fetchone()
     assert row is not None  # an aggregate without GROUP BY always returns a row
     return tuple(row)
@@ -140,7 +141,7 @@ def _widened(chunk: Chunk) -> tuple[datetime, datetime]:
     return et_day_start(first), et_day_start(last + timedelta(days=1))
 
 
-def chunk_masks(conn: psycopg.Connection, chunk: Chunk) -> pd.DataFrame:
+def chunk_masks(conn: psycopg.Connection[Any], chunk: Chunk) -> pd.DataFrame:
     """Masks (``symbol, time, mask``) for every row inside ``chunk``."""
     start, end = _widened(chunk)
     parts: list[pd.DataFrame] = []
@@ -153,7 +154,7 @@ def chunk_masks(conn: psycopg.Connection, chunk: Chunk) -> pd.DataFrame:
     return pd.concat(parts, ignore_index=True)
 
 
-def sweep_chunk(conn: psycopg.Connection, chunk: Chunk) -> ChunkResult:
+def sweep_chunk(conn: psycopg.Connection[Any], chunk: Chunk) -> ChunkResult:
     """Rewrite one chunk's masks in one transaction (module docstring)."""
     began = clock.perf_counter()
     with conn.transaction():
@@ -172,7 +173,7 @@ def sweep_chunk(conn: psycopg.Connection, chunk: Chunk) -> ChunkResult:
     return ChunkResult(rows, marked, clock.perf_counter() - began)
 
 
-def _attempt(conn: psycopg.Connection, chunk: Chunk, report: SweepReport) -> bool:
+def _attempt(conn: psycopg.Connection[Any], chunk: Chunk, report: SweepReport) -> bool:
     """Sweep one chunk; False when its lock was not granted in time."""
     try:
         result = sweep_chunk(conn, chunk)
@@ -196,7 +197,7 @@ def _attempt(conn: psycopg.Connection, chunk: Chunk, report: SweepReport) -> boo
     return True
 
 
-def run_sweep(conn: psycopg.Connection) -> SweepReport:
+def run_sweep(conn: psycopg.Connection[Any]) -> SweepReport:
     """Sweep every pending chunk; lock-skipped chunks get one retry.
 
     ``conn`` must be in autocommit mode, so each chunk's ``transaction()``
@@ -206,8 +207,11 @@ def run_sweep(conn: psycopg.Connection) -> SweepReport:
         raise ValueError("run_sweep needs an autocommit connection")
     swept = plan(conn)
     report = SweepReport(deferred=swept.deferred.name if swept.deferred else None)
-    skipped = [chunk for chunk in swept.pending if not _attempt(conn, chunk, report)]
-    report.unlocked = [
-        chunk.name for chunk in skipped if not _attempt(conn, chunk, report)
-    ]
+    locked: list[Chunk] = []
+    for chunk in swept.pending:
+        if not _attempt(conn, chunk, report):
+            locked.append(chunk)
+    for chunk in locked:  # one retry each, after everything else
+        if not _attempt(conn, chunk, report):
+            report.unlocked.append(chunk.name)
     return report

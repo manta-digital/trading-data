@@ -13,26 +13,26 @@ Runs the detector over every symbol's ET days in ``[--week-start,
 The per-day shares set ``OFF_TAPE_SHARE_FLOOR`` (half the lowest) and
 ``OFF_TAPE_SHARE_CEILING`` (twice the highest) in ``constants.py``.
 
-Manual, developer-run, read-only. Reads the production URL from
-``MT_TIMESCALE_DB_URL``. Usage::
+Manual, developer-run, read-only. Takes the production URL as
+``--db-url``. Usage::
 
-    uv run python scripts/measure_off_tape_share.py --week-start 2026-10-05
+    uv run python scripts/measure_off_tape_share.py \\
+        --db-url "$MT_TIMESCALE_DB_URL" --week-start 2026-10-05
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import time
 from collections import defaultdict
-from collections.abc import Iterator
 from datetime import date, timedelta
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import psycopg
 
-from manta_trading.constants import OFF_TAPE_DAY_TZ
+from manta_trading.constants import OFF_TAPE_DAY_TZ, OFF_TAPE_REGULAR_MINUTES_ET
 from manta_trading.data.quality.off_tape import (
     PRICE_BITS,
     PRODUCTION,
@@ -40,19 +40,12 @@ from manta_trading.data.quality.off_tape import (
     mark_symbol_days,
     split_et_days,
 )
+from manta_trading.data.quality.off_tape_store import et_day_start, iter_symbol_frames
 
 PRIOR_CLOSES = 30
 MATCH_TOLERANCE = 5e-5
-RTH_START, RTH_END = 9 * 60 + 30, 16 * 60
-BATCH_ROWS = 200_000
+RTH_START, RTH_END = OFF_TAPE_REGULAR_MINUTES_ET
 
-_BARS = """
-SELECT symbol, time, open::float8, high::float8, low::float8, close::float8
-FROM minute_ohlcv
-WHERE time >= (%(start)s::date + time '00:00') AT TIME ZONE 'America/New_York'
-  AND time <  (%(end)s::date + time '00:00') AT TIME ZONE 'America/New_York'
-ORDER BY symbol, time
-"""
 _CLOSES = """
 SELECT symbol, (time AT TIME ZONE 'UTC')::date AS day, close::float8
 FROM daily_ohlcv
@@ -70,34 +63,6 @@ class Tally:
         self.regular: dict[date, int] = defaultdict(int)
         self.match = {True: [0, 0], False: [0, 0]}  # marked? -> [matches, values]
         self.detector_seconds = 0.0
-
-
-def _symbols(
-    conn: psycopg.Connection, start: date, end: date
-) -> Iterator[pd.DataFrame]:
-    """One frame per symbol, streamed from a server-side cursor."""
-    columns = ["symbol", "time", "open", "high", "low", "close"]
-    pending: list[tuple[object, ...]] = []
-    with conn.cursor(name="off_tape_week") as cursor:
-        cursor.execute(_BARS, {"start": start, "end": end})
-        while rows := cursor.fetchmany(BATCH_ROWS):
-            pending.extend(rows)
-            last = pending[-1][0]
-            done = [row for row in pending if row[0] != last]
-            pending = [row for row in pending if row[0] == last]
-            yield from _frames(done, columns)
-    yield from _frames(pending, columns)
-
-
-def _frames(
-    rows: list[tuple[object, ...]], columns: list[str]
-) -> Iterator[pd.DataFrame]:
-    if not rows:
-        return
-    frame = pd.DataFrame(rows, columns=columns)
-    frame["time"] = pd.to_datetime(frame["time"], utc=True)
-    for _, group in frame.groupby("symbol", sort=False):
-        yield group.reset_index(drop=True)
 
 
 def _prior_closes(closes: pd.DataFrame, symbol: str, day: date) -> np.ndarray:
@@ -128,7 +93,9 @@ def _tally_day(
             tally.match[is_marked][1] += int(chosen.sum())
 
 
-def measure(conn: psycopg.Connection, start: date, calibration: Calibration) -> Tally:
+def measure(
+    conn: psycopg.Connection[Any], start: date, calibration: Calibration
+) -> Tally:
     end = start + timedelta(days=7)
     closes = pd.DataFrame(
         conn.execute(
@@ -139,7 +106,7 @@ def measure(conn: psycopg.Connection, start: date, calibration: Calibration) -> 
     by_symbol = dict(tuple(closes.groupby("symbol")))
     empty = closes.iloc[0:0]
     tally = Tally()
-    for bars in _symbols(conn, start, end):
+    for bars in iter_symbol_frames(conn, et_day_start(start), et_day_start(end)):
         symbol = bars["symbol"].iloc[0]
         own = by_symbol.get(symbol, empty)
         began = time.perf_counter()
@@ -182,6 +149,7 @@ def report(tally: Tally) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--db-url", required=True, help="production URL, read-only")
     parser.add_argument("--week-start", type=date.fromisoformat, required=True)
     parser.add_argument("--multiple", type=float, default=PRODUCTION.multiple)
     parser.add_argument("--min-fraction", type=float, default=PRODUCTION.min_fraction)
@@ -193,7 +161,7 @@ def main() -> None:
         min_absolute=args.min_absolute,
     )
     print(f"{calibration} week={args.week_start}")
-    with psycopg.connect(os.environ["MT_TIMESCALE_DB_URL"]) as conn:
+    with psycopg.connect(args.db_url) as conn:
         conn.read_only = True
         report(measure(conn, args.week_start, calibration))
 

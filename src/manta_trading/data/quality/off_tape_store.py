@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 from datetime import date, datetime, time, timedelta
+from typing import Any
 
 import pandas as pd
 import psycopg
@@ -26,9 +27,9 @@ FROM minute_ohlcv
 WHERE symbol = %s AND time >= %s AND time < %s
 ORDER BY time
 """
-_RANGE_COLUMNS = ["symbol", "time", "open", "high", "low", "close", "off_tape"]
+_RANGE_COLUMNS = ["symbol", "time", "open", "high", "low", "close"]
 _READ_RANGE = """
-SELECT symbol, time, open::float8, high::float8, low::float8, close::float8, off_tape
+SELECT symbol, time, open::float8, high::float8, low::float8, close::float8
 FROM minute_ohlcv
 WHERE time >= %s AND time < %s
 ORDER BY symbol, time
@@ -56,7 +57,7 @@ def _runs(days: Iterable[date]) -> Iterator[tuple[date, date]]:
 
 
 def read_days(
-    conn: psycopg.Connection, symbol: str, first: date, last: date
+    conn: psycopg.Connection[Any], symbol: str, first: date, last: date
 ) -> pd.DataFrame:
     """Whole ET days ``first..last`` of one symbol, with stored marks."""
     end = et_day_start(last + timedelta(days=1))
@@ -69,7 +70,11 @@ def read_days(
 
 
 def iter_symbol_frames(
-    conn: psycopg.Connection, start: datetime, end: datetime, *, batch: int = 200_000
+    conn: psycopg.Connection[Any],
+    start: datetime,
+    end: datetime,
+    *,
+    batch: int = 200_000,
 ) -> Iterator[pd.DataFrame]:
     """One frame per symbol of every bar in ``[start, end)``, streamed.
 
@@ -97,7 +102,7 @@ def _frames(rows: list[tuple[object, ...]]) -> Iterator[pd.DataFrame]:
         yield group.reset_index(drop=True)
 
 
-def write_masks(conn: psycopg.Connection, masks: pd.DataFrame) -> int:
+def write_masks(conn: psycopg.Connection[Any], masks: pd.DataFrame) -> int:
     """Set ``off_tape`` from ``masks`` (``symbol, time, mask``); rows updated.
 
     COPY into a temp table, then one ``UPDATE ... FROM``. The temp table is
@@ -126,7 +131,9 @@ def write_masks(conn: psycopg.Connection, masks: pd.DataFrame) -> int:
     return updated
 
 
-def mark_days(conn: psycopg.Connection, symbol: str, et_days: Iterable[date]) -> int:
+def mark_days(
+    conn: psycopg.Connection[Any], symbol: str, et_days: Iterable[date]
+) -> int:
     """Re-mark whole ET days of one symbol; rows whose mask changed.
 
     ``NULL`` always differs, so every unevaluated row is written.
@@ -145,7 +152,7 @@ def mark_days(conn: psycopg.Connection, symbol: str, et_days: Iterable[date]) ->
 
 
 def mark_inserted(
-    conn: psycopg.Connection, symbol: str, times: Iterable[datetime]
+    conn: psycopg.Connection[Any], symbol: str, times: Iterable[datetime]
 ) -> int:
     """Mark every ET day an insert frame touched (the insert paths' entry).
 

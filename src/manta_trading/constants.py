@@ -1406,6 +1406,10 @@ class PrintMode(StrEnum):
 OFF_TAPE_DAY_TZ: Final[ZoneInfo] = ZoneInfo("America/New_York")
 """Timezone whose calendar date defines a detector day (slice 171)."""
 
+OFF_TAPE_REGULAR_MINUTES_ET: Final[tuple[int, int]] = (9 * 60 + 30, 16 * 60)
+"""Regular hours as ET minutes of the day, ``[start, end)``; for reporting
+regular-hours marks in calibration and tests (slice 171)."""
+
 OFF_TAPE_WINDOW_BARS: Final[int] = 10
 """Detector K: bars on each side whose median close forms the envelope (171)."""
 

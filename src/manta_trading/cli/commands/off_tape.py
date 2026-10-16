@@ -11,6 +11,8 @@ stopped on a checksum mismatch.
 
 from __future__ import annotations
 
+from typing import Any
+
 import psycopg
 import typer
 
@@ -28,7 +30,7 @@ off_tape_app = typer.Typer(
 )
 
 
-def _connect(url: str) -> psycopg.Connection:
+def _connect(url: str) -> psycopg.Connection[Any]:
     conn = psycopg.connect(url, autocommit=True)
     conn.execute("SET timezone = 'UTC'")
     # One chunk rewrite can outlast a role's statement_timeout; waits are
@@ -37,7 +39,7 @@ def _connect(url: str) -> psycopg.Connection:
     return conn
 
 
-def _dry_run(conn: psycopg.Connection) -> None:
+def _dry_run(conn: psycopg.Connection[Any]) -> None:
     chunks = list_chunks(conn)
     swept = plan(conn)
     compressed = sum(chunk.compressed for chunk in swept.pending)

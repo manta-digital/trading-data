@@ -11,7 +11,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from manta_trading.constants import OFF_TAPE_DAY_TZ, OffTape
+from manta_trading.constants import (
+    OFF_TAPE_DAY_TZ,
+    OFF_TAPE_REGULAR_MINUTES_ET,
+    OffTape,
+)
 from manta_trading.data.quality.off_tape import (
     PRICE_BITS,
     Calibration,
@@ -42,7 +46,7 @@ EARNINGS_DAYS = (
 #: Regular hours in ET minutes of the day, and the earnings-jump test's terms:
 #: the jump is the first bar from 16:00 ET whose close moves more than
 #: JUMP_FRACTION from the last regular-hours close; JUMP_ROWS bars each side.
-RTH_START, RTH_END = 9 * 60 + 30, 16 * 60
+RTH_START, RTH_END = OFF_TAPE_REGULAR_MINUTES_ET
 JUMP_FRACTION, JUMP_ROWS = 0.02, 3
 
 
