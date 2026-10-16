@@ -2705,4 +2705,14 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         ),
         "sql": _MINUTE_COMPRESS_AFTER_SQL + _MINUTE_REFRESH_OFFSETS_SQL,
     },
+    {
+        "id": "062_minute_ohlcv_off_tape",
+        "description": (
+            "Add minute_ohlcv.off_tape smallint: the OffTape bitmask of which "
+            "of open/high/low/close are off-tape (slice 171). NULL = not "
+            "evaluated, 0 = clean. Nullable, no default, no index, so it is a "
+            "metadata-only change on the compressed hypertable."
+        ),
+        "sql": "ALTER TABLE minute_ohlcv ADD COLUMN IF NOT EXISTS off_tape smallint;",
+    },
 ]
