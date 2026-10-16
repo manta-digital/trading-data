@@ -584,14 +584,14 @@ cagg's mat hypertable at 10× the source interval, and post-043 ``minute_ohlcv``
 is 7 days → 70 days automatic (migration 044 then a verified no-op).
 """
 
-MINUTE_CAGG_COMPRESS_AFTER: timedelta = timedelta(days=7)
+MINUTE_CAGG_COMPRESS_AFTER: timedelta = timedelta(days=14)
 """``compress_after`` for the four minute caggs' columnstore policies (slice 163).
 
-Must be strictly **greater than** the caggs' refresh-policy ``start_offset``
-(1 day) so the columnstore policy never compresses inside the actively-refreshed
-head, where the trailing refresh still rewrites rows. 7 days mirrors the raw
-``minute_ohlcv`` policy cadence (migration 042). Rendered into migration 045 —
-never restate as a literal.
+Must be strictly **greater than** ``MINUTE_CAGG_REFRESH_START_OFFSET`` so the
+columnstore policy never compresses inside the actively-refreshed head, where
+the trailing refresh still rewrites rows. Was 7 days; raised to 14 when the
+refresh window widened to 10 days for the weekly minute cadence. Rendered into
+migrations 045 and 061 — never restate as a literal.
 """
 
 MINUTE_COVERAGE_VIEW: str = "minute_coverage"
@@ -732,20 +732,24 @@ re-materialized (slice 169). At the narrowed 7-day width the coverage caggs
 rejoin the well-behaved group: the floor drops from 731 days to 14.
 """
 
-MINUTE_CAGG_REFRESH_START_OFFSET: timedelta = timedelta(days=3)
+MINUTE_CAGG_REFRESH_START_OFFSET: timedelta = timedelta(days=10)
 """``start_offset`` of the four minute caggs' own refresh policies.
 
 Bars are materialized only if their timestamps fall inside
-``[now - start_offset, now - end_offset]`` at policy time. Minute bars arrive
-in two nightly batches (hours old) and a quota-starved night defers a symbol
-by a full day, so the window must be days, not hours: a 2-hour window silently
-froze the 5m/15m caggs for 24 days with the policies reporting Success (issue
-#20). Incremental refresh only touches invalidated regions, so the wider
-window costs ~nothing per run. Also the **parent** window slice 167's
-hierarchical coverage policy must exceed (the constants test asserts the
-coverage ``start_offset`` against it), and it must stay below
-``MINUTE_CAGG_COMPRESS_AFTER``. Rendered into migrations 035 and 053 — one
-value, one source.
+``[now - start_offset, now - end_offset]`` at policy time, so this must cover
+the oldest bar a minute firing can write. Under the weekly
+``MT_MINUTE_FIRING_DAYS`` cadence a Saturday firing lands the whole Mon-Fri
+week, so Monday's bars arrive ~5.5 days old; the old 3-day window left every
+Monday, Tuesday and early Wednesday unmaterialized in all four caggs from
+2026-09-14 on, with the policies reporting Success. 10 days matches
+``HEALTH_MINUTE_RAW_STALE_AFTER``'s sizing for the same cadence (week plus a
+Monday holiday plus the firing day). A 2-hour window once froze the 5m/15m
+caggs for 24 days the same way (issue #20). Incremental refresh only touches
+invalidated regions, so the wider window costs ~nothing per run. Also the
+**parent** window slice 167's hierarchical coverage policy must exceed (the
+constants test asserts the coverage ``start_offset`` against it), and it must
+stay below ``MINUTE_CAGG_COMPRESS_AFTER``. Rendered into migrations 035, 053
+and 061 — one value, one source.
 """
 
 DAILY_MONTHLY_REFRESH_START_OFFSET: timedelta = timedelta(days=120)

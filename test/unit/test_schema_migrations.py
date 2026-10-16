@@ -230,7 +230,8 @@ class TestMigrationsListIntegrity:
         # and 058 (CME_EQUITY calendar seed).
         # 61 -> 62 with slice 232's 059 (CME_METALS calendar seed).
         # 62 -> 63 with slice 234's 060 (pass_runs admits tick).
-        assert len(MIGRATIONS) == 63
+        # 63 -> 64 with 061 (minute cagg refresh window for the weekly firing).
+        assert len(MIGRATIONS) == 64
 
 
 # ---------------------------------------------------------------------------
@@ -888,17 +889,18 @@ class TestMigration045MinuteCaggColumnstore:
 
         from manta_trading.constants import MINUTE_CAGG_COMPRESS_AFTER
 
-        assert MINUTE_CAGG_COMPRESS_AFTER == timedelta(days=7)
+        assert MINUTE_CAGG_COMPRESS_AFTER == timedelta(days=14)
 
     def test_compress_after_exceeds_refresh_start_offset(self) -> None:
-        """compress_after must be strictly > the refresh policy's 1-day
+        """compress_after must be strictly > the refresh policy's
         start_offset, so the columnstore policy never compresses the
         actively-refreshed head (design D3)."""
-        from datetime import timedelta
+        from manta_trading.constants import (
+            MINUTE_CAGG_COMPRESS_AFTER,
+            MINUTE_CAGG_REFRESH_START_OFFSET,
+        )
 
-        from manta_trading.constants import MINUTE_CAGG_COMPRESS_AFTER
-
-        assert MINUTE_CAGG_COMPRESS_AFTER > timedelta(days=1)
+        assert MINUTE_CAGG_COMPRESS_AFTER > MINUTE_CAGG_REFRESH_START_OFFSET
 
 
 class TestMigration045ColumnstoreExecution:
@@ -1308,9 +1310,10 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_060() -> None:
+def test_chain_ends_at_061() -> None:
     """The newest migration must be last (slice 922 retargeted this from 054;
-    slice 221 from 056; slice 232 from 058; slice 234 from 059).
+    slice 221 from 056; slice 232 from 058; slice 234 from 059; the weekly
+    refresh-window fix from 060).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
@@ -1321,7 +1324,48 @@ def test_chain_ends_at_060() -> None:
     (see ``POSITION_CRITICAL_IDS``), which is why the tip check names a later
     migration.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == "060_pass_kind_tick"
+    assert MINUTE_MIGRATIONS[-1]["id"] == "061_minute_cagg_weekly_refresh_window"
+
+
+class TestMigration061WeeklyRefreshWindow:
+    """061 widens the minute caggs' refresh window to cover a weekly firing,
+    and moves compress_after above it, both from their constants."""
+
+    def _get(self) -> dict:
+        return next(
+            m for m in MINUTE_MIGRATIONS
+            if m["id"] == "061_minute_cagg_weekly_refresh_window"
+        )
+
+    def test_refresh_window_covers_a_weekly_firing(self) -> None:
+        """A Saturday firing lands Monday's bars ~5.5 days old; the window
+        must reach them or Monday never materializes."""
+        from datetime import timedelta
+
+        from manta_trading.constants import MINUTE_CAGG_REFRESH_START_OFFSET
+
+        assert MINUTE_CAGG_REFRESH_START_OFFSET >= timedelta(days=7)
+
+    def test_renders_both_constants(self) -> None:
+        from manta_trading.constants import (
+            MINUTE_CAGG_COMPRESS_AFTER,
+            MINUTE_CAGG_REFRESH_START_OFFSET,
+        )
+
+        sql = self._get()["sql"]
+        for td in (MINUTE_CAGG_REFRESH_START_OFFSET, MINUTE_CAGG_COMPRESS_AFTER):
+            assert f"INTERVAL '{int(td.total_seconds())} seconds'" in sql
+
+    def test_reuses_053_refresh_block(self) -> None:
+        """One block converges the refresh policies; 061 re-runs it."""
+        m053 = next(m for m in MINUTE_MIGRATIONS if m["id"] == _MIGRATION_053_ID)
+        assert m053["sql"] in self._get()["sql"]
+
+    def test_compression_targets_all_four_minute_caggs(self) -> None:
+        sql = self._get()["sql"]
+        assert "policy_compression" in sql
+        for view in _MINUTE_CAGG_VIEW_NAMES:
+            assert f"'{view}'" in sql
 
 
 class TestMigration054DailyMonthlyRefreshWindow:

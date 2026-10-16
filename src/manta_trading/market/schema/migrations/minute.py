@@ -96,6 +96,79 @@ _MINUTE_REFRESH_START_SQL = _interval_seconds_sql(MINUTE_CAGG_REFRESH_START_OFFS
 _DAILY_MONTHLY_REFRESH_START_SQL = _interval_seconds_sql(DAILY_MONTHLY_REFRESH_START_OFFSET)
 
 
+#: Converge every minute cagg refresh policy's start_offset to the constant
+#: (053, 061). Guarded: alters only a policy whose start_offset differs, so it
+#: is safe to re-run.
+_MINUTE_REFRESH_OFFSETS_SQL = f"""
+            DO $$
+            DECLARE
+                v_view  text;
+                v_end   interval;
+                v_sched interval;
+                cur_start interval;
+            BEGIN
+                FOR v_view, v_end, v_sched IN
+                    SELECT * FROM (VALUES
+                        ('minute_5min_ohlcv',
+                            INTERVAL '5 minutes', INTERVAL '5 minutes'),
+                        ('minute_15min_ohlcv',
+                            INTERVAL '15 minutes', INTERVAL '15 minutes'),
+                        ('minute_hourly_ohlcv',
+                            INTERVAL '1 hour', INTERVAL '1 hour'),
+                        ('minute_4hour_ohlcv',
+                            INTERVAL '4 hours', INTERVAL '1 hour')
+                    ) AS t(view_name, end_off, sched)
+                LOOP
+                    SELECT (config->>'start_offset')::interval INTO cur_start
+                    FROM timescaledb_information.jobs
+                    WHERE hypertable_name = v_view
+                      AND proc_name = 'policy_refresh_continuous_aggregate';
+
+                    IF cur_start IS NOT NULL
+                       AND cur_start <> {_MINUTE_REFRESH_START_SQL} THEN
+                        PERFORM remove_continuous_aggregate_policy(v_view);
+                        PERFORM add_continuous_aggregate_policy(v_view,
+                            start_offset      => {_MINUTE_REFRESH_START_SQL},
+                            end_offset        => v_end,
+                            schedule_interval => v_sched);
+                    END IF;
+                END LOOP;
+            END $$;
+"""
+
+
+_MINUTE_COMPRESS_AFTER_INTERVAL_SQL = _interval_seconds_sql(MINUTE_CAGG_COMPRESS_AFTER)
+
+#: Converge every minute cagg columnstore policy's compress_after to
+#: MINUTE_CAGG_COMPRESS_AFTER (061). alter_job rewrites the policy's config in
+#: place, so no remove/add window where a cagg has no policy. Guarded like the
+#: refresh block: a policy already at the constant is left alone.
+_MINUTE_COMPRESS_AFTER_SQL = f"""
+            DO $$
+            DECLARE
+                v_view    text;
+                v_job     integer;
+                v_config  jsonb;
+            BEGIN
+                FOREACH v_view IN ARRAY {_minute_cagg_views_sql_array()}
+                LOOP
+                    SELECT job_id, config INTO v_job, v_config
+                    FROM timescaledb_information.jobs
+                    WHERE hypertable_name = v_view
+                      AND proc_name = 'policy_compression';
+
+                    IF v_job IS NOT NULL
+                       AND (v_config->>'compress_after')::interval
+                           <> {_MINUTE_COMPRESS_AFTER_INTERVAL_SQL} THEN
+                        PERFORM alter_job(v_job, config => jsonb_set(
+                            v_config, '{{compress_after}}',
+                            to_jsonb(({_MINUTE_COMPRESS_AFTER_INTERVAL_SQL})::text)));
+                    END IF;
+                END LOOP;
+            END $$;
+"""
+
+
 def _eodhd_type_check_sql() -> str:
     """Render the IN (...) clause for instruments.eodhd_type CHECK constraint
     from EodhdType enum, so the migration and the enum cannot drift."""
@@ -2501,42 +2574,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "and converges any ledger that replayed 035. 035 now renders the "
             "same constant, so a future replay cannot regress it."
         ),
-        "sql": f"""
-            DO $$
-            DECLARE
-                v_view  text;
-                v_end   interval;
-                v_sched interval;
-                cur_start interval;
-            BEGIN
-                FOR v_view, v_end, v_sched IN
-                    SELECT * FROM (VALUES
-                        ('minute_5min_ohlcv',
-                            INTERVAL '5 minutes', INTERVAL '5 minutes'),
-                        ('minute_15min_ohlcv',
-                            INTERVAL '15 minutes', INTERVAL '15 minutes'),
-                        ('minute_hourly_ohlcv',
-                            INTERVAL '1 hour', INTERVAL '1 hour'),
-                        ('minute_4hour_ohlcv',
-                            INTERVAL '4 hours', INTERVAL '1 hour')
-                    ) AS t(view_name, end_off, sched)
-                LOOP
-                    SELECT (config->>'start_offset')::interval INTO cur_start
-                    FROM timescaledb_information.jobs
-                    WHERE hypertable_name = v_view
-                      AND proc_name = 'policy_refresh_continuous_aggregate';
-
-                    IF cur_start IS NOT NULL
-                       AND cur_start <> {_MINUTE_REFRESH_START_SQL} THEN
-                        PERFORM remove_continuous_aggregate_policy(v_view);
-                        PERFORM add_continuous_aggregate_policy(v_view,
-                            start_offset      => {_MINUTE_REFRESH_START_SQL},
-                            end_offset        => v_end,
-                            schedule_interval => v_sched);
-                    END IF;
-                END LOOP;
-            END $$;
-        """,
+        "sql": _MINUTE_REFRESH_OFFSETS_SQL,
     },
     {
         "id": "054_daily_monthly_refresh_window",
@@ -2653,5 +2691,18 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                 ADD CONSTRAINT pass_runs_pass_check
                 CHECK ({_pass_kind_check_sql()});
         """,
+    },
+    {
+        "id": "061_minute_cagg_weekly_refresh_window",
+        "description": (
+            "Widen the four minute caggs' refresh start_offset to "
+            "MINUTE_CAGG_REFRESH_START_OFFSET (10 days) and their "
+            "compress_after to MINUTE_CAGG_COMPRESS_AFTER (14 days). Under the "
+            "weekly minute firing a Saturday pass lands the whole week, and the "
+            "3-day window never materialized Monday through early Wednesday. "
+            "Re-runs 053's guarded block against the new constant; "
+            "compress_after must stay above it."
+        ),
+        "sql": _MINUTE_COMPRESS_AFTER_SQL + _MINUTE_REFRESH_OFFSETS_SQL,
     },
 ]
