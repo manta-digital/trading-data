@@ -14,8 +14,10 @@ import pytest
 from manta_trading.constants import OFF_TAPE_DAY_TZ, OffTape
 from manta_trading.data.quality.off_tape import (
     PRICE_BITS,
+    Calibration,
     et_days_of,
     mark_day,
+    mark_symbol_days,
     split_et_days,
 )
 
@@ -157,3 +159,20 @@ def test_rejects_two_et_days() -> None:
 def test_mask_index_matches_input() -> None:
     bars = load("SPY_2026-09-08").set_index(pd.RangeIndex(100, 1059))
     assert mark_day(bars).index.equals(bars.index)
+
+
+def test_symbol_days_equal_per_day_marks() -> None:
+    days = ["SPY_2026-01-07", "SPY_2026-09-08", "SPY_2026-09-11", "SPY_2026-09-22"]
+    bars = pd.concat([load(name) for name in days], ignore_index=True)
+    bars = bars.sample(frac=1, random_state=3)
+    per_day = pd.concat([mark_day(frame) for _, frame in split_et_days(bars)])
+    assert mark_symbol_days(bars).equals(per_day.reindex(bars.index))
+
+
+def test_threshold_floor_spares_tick_bound_dip() -> None:
+    """ARRY 2026-10-08 15:34: a one-tick dip on a $3.75 stock is not marked."""
+    bars = marked("ARRY_2026-10-08")
+    dip = bars["et"] == "15:34"
+    assert bars.loc[dip, "mask"].tolist() == [0]
+    unfloored = mark_day(load("ARRY_2026-10-08"), Calibration(min_absolute=0.0))
+    assert unfloored[dip].tolist() == [int(OffTape.LOW)]

@@ -60,6 +60,8 @@ FIXTURES: tuple[tuple[str, str], ...] = (
     ("SPY", "2026-01-07"),
     # Quiet: zero marks.
     ("SPY", "2026-09-22"),
+    # Tick-bound slow dip at 15:34 ET that only the dollar floor spares.
+    ("ARRY", "2026-10-08"),
 )
 
 COLUMNS = ("time", "symbol", "open", "high", "low", "close", "volume")

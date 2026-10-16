@@ -1,6 +1,6 @@
 """Measure the off-tape detector over one universe week (slice 171).
 
-Runs ``mark_day`` over every symbol's ET days in ``[--week-start,
+Runs the detector over every symbol's ET days in ``[--week-start,
 --week-start + 7 days)`` and reports, per ET day and in total:
 
 - bars and marked bars (mask != 0), and the marked share;
@@ -32,12 +32,14 @@ import numpy as np
 import pandas as pd
 import psycopg
 
-from manta_trading.constants import (
-    OFF_TAPE_DAY_TZ,
-    OFF_TAPE_MIN_FRACTION,
-    OFF_TAPE_SCALE_MULTIPLE,
+from manta_trading.constants import OFF_TAPE_DAY_TZ
+from manta_trading.data.quality.off_tape import (
+    PRICE_BITS,
+    PRODUCTION,
+    Calibration,
+    mark_symbol_days,
+    split_et_days,
 )
-from manta_trading.data.quality.off_tape import PRICE_BITS, mark_day, split_et_days
 
 PRIOR_CLOSES = 30
 MATCH_TOLERANCE = 5e-5
@@ -126,9 +128,7 @@ def _tally_day(
             tally.match[is_marked][1] += int(chosen.sum())
 
 
-def measure(
-    conn: psycopg.Connection, start: date, multiple: float, min_fraction: float
-) -> Tally:
+def measure(conn: psycopg.Connection, start: date, calibration: Calibration) -> Tally:
     end = start + timedelta(days=7)
     closes = pd.DataFrame(
         conn.execute(
@@ -142,11 +142,12 @@ def measure(
     for bars in _symbols(conn, start, end):
         symbol = bars["symbol"].iloc[0]
         own = by_symbol.get(symbol, empty)
+        began = time.perf_counter()
+        masks = mark_symbol_days(bars, calibration)
+        tally.detector_seconds += time.perf_counter() - began
         for day, frame in split_et_days(bars):
-            began = time.perf_counter()
-            mask = mark_day(frame, multiple=multiple, min_fraction=min_fraction)
-            tally.detector_seconds += time.perf_counter() - began
-            _tally_day(tally, day, frame, mask, _prior_closes(own, symbol, day))
+            prior = _prior_closes(own, symbol, day)
+            _tally_day(tally, day, frame, masks.loc[frame.index], prior)
     return tally
 
 
@@ -182,13 +183,19 @@ def report(tally: Tally) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--week-start", type=date.fromisoformat, required=True)
-    parser.add_argument("--multiple", type=float, default=OFF_TAPE_SCALE_MULTIPLE)
-    parser.add_argument("--min-fraction", type=float, default=OFF_TAPE_MIN_FRACTION)
+    parser.add_argument("--multiple", type=float, default=PRODUCTION.multiple)
+    parser.add_argument("--min-fraction", type=float, default=PRODUCTION.min_fraction)
+    parser.add_argument("--min-absolute", type=float, default=PRODUCTION.min_absolute)
     args = parser.parse_args()
-    print(f"K=default M={args.multiple} R={args.min_fraction} week={args.week_start}")
+    calibration = Calibration(
+        multiple=args.multiple,
+        min_fraction=args.min_fraction,
+        min_absolute=args.min_absolute,
+    )
+    print(f"{calibration} week={args.week_start}")
     with psycopg.connect(os.environ["MT_TIMESCALE_DB_URL"]) as conn:
         conn.read_only = True
-        report(measure(conn, args.week_start, args.multiple, args.min_fraction))
+        report(measure(conn, args.week_start, calibration))
 
 
 if __name__ == "__main__":

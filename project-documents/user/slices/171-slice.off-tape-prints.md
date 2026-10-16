@@ -7,7 +7,7 @@ dependencies: [163, 921]
 interfaces: [172, 182, 186, 190]
 dateCreated: 20261015
 dateUpdated: 20261016
-status: not_started
+status: in_progress
 ---
 
 # Slice Design: Off-Tape Prints
@@ -118,13 +118,14 @@ For each bar of one symbol's ET day:
 
 - `before` = median close of the previous `K` bars; `after` = median close of the next `K` bars (by row, not clock, because pre-market bars are sparse). At the day's first and last bars only the available side is used.
 - `scale` = the larger of the two sides' median absolute close-to-close change.
-- `threshold` = `max(M × scale, R × close)`.
+- `threshold` = `max(M × scale, R × close, A)`, where `A` is a dollar floor (added 2026-10-16, below).
 - Each of open, high, low and close is marked when it lies above `max(before, after) + threshold` or below `min(before, after) − threshold`.
 
 Why each part is there, from the prototype runs:
 
 - **Two-sided envelope.** A real jump (an after-hours earnings release) lands near the `after` side, and a value between the two medians is never marked. A one-sided version marked SMCI's real close in the 2026-07-21 earnings minute.
 - **Closes, not ranges, for the scale.** Where bad prints are dense, every bar's range is inflated (MSFT 2026-06-01 after 16:45 ET had one in almost every minute), and a range-based scale stopped marking anything. Closes are rarely off-tape.
+- **A dollar floor (`A`, PM decision 2026-10-16).** Measured over the whole universe, tick-bound prices (a $3.75 stock moving one cent at a time) have a median close change of 0, so the threshold fell to `R × close`, about two ticks, and marked the bottom of slow real dips. ARRY 2026-10-08 15:34 ET is the fixture. Universe-wide this put 42% of marks in regular hours, concentrated in illiquid names. `A = $0.02` cut regular-hours marks on 2026-10-08 from 4,470 to 1,440 with every fixture still passing.
 - **The larger side's scale.** At the onset of an earnings move the calm side would set a tight threshold and mark the bottom of a real V. META 2026-07-29 16:03 was marked under an averaged scale and is not marked under the larger one.
 
 **Starting calibration:** `K = 10`, `M = 10`, `R = 0.003`. Over 40 symbols (3.1 M bars, 2026-06-01 to 10-09):
@@ -133,7 +134,7 @@ Why each part is there, from the prototype runs:
 - of the 15 earnings jumps, 2 values marked within three minutes of a jump: AVGO 2026-06-03's 295.47 low, 38% below the market, and one marginal value;
 - SPY 5m bars with a wick over 1% fall from 249 to 1 once rolled up eligible, MSFT from 859 to 95, NVDA from 835 to 28.
 
-The constants (`OFF_TAPE_WINDOW_BARS`, `OFF_TAPE_SCALE_MULTIPLE`, `OFF_TAPE_MIN_FRACTION`) live in `constants.py`. The calibration task finalizes them against the fixture set and records the result; they are not re-tuned by eye.
+The constants (`OFF_TAPE_WINDOW_BARS`, `OFF_TAPE_SCALE_MULTIPLE`, `OFF_TAPE_MIN_FRACTION`, `OFF_TAPE_MIN_ABSOLUTE`) live in `constants.py`. Final calibration (2026-10-16): `K = 10`, `M = 12`, `R = 0.003`, `A = $0.02`; `M = 10` marked META 2026-07-29 16:04 ET's real earnings low, and `M` from 11 to 20 passes every fixture. The calibration task finalizes them against the fixture set and records the result; they are not re-tuned by eye.
 
 **Why open and close are marked, not only high and low.** In the prototype, 8,171 bars (0.26%) have an off-tape open or close, and every one of them also has an off-tape high or low. A high/low-only mask would clamp the wick to the bar's body. But the body *is* the bad print when the open or close is one. SPY 2026-09-08 07:35–07:38 ET closes at 770.19 against a 767.9 market. Those bars would keep a 770.19 body and the spike would survive in every rollup.
 

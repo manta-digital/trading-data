@@ -1409,11 +1409,35 @@ OFF_TAPE_DAY_TZ: Final[ZoneInfo] = ZoneInfo("America/New_York")
 OFF_TAPE_WINDOW_BARS: Final[int] = 10
 """Detector K: bars on each side whose median close forms the envelope (171)."""
 
-OFF_TAPE_SCALE_MULTIPLE: Final[float] = 10.0
-"""Detector M: threshold multiple of the median |close change| (slice 171)."""
+OFF_TAPE_SCALE_MULTIPLE: Final[float] = 12.0
+"""Detector M: threshold multiple of the median |close change| (slice 171).
+
+Calibrated 2026-10-16: the starting 10 marked META 2026-07-29 16:04's real
+earnings low; 11-20 pass every fixture.
+"""
 
 OFF_TAPE_MIN_FRACTION: Final[float] = 0.003
 """Detector R: threshold floor as a fraction of the close (slice 171)."""
+
+OFF_TAPE_MIN_ABSOLUTE: Final[float] = 0.02
+"""Detector threshold floor in dollars (slice 171, PM decision 2026-10-16).
+
+Tick-bound prices have a zero median close change, so without it the
+threshold fell to about two ticks and marked slow real dips in illiquid names.
+"""
+
+OFF_TAPE_SHARE_FLOOR: Final[float] = 0.0013
+"""Lowest healthy share of a day's bars with an off-tape mark (slice 171).
+
+Half the lowest daily share measured over the universe week of 2026-10-05
+(0.260%, measured 2026-10-16 by ``scripts/measure_off_tape_share.py``).
+"""
+
+OFF_TAPE_SHARE_CEILING: Final[float] = 0.0069
+"""Highest healthy share of a day's bars with an off-tape mark (slice 171).
+
+Twice the highest daily share in the same measurement (0.347%).
+"""
 
 OFF_TAPE_SWEEP_LOCK_TIMEOUT: Final[str] = "30s"
 """lock_timeout for one chunk rewrite in the off-tape sweep (slice 171)."""

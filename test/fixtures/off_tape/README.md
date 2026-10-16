@@ -23,3 +23,4 @@ stored. No synthetic fixtures.
 | `MSFT_2026-06-01.csv` | Dense off-tape prints after 16:40 ET: the scale must not collapse |
 | `SPY_2026-01-07.csv` | Winter day: after-hours bars run to 01:00 UTC on 2026-01-08 and belong to the 01-07 ET day |
 | `SPY_2026-09-22.csv` | Quiet day: zero marks at the starting calibration, the only such SPY day from 2026-08-31 to 2026-10-09 |
+| `ARRY_2026-10-08.csv` | Tick-bound $3.75 stock: the 15:34 ET low 3.750 is the bottom of a slow one-tick dip, marked without the $0.02 threshold floor (`OFF_TAPE_MIN_ABSOLUTE`) and not with it |
