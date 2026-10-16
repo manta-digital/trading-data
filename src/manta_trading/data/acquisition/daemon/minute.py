@@ -68,6 +68,7 @@ from manta_trading.data.gaps.repair_921 import (
 )
 from manta_trading.data.locking import advisory_lock
 from manta_trading.data.quality.fetch_status import FetchStatus
+from manta_trading.data.quality.off_tape_store import mark_inserted
 from manta_trading.logging import get_logger
 from manta_trading.market.db_session import make_configure_connection
 from manta_trading.firing_schedule import (
@@ -1540,3 +1541,5 @@ def _insert_minute_bars(
             SELECT time, symbol, open, high, low, close, volume FROM _minute_stage
             ON CONFLICT (symbol, time) DO NOTHING
         """)
+    # Slice 171: same transaction, so no committed bar is ever unevaluated.
+    mark_inserted(conn, symbol, [row[0] for row in rows])

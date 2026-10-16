@@ -17,6 +17,7 @@ from psycopg_pool import ConnectionPool
 
 from manta_trading.constants import DB_BULK_SESSION, DbSessionSettings, Granularity
 from manta_trading.data.adjustment import adjusted as adjusted_fn
+from manta_trading.data.quality.off_tape_store import mark_inserted
 from manta_trading.logging import get_logger
 
 if TYPE_CHECKING:
@@ -269,6 +270,9 @@ class TimescaleMinuteDataDB:
                     with cur.copy(staging_copy_sql) as copy:
                         copy.write(csv_data)
                     cur.execute(insert_sql)
+                # Slice 171: marked in the same transaction; a marking
+                # failure raises, rolls back and is a failed write.
+                mark_inserted(conn, symbol, copy_data["time"])
                 conn.commit()
 
             write_time = time.perf_counter() - start_time
