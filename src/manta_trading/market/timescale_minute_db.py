@@ -347,7 +347,7 @@ class TimescaleMinuteDataDB:
             if aggregation:
                 df = self._get_aggregated_data(symbol, start_time, end_time, str(aggregation))
             else:
-                query = _ELIGIBLE_MINUTE_QUERY if prints is PrintMode.ELIGIBLE else """
+                query = """
                     SELECT time, open, high, low, close, volume
                     FROM minute_ohlcv
                     WHERE symbol = %s
@@ -355,6 +355,8 @@ class TimescaleMinuteDataDB:
                     AND time <= %s
                     ORDER BY time
                 """
+                if prints is PrintMode.ELIGIBLE:
+                    query = _ELIGIBLE_MINUTE_QUERY
 
                 start_query_time = time.perf_counter()
                 pool = self._ensure_pool()

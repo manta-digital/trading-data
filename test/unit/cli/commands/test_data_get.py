@@ -257,11 +257,8 @@ class TestDataGetPrints:
             ) as MockMinute:
                 instance = MockMinute.return_value
                 instance.get_minute_data.return_value = _sample_df()
-                result = runner.invoke(
-                    app,
-                    ["data", "get", "AAPL", "1m", "--start", "2024-01-01",
-                     "--prints", "eligible"],
-                )
+                args = ["data", "get", "AAPL", "1m", "--start", "2024-01-01"]
+                result = runner.invoke(app, [*args, "--prints", "eligible"])
         assert result.exit_code == 0, result.output
         kwargs = instance.get_minute_data.call_args.kwargs
         assert kwargs["prints"] is PrintMode.ELIGIBLE
