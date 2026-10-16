@@ -99,7 +99,10 @@ status: not_started
         CLOSE=8, ALL=15`), `PrintMode` (`StrEnum`: `ALL="all"`,
         `ELIGIBLE="eligible"`), `OFF_TAPE_WINDOW_BARS = 10`,
         `OFF_TAPE_SCALE_MULTIPLE = 10`, `OFF_TAPE_MIN_FRACTION = 0.003`,
-        and the ET day bounds (04:00, 20:00, `America/New_York`) if no
+        `OFF_TAPE_SWEEP_LOCK_TIMEOUT: str = "30s"` (same form as
+        `DAEMON_LOCK_TIMEOUT`; the sweep's per-chunk lock wait), the 422
+        message for `prints=eligible` above 1m ("prints=eligible is served at
+        1m only until the eligible rollups are built"), and the ET day bounds (04:00, 20:00, `America/New_York`) if no
         existing constant already holds them (search first; reuse if found).
   - [ ] Each constant has a one-line comment naming slice 171.
   - [ ] Success: `ruff` and `mypy` clean.
@@ -297,7 +300,7 @@ status: not_started
         ET days at both edges, compute masks with `mark_day` per symbol-day
         (via `split_et_days`), and write only rows inside the chunk.
   - [ ] Compressed chunk: one transaction with
-        `SET LOCAL lock_timeout = OFF_TAPE_SWEEP_LOCK_TIMEOUT` (new constant):
+        `SET LOCAL lock_timeout = OFF_TAPE_SWEEP_LOCK_TIMEOUT` (from 1.2):
         raw checksum → `decompress_chunk` → `UPDATE` every row from a temp
         table → checksum → `compress_chunk`. Uncompressed: the `UPDATE` only.
   - [ ] Share the mask-write SQL with `mark_days` (extract a helper in
@@ -355,12 +358,16 @@ status: not_started
   - [ ] Unit/integration tests: `ALL` output identical to today's on a
         fixture day; `ELIGIBLE` equals `eligible_bar` row by row; all-marked
         minutes absent (price and volume); adjusted values clamp first.
+  - [ ] Known-value test: for every value in design success criterion 1
+        (SPY 09-08 770.19, 770.3516 highs, 724.228 lows; SPY 09-11 787.5169;
+        AVGO 06-03 295.4665; MSFT 08-05 384.28), load the fixture day and
+        assert the value appears in `ALL` output at its minute and in no
+        o/h/l/c of the `ELIGIBLE` output at that minute.
 
 - [ ] **7.2 API route**
   - [ ] `api_server/routes/bars.py`: query parameter `prints: PrintMode =
         PrintMode.ALL`. `ELIGIBLE` with granularity ≠ 1m → 422 with the
-        message constant from the design ("prints=eligible is served at 1m
-        only until the eligible rollups are built").
+        message constant from 1.2.
   - [ ] `BarsResponse` (`api_server/models/responses.py`) gains `prints`
         echoing the mode served.
   - [ ] Admission, staleness and 404 behaviour unchanged.
