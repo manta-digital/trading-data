@@ -7,7 +7,7 @@ dependencies: [163, 921]
 interfaces: [172, 182, 186, 190]
 dateCreated: 20261015
 dateUpdated: 20261016
-status: in_progress
+status: complete
 ---
 
 # Slice Design: Off-Tape Prints
@@ -304,32 +304,93 @@ There are two checks in `mt data health`, over the last collected minute session
 
 ### Verification Walkthrough
 
-1. Detector and agreement tests:
+Steps 1 and 5 run on any checkout against the test cluster
+(`MT_TIMESCALE_TEST_URL` exported from `.env`, quotes stripped). Steps 2–4
+need production after the release that applies migration 062 (Phase 7).
+
+1. Detector, insert-path and agreement tests (verified 2026-10-16: 58 passed):
    ```bash
-   uv run pytest test/unit/data/quality/test_off_tape.py test/integration/test_off_tape_marking.py -v
+   export MT_TIMESCALE_TEST_URL=...   # the test cluster, never production
+   uv run pytest test/unit/data/quality/test_off_tape.py test/integration/test_off_tape_marking.py -q
+   # 58 passed
    ```
+   The rest of the slice's tests: `test/unit/market/schema/test_eligible_sql.py`,
+   `test/unit/cli/commands/test_health_off_tape.py`,
+   `test/integration/test_eligible_sql.py`, `test/integration/test_migration_062_off_tape.py`,
+   `test/integration/test_off_tape_sweep.py`, `test/integration/test_eligible_minute_read.py`,
+   `test/integration/api_server/test_bars_prints.py` (run unit and integration
+   directories in separate pytest invocations; mixing `test/unit/api_server`
+   and `test/integration/api_server` collides their conftests).
 2. New bars are marked at insert. After the first minute pass on the release:
    ```bash
-   uv run mt data health      # off-tape: 0 unevaluated, marked share within bounds → PASS
+   mt-run data health
+   # off-tape unevaluated  OK  <ET day>: all N bars evaluated
+   # off-tape share        OK  <ET day>: X of N bars marked (0.3xx%; bounds 0.130%–0.690%)
    ```
-3. Sweep history; interrupt it once and rerun to see it resume:
+   Until the sweep has passed that day's chunk the unevaluated line can FAIL
+   for bars inserted before the release; that is expected (runbook 100).
+3. Sweep history; interrupt it once and rerun to see it resume (runbook 100,
+   "Off-tape history sweep"; about 50 h single process):
    ```bash
-   uv run mt data off-tape sweep --maintenance-url "$MT_TIMESCALE_MAINTENANCE_URL" --dry-run   # chunks remaining
-   uv run mt data off-tape sweep --maintenance-url "$MT_TIMESCALE_MAINTENANCE_URL"
+   mt-run data off-tape sweep --maintenance-url "$MT_TIMESCALE_MAINTENANCE_URL" --dry-run
+   # chunks: 1216 total, 1216 to sweep (1215 compressed, 1 uncompressed)
+   mt-run data off-tape sweep --maintenance-url "$MT_TIMESCALE_MAINTENANCE_URL"
+   # one log line per chunk: off-tape sweep: <chunk> rows=N marked=0.3%  elapsed=~400s
+   # swept 1216 chunk(s)          (exit 0; see runbook 100 for exit 1 lines)
    ```
    ```sql
    SELECT count(*) FROM minute_ohlcv WHERE off_tape IS NULL;   -- 0
    SELECT time, high, off_tape FROM minute_ohlcv
    WHERE symbol = 'SPY' AND time BETWEEN '2026-09-08 20:00Z' AND '2026-09-08 20:05Z';
-   -- 20:01, 20:03, 20:04 carry off_tape & 2 (HIGH)
+   -- 20:01, 20:03, 20:04: high 770.3516, off_tape 2 (HIGH); 20:00, 20:02, 20:05: 0
    ```
-4. Eligible vs raw at 1m:
+   The chunk counts are 2026-10-16's; the dry run prints the live ones.
+4. Eligible vs raw at 1m. Compare the 16:01 ET (20:01Z) bar, not the day's
+   maximum: SPY 2026-09-08 also holds a 770.49 high at 04:01 ET and 770.19
+   prior-reference highs at 08:19–08:48 ET that sit within the 0.3% floor of
+   a 768.9 market, so they stay unmarked (Known limit) and the day's maximum
+   is 770.49 in both modes:
    ```bash
-   B="localhost:8100/api/v1/bars/SPY?granularity=1m&start=2026-09-08&end=2026-09-09"
-   curl -s "$B"                 | jq '.prints, ([.bars[]|.high]|max)'   # "all", includes the 770.x after-hours prints
-   curl -s "$B&prints=eligible" | jq '.prints, ([.bars[]|.high]|max)'   # "eligible", the session's real high
-   curl -s -o /dev/null -w "%{http_code}\n" "${B/1m/5m}&prints=eligible"  # 422
+   B="localhost:8100/api/v1/bars/SPY?granularity=1m&start=2026-09-08&end=2026-09-08&adjusted=false"
+   curl -s "$B"                 | jq '.prints, (.bars[]|select(.timestamp=="2026-09-08T20:01:00Z")|.high)'
+   # "all"  770.3516
+   curl -s "$B&prints=eligible" | jq '.prints, (.bars[]|select(.timestamp=="2026-09-08T20:01:00Z")|.high)'
+   # "eligible"  765.96
+   curl -s -o /dev/null -w "%{http_code}\n" "${B/1m/5m}&prints=eligible"
+   # 422
    ```
+   Verified 2026-10-16 against a test database holding production's SPY
+   2026-09-08 bars (`count` 958 in both modes; no all-marked minute that day).
+5. Read latency at the admission ceiling (verified 2026-10-16):
+   ```bash
+   MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_187_api_nfr.py -k admission_ceiling -s -q
+   # bars-at-ceiling prints=all: elapsed=4.740s bound=15.0s status=200
+   # bars-at-ceiling prints=eligible: elapsed=4.794s bound=15.0s status=200
+   ```
+
+#### Calibration record
+
+Full record: [2026-10-16-171-calibration.md](../notes/2026-10-16-171-calibration.md).
+
+- **Constants:** `K = 10`, `M = 12` (start 10), `R = 0.003`, and a new dollar
+  floor `A = $0.02` (PM decision 2026-10-16). `M = 10` marked META 2026-07-29
+  16:04 ET's real earnings low; `M` 11–20 passes every fixture. Without `A`,
+  42% of universe marks fell in regular hours, mostly the bottoms of slow
+  one-tick dips in illiquid names (fixture ARRY 2026-10-08).
+- **Universe week of 2026-10-05** (9,867,226 bars, 10,843 symbols): 0.317%
+  of bars marked, 0.260%–0.347% per day, 6,112 marks in regular hours.
+  Health bounds: `OFF_TAPE_SHARE_FLOOR` 0.13%, `OFF_TAPE_SHARE_CEILING` 0.69%.
+- **Prior-close match:** 13.6% of marked values equal one of the symbol's
+  previous 30 official closes, against 6.1% of unmarked values (the
+  40-symbol prototype: 36% against 2.3%; the universe's illiquid names trade
+  at stale prices far more often).
+- **Earnings set:** nothing marked within three bars of any of the 14 jumps
+  except AVGO 2026-06-03's 295.4665 low.
+- **Sweep:** one production chunk, 10,074,248 rows in 399.2 s (25,237
+  rows/s); projected 50 h for 4.55 B rows, single process, inside the weekly
+  pass gap.
+- **Eligible 1m load test:** 4.794 s at the admission ceiling (raw 4.740 s),
+  bound 15 s.
 
 ## Risk Assessment
 

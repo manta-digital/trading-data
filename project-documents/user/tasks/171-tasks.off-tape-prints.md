@@ -14,7 +14,7 @@ projectState: >
   detector exists outside the repository. Nothing in this slice is built.
 dateCreated: 20261016
 dateUpdated: 20261016
-status: in_progress
+status: complete
 ---
 
 # Tasks: Off-Tape Prints
@@ -400,45 +400,45 @@ status: in_progress
         all-marked-minute absence, and that the default stays `all` until
         slice 172. Add a worked example; `test_api_docs_examples.py` passes.
 
-- [ ] **8.2 Architecture amendments**
-  - [ ] `project-documents/user/architecture/140-arch.data-quality-operations.md`:
+- [x] **8.2 Architecture amendments**
+  - [x] `project-documents/user/architecture/140-arch.data-quality-operations.md`:
         dated amendment (2026-10-16 or the implementation date) for the
         `off_tape` column and the read API's `prints`.
-  - [ ] `project-documents/user/architecture/120-arch-adjustment-policy.md`
+  - [x] `project-documents/user/architecture/120-arch-adjustment-policy.md`
         "Outlier handling — Non-Goal": amend per the design's Special
         Considerations (storage-time removal still forbidden, raw immutable;
         marks are annotations; serving may choose eligible; why this is the
         exchanges' rule, not outlier cleaning). Mark it "pending PM sign-off
         at review".
 
-- [ ] **8.3 Runbook 100 and CHANGELOG**
-  - [ ] `project-documents/user/runbooks/100-production-operations.md`: the
+- [x] **8.3 Runbook 100 and CHANGELOG**
+  - [x] `project-documents/user/runbooks/100-production-operations.md`: the
         sweep (dry run, run, resume, exit codes and what each failure line
         means), and the two health lines with what a FAIL means and what to
         do.
-  - [ ] `CHANGELOG.md` `[Unreleased]`: `prints` at 1m, the `off_tape`
+  - [x] `CHANGELOG.md` `[Unreleased]`: `prints` at 1m, the `off_tape`
         column and migration 062, `mt data off-tape sweep`, the health checks.
         No version bump in this slice.
 
-- [ ] **8.4 Commit:** `docs: document off-tape marks, prints, and sweep`
+- [x] **8.4 Commit:** `docs: document off-tape marks, prints, and sweep`
 
 ## Section 9 — Final validation (effort 1/5)
 
-- [ ] **9.1 Run the gates**
-  - [ ] `ruff check` and `ruff format --check` on touched files; mypy per
+- [x] **9.1 Run the gates**
+  - [x] `ruff check` and `ruff format --check` on touched files; mypy per
         conventions — clean.
-  - [ ] Unit tier, integration tier, then the new load case, run
+  - [x] Unit tier, integration tier, then the new load case, run
         separately. Known pre-existing failures (see project memory) are
         listed, not fixed; any new failure is fixed or reported.
-  - [ ] Design verification walkthrough step 1 passes.
+  - [x] Design verification walkthrough step 1 passes.
 
-- [ ] **9.2 Record results in the design**
-  - [ ] Add a "Calibration record" to the slice design's Verification
+- [x] **9.2 Record results in the design**
+  - [x] Add a "Calibration record" to the slice design's Verification
         Walkthrough: K/M/R, weekly share and bounds, prior-close match rate,
         earnings-set result, sweep chunk measurement and projection, eligible
         1m load-test elapsed (from the calibration note).
-  - [ ] Set the slice design's `status` to `complete` and this file's
+  - [x] Set the slice design's `status` to `complete` and this file's
         `status` to `complete`.
 
-- [ ] **9.3 Commit:** `docs: record 171 calibration and complete slice`
-  - [ ] Success: working tree clean on `171-slice.off-tape-prints`.
+- [x] **9.3 Commit:** `docs: record 171 calibration and complete slice`
+  - [x] Success: working tree clean on `171-slice.off-tape-prints`.
