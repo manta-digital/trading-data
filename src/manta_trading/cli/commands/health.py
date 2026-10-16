@@ -201,6 +201,9 @@ def gather(
     mass = fetch_session_mass(conn, judged) if judged is not None else None
     ok, detail = check_minute_session_mass(judged, mass)
     checks.append(HealthCheck("minute session mass", ok, detail))
+    from manta_trading.cli.commands.health_off_tape import gather_off_tape
+
+    checks.extend(gather_off_tape(conn, judged))
 
     catalog = read_catalog_status(conn)
     rule = settings.collection_rule()
