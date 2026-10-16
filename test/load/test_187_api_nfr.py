@@ -64,7 +64,7 @@ import pytest
 
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.routes.bars import _max_span_days
-from manta_trading.constants import API_MAX_BARS_PER_REQUEST, Granularity
+from manta_trading.constants import API_MAX_BARS_PER_REQUEST, Granularity, PrintMode
 from manta_trading.market.maintenance.cagg_freshness import reset_freshness_cache
 
 from .conftest import DENSE_START, DENSE_SYMBOL, symbol_name
@@ -222,8 +222,14 @@ def _ceiling_window() -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
-def test_bars_request_latency_at_the_admission_ceiling(dense_minute_db: str) -> None:
+@pytest.mark.parametrize("prints", [PrintMode.ALL, PrintMode.ELIGIBLE])
+def test_bars_request_latency_at_the_admission_ceiling(
+    dense_minute_db: str, prints: PrintMode
+) -> None:
     """A ``1m`` request at exactly the ceiling must finish inside a stated bound.
+
+    Run for both ``prints`` modes under the same bound (slice 171): the
+    eligible expressions must not cost the ceiling request its budget.
 
     This is the assertion the whole tier exists for. Nothing in the stack bounds
     *request* latency; the admission check bounds an estimate of bars and
@@ -242,13 +248,15 @@ def test_bars_request_latency_at_the_admission_ceiling(dense_minute_db: str) -> 
                     "granularity": Granularity.M1.value,
                     "start": start,
                     "end": end,
+                    "prints": prints.value,
                 },
             )
             return time.perf_counter() - started, response
 
     elapsed, response = asyncio.run(_run())
     print(
-        f"\nbars-at-ceiling: elapsed={elapsed:.3f}s bound={_BARS_BOUND_S:.1f}s "
+        f"\nbars-at-ceiling prints={prints.value}: elapsed={elapsed:.3f}s "
+        f"bound={_BARS_BOUND_S:.1f}s "
         f"status={response.status_code} window={start}..{end}"
     )
 
@@ -262,6 +270,7 @@ def test_bars_request_latency_at_the_admission_ceiling(dense_minute_db: str) -> 
 
     body = response.json()
     assert body["count"] > 0, "the measured request must have returned bars"
+    assert body["prints"] == prints.value
 
 
 def test_ceiling_request_is_not_bounded_by_statement_timeout(

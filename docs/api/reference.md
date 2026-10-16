@@ -346,7 +346,7 @@ about. For that, use `/api/v1/status`.
 
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date,
-             adjusted:boolean, format:json|msgpack
+             adjusted:boolean, prints:PrintMode, format:json|msgpack
      errors: 422, 504 -->
 
 OHLCV bars for one instrument over an inclusive date window.
@@ -359,6 +359,7 @@ OHLCV bars for one instrument over an inclusive date window.
 | `start` | date | yes | — | Inclusive first day, UTC. |
 | `end` | date | yes | — | Inclusive last day, UTC (§2.2). |
 | `adjusted` | boolean | no | `true` | Split/dividend-adjusted prices. |
+| `prints` | `PrintMode` | no | `all` | `all`: raw bars. `eligible`: tape-eligible bars, `1m` only (below). |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
 
 Granularity tokens are
@@ -368,6 +369,30 @@ Granularity tokens are
 `1m` and `1d` are raw; every other grain is served by a continuous aggregate
 and can report `is_stale: true` (§2.6).
 
+Print modes are `all` `eligible`.
+<!-- from: manta_trading.constants.PrintMode -->
+
+**Off-tape prints and `prints=eligible`.** The provider's 1-minute bars
+include trades that the consolidated tape's rules keep out of a bar's high,
+low and last price: late-reported, average-price and prior-reference-price
+trades. They show up as tall isolated wicks, mostly before 09:30 and after
+16:00 ET. Every stored minute bar carries a mark saying which of its open,
+high, low and close are such prints; stored prices are never changed.
+
+- `prints=all` (the default) serves the stored bars exactly. Every grain
+  serves this today.
+- `prints=eligible` serves each marked price clamped into the range of the
+  bar's unmarked prices: a marked high falls to the bar's highest eligible
+  price. A minute whose four prices are all marked is **absent**, price and
+  volume, the way a minute with no trades is absent. Adjustment
+  (`adjusted=true`) applies after the clamp.
+- `prints=eligible` is served at `1m` only. Any other granularity answers
+  `422` until the eligible rollups are built (slice 172), which will also make
+  `eligible` the default for every grain.
+- The detector judges each price against the closes of the ten bars on each
+  side. A print close to the market (on SPY, within about 0.3%) stays
+  unmarked, so `eligible` removes the spikes, not every off-tape trade.
+
 **Response**
 
 | Field | Type | Null? | Unit / time base | Meaning |
@@ -375,6 +400,7 @@ and can report `is_stale: true` (§2.6).
 | `symbol` | string | no | — | The instrument, echoed back. |
 | `granularity` | string | no | — | The requested grain, echoed back. |
 | `adjusted` | boolean | no | — | Whether prices are adjusted. |
+| `prints` | string | no | — | The `prints` mode served, echoed back. |
 | `is_stale` | boolean | no | — | The serving aggregate is behind its source (§2.6). |
 | `count` | integer | no | rows | Number of bars returned. |
 | `bars[].timestamp` | string | no | UTC, RFC 3339 | Bar open instant. |
@@ -396,6 +422,7 @@ curl 'http://127.0.0.1:8137/api/v1/bars/SPY?granularity=1d&start=2024-06-10&end=
   "symbol": "SPY",
   "granularity": "1d",
   "adjusted": true,
+  "prints": "all",
   "is_stale": false,
   "count": 5,
   "bars": [
@@ -405,15 +432,43 @@ curl 'http://127.0.0.1:8137/api/v1/bars/SPY?granularity=1d&start=2024-06-10&end=
 }
 ```
 
-*Captured 2026-09-16. Truncated: 5 bars returned, 2 shown — Monday through
-Friday inclusive, which is §2.2 in one request.*
+*Captured 2026-09-16, `prints` added 2026-10-16 (slice 171). Truncated: 5 bars
+returned, 2 shown — Monday through Friday inclusive, which is §2.2 in one
+request.*
+
+The same minute raw and eligible. SPY's 16:01 ET bar carries a 770.3516 high
+the market never traded near (it traded about 766):
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/bars/SPY?granularity=1m&start=2026-09-08&end=2026-09-08&adjusted=false&prints=eligible'
+```
+
+```json
+{
+  "symbol": "SPY",
+  "granularity": "1m",
+  "adjusted": false,
+  "prints": "eligible",
+  "is_stale": false,
+  "count": 958,
+  "bars": [
+    {"timestamp":"2026-09-08T20:01:00Z","open":765.96,"high":765.96,"low":765.85,"close":765.9196,"volume":227166},
+    {"timestamp":"2026-09-08T20:02:00Z","open":765.88,"high":766.02,"low":765.71,"close":765.85,"volume":326122}
+  ]
+}
+```
+
+*Captured 2026-10-16 against a test database holding production's SPY
+2026-09-08 bars (production serves `prints` from the release that applies
+migration 062). Truncated: 958 bars returned, 2 shown. With `prints=all` the
+20:01 bar's `high` is `770.3516`.*
 
 **Errors**
 
 | Status | Condition |
 |---|---|
 | `404` | The symbol is not in `instruments`. |
-| `422` | Reversed range, unparseable date, unknown granularity, or the estimate exceeds the row ceiling (§2.5). |
+| `422` | Reversed range, unparseable date, unknown granularity or `prints` value, `prints=eligible` above `1m`, or the estimate exceeds the row ceiling (§2.5). |
 | `504` | The database cancelled the query at the statement timeout. |
 
 ### 3.3 `GET /api/v1/symbols`
@@ -1709,7 +1764,7 @@ An explicit marker, never a mention in prose. Each endpoint section carries one:
 ```
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date,
-             adjusted:boolean, format:json|msgpack
+             adjusted:boolean, prints:PrintMode, format:json|msgpack
      errors: 422, 504 -->
 ```
 

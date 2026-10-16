@@ -23,8 +23,10 @@ from manta_trading.constants import (
     API_SERVING_SESSION,
     BARS_PER_TRADING_DAY,
     GRANULARITY_SOURCE,
+    PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
     TRADING_DAYS_PER_CALENDAR_DAY,
     Granularity,
+    PrintMode,
 )
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
@@ -119,7 +121,7 @@ def test_app() -> FastAPI:
 def test_from_dataframe_count() -> None:
     df = _make_ohlcv_df(3)
     result = BarsResponse.from_dataframe(
-        "SPY", Granularity.D1, True, df, is_stale=False
+        "SPY", Granularity.D1, True, df, is_stale=False, prints=PrintMode.ALL
     )
     assert result.count == 3
     assert len(result.bars) == 3
@@ -130,7 +132,9 @@ def test_from_dataframe_count() -> None:
 
 def test_from_dataframe_field_types() -> None:
     df = _make_ohlcv_df(2)
-    result = BarsResponse.from_dataframe("SPY", Granularity.D1, True, df, is_stale=True)
+    result = BarsResponse.from_dataframe(
+        "SPY", Granularity.D1, True, df, is_stale=True, prints=PrintMode.ALL
+    )
     bar = result.bars[0]
     assert isinstance(bar.volume, int)
     assert isinstance(bar.open, float)
@@ -528,7 +532,12 @@ class TestEmptyWindowContract:
         """Proved rather than assumed: it iterates rows and touches no columns,
         so a frame with no columns at all is fine."""
         response = BarsResponse.from_dataframe(
-            "SPY", Granularity.D1, True, pd.DataFrame(), is_stale=False
+            "SPY",
+            Granularity.D1,
+            True,
+            pd.DataFrame(),
+            is_stale=False,
+            prints=PrintMode.ALL,
         )
         assert response.count == 0
         assert response.bars == []
@@ -625,3 +634,41 @@ class TestEmptyWindowContract:
             )
         assert response.status_code == 500
         assert response.json() == {"error": "internal server error"}
+
+
+class TestPrints:
+    """``prints`` (slice 171): 1m only, passed through, echoed."""
+
+    def test_default_is_all_and_echoed(self, test_app: FastAPI) -> None:
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
+        response = TestClient(test_app).get(
+            "/api/v1/bars/SPY?granularity=1m&start=2024-01-01&end=2024-01-02"
+        )
+        assert response.json()["prints"] == "all"
+        kwargs = test_app.state.minute_db.get_minute_data.call_args.kwargs
+        assert kwargs["prints"] is PrintMode.ALL
+
+    def test_eligible_is_passed_through_at_1m(self, test_app: FastAPI) -> None:
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
+        response = TestClient(test_app).get(
+            "/api/v1/bars/SPY?granularity=1m&start=2024-01-01&end=2024-01-02"
+            "&prints=eligible"
+        )
+        assert response.json()["prints"] == "eligible"
+        kwargs = test_app.state.minute_db.get_minute_data.call_args.kwargs
+        assert kwargs["prints"] is PrintMode.ELIGIBLE
+
+    @pytest.mark.parametrize(
+        "granularity", [g.value for g in Granularity if g is not Granularity.M1]
+    )
+    def test_eligible_above_1m_is_422_before_any_read(
+        self, test_app: FastAPI, granularity: str
+    ) -> None:
+        response = TestClient(test_app).get(
+            f"/api/v1/bars/SPY?granularity={granularity}&start=2024-01-01"
+            "&end=2024-01-02&prints=eligible"
+        )
+        assert response.status_code == 422
+        assert response.json()["error"] == PRINTS_ELIGIBLE_1M_ONLY_MESSAGE
+        assert not test_app.state.minute_db.get_minute_data.called
+        assert not test_app.state.daily_db.get_daily_data.called

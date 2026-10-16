@@ -35,8 +35,10 @@ from manta_trading.constants import (
     BARS_PER_TRADING_DAY,
     CAGG_BASE_GRANULARITY,
     GRANULARITY_SOURCE,
+    PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
     TRADING_DAYS_PER_CALENDAR_DAY,
     Granularity,
+    PrintMode,
 )
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
@@ -129,6 +131,7 @@ async def get_bars(
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     max_bars: Annotated[int, Depends(get_max_bars)],
     adjusted: bool = True,
+    prints: PrintMode = PrintMode.ALL,
     fmt: Annotated[ResponseFormat, Query(alias="format")] = "json",
 ) -> Response:
     """Return OHLCV bars for ``symbol`` over the requested date range.
@@ -140,7 +143,15 @@ async def get_bars(
     Windows are admitted before any database work (186 D4): a reversed range or
     one whose estimated bar count exceeds the configured ceiling is a ``422``,
     not a slow ``500``.
+
+    ``prints=eligible`` (slice 171) serves tape-eligible bars at ``1m`` only;
+    any other granularity is a ``422`` until slice 172 builds eligible rollups.
     """
+    if prints is PrintMode.ELIGIBLE and granularity != Granularity.M1:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
+        )
     _admit_range(granularity, start, end, max_bars)
 
     loop = asyncio.get_running_loop()
@@ -155,6 +166,7 @@ async def get_bars(
             window_end_utc(end),
             agg,
             adjusted=adjusted,
+            prints=prints,
         )
 
     def _fetch_daily() -> pd.DataFrame:
@@ -214,6 +226,7 @@ async def get_bars(
         adjusted,
         df,
         is_stale=verdict is not None and not verdict.is_fresh,
+        prints=prints,
     )
 
     return timeseries_response(response, fmt)

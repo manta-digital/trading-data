@@ -15,15 +15,38 @@ import pandas as pd
 import psycopg
 from psycopg_pool import ConnectionPool
 
-from manta_trading.constants import DB_BULK_SESSION, DbSessionSettings, Granularity
+from manta_trading.constants import (
+    DB_BULK_SESSION,
+    PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
+    DbSessionSettings,
+    Granularity,
+    PrintMode,
+)
 from manta_trading.data.adjustment import adjusted as adjusted_fn
 from manta_trading.data.quality.off_tape_store import mark_inserted
 from manta_trading.logging import get_logger
+from manta_trading.market.schema.eligible_sql import eligible_value, has_eligible_price
 
 if TYPE_CHECKING:
     from manta_trading.market.schema.databases import Database
 
 _logger = get_logger(__name__)
+
+#: Tape-eligible 1m bars (slice 171). Rendered once from ``eligible_sql``.
+_ELIGIBLE_MINUTE_QUERY = f"""
+    SELECT time,
+           {eligible_value("open")} AS open,
+           {eligible_value("high")} AS high,
+           {eligible_value("low")} AS low,
+           {eligible_value("close")} AS close,
+           volume
+    FROM minute_ohlcv
+    WHERE symbol = %s
+    AND time >= %s
+    AND time <= %s
+    AND {has_eligible_price()}
+    ORDER BY time
+"""
 
 
 class TimescaleMinuteDataDB:
@@ -296,6 +319,7 @@ class TimescaleMinuteDataDB:
         aggregation: str | Granularity | None = None,
         *,
         adjusted: bool = True,
+        prints: PrintMode = PrintMode.ALL,
     ) -> pd.DataFrame:
         """High-performance time-series query with optional aggregation.
 
@@ -306,15 +330,24 @@ class TimescaleMinuteDataDB:
             aggregation: Optional aggregation level
                 (``'5m'``, ``'15m'``, ``'1h'``, ``'4h'``, or a ``Granularity`` member).
             adjusted: When True, apply split/dividend adjustment (default True).
+            prints: ``ALL`` serves raw bars; ``ELIGIBLE`` serves tape-eligible
+                1m bars (slice 171): marked prices clamped into the bar's
+                eligible range, all-marked minutes absent. Adjustment applies
+                after the eligible values.
 
         Returns:
             DataFrame with DatetimeIndex (UTC) and OHLCV columns.
+
+        Raises:
+            ValueError: ``prints=ELIGIBLE`` with an aggregation (until slice 172).
         """
+        if prints is PrintMode.ELIGIBLE and aggregation:
+            raise ValueError(PRINTS_ELIGIBLE_1M_ONLY_MESSAGE)
         try:
             if aggregation:
                 df = self._get_aggregated_data(symbol, start_time, end_time, str(aggregation))
             else:
-                query = """
+                query = _ELIGIBLE_MINUTE_QUERY if prints is PrintMode.ELIGIBLE else """
                     SELECT time, open, high, low, close, volume
                     FROM minute_ohlcv
                     WHERE symbol = %s

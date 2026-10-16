@@ -19,6 +19,7 @@ import typer
 # reject anything else.
 from manta_trading.cli.commands._pass_run import make_pass_run_recorder
 from manta_trading.cli.output import make_table, print_error, print_result
+from manta_trading.constants import PRINTS_ELIGIBLE_1M_ONLY_MESSAGE, PrintMode
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.rechunk import RechunkTarget
 from manta_trading.market.schema.databases import (
@@ -2170,6 +2171,11 @@ def data_get(
     start: str | None = typer.Option(None, "--start", help="Start date (YYYY-MM-DD)."),
     end: str | None = typer.Option(None, "--end", help="End date (YYYY-MM-DD)."),
     raw: bool = typer.Option(False, "--raw", help="Return unadjusted bars."),
+    prints: PrintMode = typer.Option(
+        PrintMode.ALL,
+        "--prints",
+        help="all (raw) or eligible (tape-eligible; 1m only until slice 172).",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
     csv_output: bool = typer.Option(False, "--csv", help="Emit CSV."),
 ) -> None:
@@ -2199,6 +2205,10 @@ def data_get(
             f"Unknown granularity '{granularity}'. Valid tokens: {valid}",
             json_mode=json_output,
         )
+        raise typer.Exit(1)
+
+    if prints is PrintMode.ELIGIBLE and gran != Granularity.M1:
+        print_error(PRINTS_ELIGIBLE_1M_ONLY_MESSAGE, json_mode=json_output)
         raise typer.Exit(1)
 
     settings = ctx.obj["settings"]
@@ -2268,6 +2278,7 @@ def data_get(
                     symbol, start_dt, end_dt,
                     aggregation=agg,
                     adjusted=not raw,
+                    prints=prints,
                 )
             finally:
                 db_m.close()

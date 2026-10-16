@@ -100,17 +100,26 @@ family — **not** a granularity token like `1m`. See §7.
 ### "What bars do you have for this symbol?"
 
 `GET /api/v1/bars/{symbol}?granularity=1d&start=…&end=…` →
-`{symbol, granularity, adjusted, is_stale, count, bars[]}`.
+`{symbol, granularity, adjusted, prints, is_stale, count, bars[]}`.
 
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date,
-             adjusted:boolean, format:json|msgpack
+             adjusted:boolean, prints:PrintMode, format:json|msgpack
      errors: 422, 504 -->
 
 `start` and `end` are inclusive dates. Check `is_stale`: `true` means the
 aggregate serving this grain is behind its source and the bars may be
 incomplete. It is always `false` for `1m` and `1d`, which are raw — by
 construction, not by luck.
+
+**Spikes in minute bars.** The provider's minute bars include off-tape trades
+(late-reported, average-price, prior-reference) that appear as tall isolated
+wicks, mostly outside 09:30–16:00 ET. `prints=eligible` (at `granularity=1m`
+only, for now) clamps them into each bar's eligible range and drops minutes
+whose four prices are all off-tape, volume included. The default `prints=all`
+serves the stored bars unchanged; the response's `prints` says which you got.
+`prints=eligible` at any other grain is a `422` until slice 172 builds
+eligible rollups and makes `eligible` the default everywhere.
 
 ### "Does this symbol exist? What range do you have?"
 

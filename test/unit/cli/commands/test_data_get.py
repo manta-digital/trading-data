@@ -9,6 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
+from manta_trading.constants import PRINTS_ELIGIBLE_1M_ONLY_MESSAGE, PrintMode
 
 runner = CliRunner()
 
@@ -242,3 +243,48 @@ class TestDataGetKeyError:
                 )
         assert result.exit_code != 0
         assert "Adjustment data missing" in result.output
+
+
+class TestDataGetPrints:
+    """``--prints`` (slice 171) reaches ``get_minute_data``; 1m only."""
+
+    def test_eligible_reaches_get_minute_data(self):
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.timescale_minute_db.TimescaleMinuteDataDB",
+                autospec=True,
+            ) as MockMinute:
+                instance = MockMinute.return_value
+                instance.get_minute_data.return_value = _sample_df()
+                result = runner.invoke(
+                    app,
+                    ["data", "get", "AAPL", "1m", "--start", "2024-01-01",
+                     "--prints", "eligible"],
+                )
+        assert result.exit_code == 0, result.output
+        kwargs = instance.get_minute_data.call_args.kwargs
+        assert kwargs["prints"] is PrintMode.ELIGIBLE
+
+    def test_default_is_all(self):
+        s = _settings()
+        with _patch_app(s):
+            with patch(
+                "manta_trading.market.timescale_minute_db.TimescaleMinuteDataDB",
+                autospec=True,
+            ) as MockMinute:
+                instance = MockMinute.return_value
+                instance.get_minute_data.return_value = _sample_df()
+                runner.invoke(
+                    app, ["data", "get", "AAPL", "1m", "--start", "2024-01-01"]
+                )
+        assert instance.get_minute_data.call_args.kwargs["prints"] is PrintMode.ALL
+
+    def test_eligible_above_1m_exits_with_the_message(self):
+        s = _settings()
+        with _patch_app(s):
+            result = runner.invoke(
+                app, ["data", "get", "AAPL", "5m", "--prints", "eligible"]
+            )
+        assert result.exit_code == 1
+        assert PRINTS_ELIGIBLE_1M_ONLY_MESSAGE in " ".join(result.output.split())

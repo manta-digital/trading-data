@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from starlette import status as http_status
 
 from manta_trading.api_server.models.futures import TickBlock
+from manta_trading.constants import PrintMode
 from manta_trading.data.tick.line_state import TickLineState
 
 if TYPE_CHECKING:
@@ -65,6 +66,8 @@ class BarsResponse(BaseModel):
     symbol: str
     granularity: str
     adjusted: bool
+    prints: PrintMode
+    """Which prints were served: ``all`` (raw) or ``eligible`` (slice 171)."""
     is_stale: bool
     count: int
     bars: list[BarRecord]
@@ -78,6 +81,7 @@ class BarsResponse(BaseModel):
         df: pd.DataFrame,
         *,
         is_stale: bool,
+        prints: PrintMode,
     ) -> BarsResponse:
         """Build a ``BarsResponse`` from a DB result DataFrame.
 
@@ -103,6 +107,7 @@ class BarsResponse(BaseModel):
             symbol=symbol,
             granularity=str(granularity),
             adjusted=adjusted,
+            prints=prints,
             is_stale=is_stale,
             count=len(bars),
             bars=bars,
