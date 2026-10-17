@@ -34,6 +34,10 @@ from manta_trading.constants import (
     MINUTE_OHLCV_CHUNK_INTERVAL,
     MINUTE_OHLCV_TABLE,
 )
+from manta_trading.market.schema.eligible_rollups_sql import (
+    NEXT_COVERAGE_VIEW,
+    NEXT_ROLLUP_VIEWS,
+)
 from manta_trading.market.schema.migrations.minute import (
     _MINUTE_CAGG_VIEWS,
     MINUTE_MIGRATIONS,
@@ -89,6 +93,9 @@ EXPECTED_CAGGS: tuple[str, ...] = (
     # Coverage caggs backing data_status.bars_summary (slice 167, migration 046).
     MINUTE_COVERAGE_VIEW,
     DAILY_COVERAGE_VIEW,
+    # The eligible twins built beside the minute ones (slice 172, migration 063).
+    *NEXT_ROLLUP_VIEWS,
+    NEXT_COVERAGE_VIEW,
 )
 
 
