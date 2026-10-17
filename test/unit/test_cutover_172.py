@@ -58,7 +58,9 @@ class Harness:
         self.installed = "old"
         self.verify_output = "[]"
 
-    def mt(self, *args: str) -> tuple[int, str]:
+    def mt(self, *args: str, as_owner: bool = False) -> tuple[int, str]:
+        if args[0] == "rebuild-coverage":
+            assert as_owner, "rebuild-coverage refreshes; it needs the owner's URL"
         name = (
             args[0]
             if args[0] != "repair"

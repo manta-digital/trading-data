@@ -491,6 +491,64 @@ Effects to expect while it runs:
   in the log. The values are unchanged (`off_tape` is in no aggregate); a
   later wide manual refresh re-materializes those ranges at its normal cost.
 
+### Eligible rollup build: `scripts/cutover_172_eligible_rollups.py` (slice 172)
+
+Releases migration 063 and fills the eligible 5m, 15m, 1h and 4h rollups
+(`minute_*_ohlcv_next`) and `minute_coverage_next` beside the current ones.
+Nothing a reader sees changes: bars, `mt data status`, `/api/v1/status`,
+`mt data health` and the seeder keep reading the current objects until slice
+173 swaps them in.
+
+**When:** after the off-tape history sweep is done, that is when
+`mt-run data off-tape sweep --maintenance-url "$MT_TIMESCALE_MAINTENANCE_URL" --dry-run`
+reports `0 to sweep`. The script checks this itself and refuses before
+building anything if a chunk still holds an unmarked bar: a window built from
+unswept rows would stay wrong, because repair compares counts, not values.
+
+**The one command**, as `manta` from the dev checkout at the release ref:
+
+```bash
+cd ~/source/repos/manta/trading-data && git fetch && git checkout vX.Y.Z
+uv run python scripts/cutover_172_eligible_rollups.py vX.Y.Z
+```
+
+It holds the minute, daily and Kalshi timers (waiting out a running pass),
+installs the ref, applies 063, restarts mt-serve and releases the timers.
+Then it builds with the passes live: for 4h, 1h, 15m and 5m it pauses that
+`_next` view's jobs, runs
+`mt data caggs repair --target next --order newest-first`, and resumes them;
+then `rebuild-coverage --family minute --target next` and its `--verify`;
+then `mt data caggs verify --target next`. Jobs are found by view name each
+time; nothing uses a job id.
+
+**Reading the result:** the report is
+`project-documents/user/notes/<date>-172-cutover.md` (the narration is the
+`.log` beside it). It lists each step as PASS or FAIL with what it saw, rows
+per `_next` view, the verify output, and each `_next` refresh job's last run
+duration against its schedule. Exit 0 only when every step passed.
+
+**After a failure or a kill:** fix the cause the report names and rerun the
+same command. The release steps skip what is done (ref already installed, 063
+already applied). The build resumes any `_next` job a killed run left paused,
+and repair and rebuild-coverage skip what is already built.
+
+| Report line | Meaning | Action |
+|---|---|---|
+| `N minute chunk(s) still hold unevaluated off-tape marks` | The history sweep is not finished | finish the sweep, then rerun |
+| `could not measure the database volume` / `not this machine` | Free space for repair's headroom check could not be read | run on the database host; check `pg_lsclusters` |
+| `repair of <view> exited N` | One rollup's sweep failed; its jobs were resumed | read the narration above it; rerun |
+| `out of parity: <views>` | The build is not complete | rerun |
+
+**Expected until slice 173:**
+
+- `mt data caggs status` lists five extra rows, the `_next` views. That is
+  correct; health and freshness checks never read them.
+- Minute-cagg refresh work roughly doubles, because the `_next` policies run
+  beside the current ones. The report's refresh-job lines show what it costs.
+- A `_next` view's own refresh is paused while it is repaired. Its newest
+  window is built first and its policy looks back 10 days, so a repair that
+  runs less than that needs no catch-up refresh.
+
 ## Running the acquisition passes
 
 Normally, nobody runs them — the timers do. To run one out of schedule
@@ -1158,6 +1216,9 @@ runs unchanged against a newer additive schema.
 
 ## Revision Log
 
+- 2026-10-16 (slice 172): the eligible rollup build,
+  `scripts/cutover_172_eligible_rollups.py`, and the `_next` rows it adds to
+  `mt data caggs status`.
 - 2026-10-16 (slice 171): the `off-tape unevaluated` and `off-tape share`
   health lines, and the one-time `mt data off-tape sweep`.
 - 2026-10-14 (slice 234): the tick pass unit `mt-tick-pass.service` (manual,

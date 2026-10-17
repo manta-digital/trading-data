@@ -5,7 +5,7 @@ parent: user/slices/169-slice.coverage-cagg-refresh-repair-the-current-bucket-is
 relatedSlices: [163, 167, 169]
 host: <prod_host>
 dateCreated: 20260816
-dateUpdated: 20260816
+dateUpdated: 20261016
 status: ready
 ---
 
@@ -166,6 +166,19 @@ Exit 0 with span floor reached and head within one bucket = pass.
 ```bash
 MT_TIMESCALE_DB_URL="$MAINT_URL" uv run mt data caggs rebuild-coverage --family minute
 MT_TIMESCALE_DB_URL="$MAINT_URL" uv run mt data caggs rebuild-coverage --family minute --verify
+```
+
+**The eligible twin (slice 172).** `--target next` rebuilds
+`minute_coverage_next` from `minute_4hour_ohlcv_next` instead; its pre-flight
+then requires `minute_4hour_ohlcv_next`'s refresh to be scheduled, not the
+current 4h one's. The default is `--target current`, so the commands above are
+unchanged. `--family daily --target next` is refused (there is no
+`daily_coverage_next`). The slice 172 cutover runs these for you; see runbook
+100, "Eligible rollup build".
+
+```bash
+MT_TIMESCALE_DB_URL="$MAINT_URL" uv run mt data caggs rebuild-coverage --family minute --target next
+MT_TIMESCALE_DB_URL="$MAINT_URL" uv run mt data caggs rebuild-coverage --family minute --target next --verify
 ```
 
 ## Step 8 — Resume the paused jobs and confirm (G.11)

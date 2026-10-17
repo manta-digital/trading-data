@@ -5,7 +5,7 @@ parent: user/slices/163-slice.minute-cagg-chunk-re-sizing.md
 relatedSlices: [162, 163, 166, 167]
 host: <db_host>
 dateCreated: 20260725
-dateUpdated: 20260811
+dateUpdated: 20261016
 status: ready
 ---
 
@@ -61,6 +61,33 @@ Historical snapshot from the 2026-07-25 incident (these IDs no longer exist on p
 kept only so the incident notes in `163-baseline-verify-20260724.md` stay readable):
 5m = 1007/1018, 15m = 1008/1019, 1h = 1002/1020, 4h = 1003/1021
 (refresh/columnstore, mat_hypertable_ids 3–6).
+
+## Targeting the `_next` caggs and window order (slice 172)
+
+`mt data caggs repair`, `verify` and `rebuild-coverage` take
+`--target current|next` (default `current`). `next` acts on the eligible
+`minute_*_ohlcv_next` rollups and `minute_coverage_next`, which slice 172
+builds beside the live ones; the live ones are never read or written by a
+`--target next` run. `repair` also takes `--order oldest-first|newest-first`
+(default `oldest-first`); each window is still parity-checked before it is
+rebuilt, so either order resumes the same way.
+
+The rules below hold for `--target next` with one difference: the coverage
+index is still the **current** `minute_4hour_ohlcv`. Repairing
+`minute_4hour_ohlcv_next` pauses only its own pair, and the pre-flight still
+refuses while the current 4h refresh is paused. Pause the `_next` view's own
+jobs by name:
+
+```sql
+SELECT alter_job(job_id, scheduled => false)
+FROM timescaledb_information.jobs WHERE hypertable_name = 'minute_hourly_ohlcv_next';
+```
+
+```bash
+uv run mt data caggs repair --target next --order newest-first --granularity 1h \
+    --assume-headroom-gb <free GB on the DB volume>
+uv run mt data caggs verify --target next --granularity 1h
+```
 
 ## Rules
 

@@ -9,11 +9,14 @@ interfaces: [173]
 projectState: >
   Slice 171 is merged and released as v0.24.0; migration 062 (off_tape) is
   applied in production and the history sweep is running there. The minute
-  migration chain ends at 062 (test_chain_ends_at_062). The four minute
+  migration chain ends at 063 (test_chain_ends_at_063). The four minute
   rollups and minute_coverage aggregate raw values. Slice 172 was split from
   173 on 2026-10-16: this slice builds the eligible rollups beside the current
-  ones; 173 swaps them in and switches the API default. Nothing in this slice
-  is built.
+  ones; 173 swaps them in and switches the API default. Sections 1-4 are
+  built: migration 063 (the `_next` rollups and coverage, WITH NO DATA),
+  `--target` and `--order` on the caggs commands, and the cutover script
+  scripts/cutover_172_eligible_rollups.py. Docs (section 5) and final
+  validation (section 6) remain.
 dateCreated: 20261016
 dateUpdated: 20261016
 status: in_progress
@@ -210,8 +213,8 @@ status: in_progress
 
 ## Section 3 — Targeting against real `_next` views (effort 2/5)
 
-- [ ] **3.1 Targeting integration tests**
-  - [ ] Extend `test/integration/test_coverage_rebuild_sweep.py` and add
+- [x] **3.1 Targeting integration tests**
+  - [x] Extend `test/integration/test_coverage_rebuild_sweep.py` and add
         `test/integration/test_cagg_repair_target_next.py` (fixture minutes
         over at least three 70-day windows):
     1. `repair --target next --order newest-first` on each `_next` rollup
@@ -224,7 +227,7 @@ status: in_progress
        and definition are unchanged;
     5. with `minute_4hour_ohlcv_next`'s refresh paused,
        `rebuild-coverage --target next` refuses naming that view.
-  - [ ] Readers are unaffected with `_next` partly built (slice success
+  - [x] Readers are unaffected with `_next` partly built (slice success
         criterion 3). Capture each reader's output before 063, then again
         after 063 plus a partial `repair --target next` of one window, and
         assert equality:
@@ -236,53 +239,68 @@ status: in_progress
 
     `/api/v1/status` reads `data_status`, so item 2 covers it. Also assert
     `mt data caggs status` lists the five `_next` views.
-  - [ ] Success: the new tests pass.
+  - [x] Success: the new tests pass.
 
-- [ ] **3.2 Commit:** `test: cover repair, verify and coverage against _next caggs`
+- [x] **3.2 Commit:** `test: cover repair, verify and coverage against _next caggs`
 
 ## Section 4 — Cutover script (effort 3/5)
 
-- [ ] **4.1 Release steps**
-  - [ ] `scripts/cutover_172_eligible_rollups.py <ref>`, modelled on
+- [x] **4.1 Release steps**
+  - [x] `scripts/cutover_172_eligible_rollups.py <ref>`, modelled on
         `scripts/cutover_921_minute_sessions.py`, using `cutover_common`
         (`preflight`, `hold_timer`/`release_timer`, `install`, `migrate`,
         `restart_serve_if_active`, `start_log`). Steps: preflight → hold
         timers → install → `verify_migrate_target` → apply 063 → restart
         mt-serve → release timers. Each step check-then-act, so a rerun skips
         what is done (063 already applied, version already installed).
-  - [ ] Success: `--help` lists the steps; the module docstring lists every
+  - [x] Success: `--help` lists the steps; the module docstring lists every
         step and its failure behaviour, as 921's does.
 
-- [ ] **4.2 Build step**
-  - [ ] Refuse while `off-tape unevaluated` is non-zero, reusing
+- [x] **4.2 Build step**
+  - [x] Refuse while `off-tape unevaluated` is non-zero, reusing
         `health_off_tape.fetch_off_tape_counts`; the message gives the count
         and says the history sweep must finish first.
-  - [ ] Measure free space on the database volume (`SHOW data_directory`,
+
+    Done with the sweep's own check (`off_tape_sweep.unevaluated_chunks`,
+    every chunk) instead of `fetch_off_tape_counts`, which counts one session
+    only and reads zero while older history is still unswept.
+
+  - [x] Measure free space on the database volume (`SHOW data_directory`,
         then `shutil.disk_usage`); fail with a clear message if either read
         fails. Pass the value as `--assume-headroom-gb`.
-  - [ ] For 4h, 1h, 15m, 5m in that order: resolve the `_next` view's jobs
+
+    `SHOW data_directory` is denied to the migration role in production (no
+    `pg_read_all_settings`), so the data directory comes from `pg_lsclusters`
+    for the URL's port, and the script refuses if the database host is not
+    this machine.
+
+  - [x] For 4h, 1h, 15m, 5m in that order: resolve the `_next` view's jobs
         from the catalog by name; pause them; run
         `mt data caggs repair --target next --order newest-first
         --granularity <g>`; resume them. Log each pause and resume with the
         job ids.
-  - [ ] On start, resume any `_next` job left paused by a killed run, and log
+
+    No verify before each repair: repair skips windows at parity itself, and
+    a whole-table verify per rollup would add four raw scans.
+
+  - [x] On start, resume any `_next` job left paused by a killed run, and log
         it.
-  - [ ] Then pause `minute_coverage_next`'s jobs, run
+  - [x] Then pause `minute_coverage_next`'s jobs, run
         `rebuild-coverage --family minute --target next`, resume, run
         `rebuild-coverage --family minute --target next --verify`.
-  - [ ] Finally `mt data caggs verify --target next --granularity all`; a
+  - [x] Finally `mt data caggs verify --target next --granularity all`; a
         non-zero exit fails the script naming the view.
-  - [ ] Success: every step skips cleanly when already done (parity-derived).
+  - [x] Success: every step skips cleanly when already done (parity-derived).
 
-- [ ] **4.3 Report**
-  - [ ] Write the report to `project-documents/user/notes/` (the
+- [x] **4.3 Report**
+  - [x] Write the report to `project-documents/user/notes/` (the
         `cutover_common` convention): each step's outcome, rows per `_next`
         view, verify output, and each `_next` refresh job's last run duration
         against its schedule interval.
-  - [ ] Exit 0 only when every check passed.
+  - [x] Exit 0 only when every check passed.
 
-- [ ] **4.4 Cutover script tests**
-  - [ ] `test/unit/test_cutover_172.py`, modelled on
+- [x] **4.4 Cutover script tests**
+  - [x] `test/unit/test_cutover_172.py`, modelled on
         `test/unit/test_cutover_921.py` (subprocess and database calls
         mocked):
     1. build refused while unevaluated > 0;
@@ -294,9 +312,9 @@ status: in_progress
     6. a failing verify exits non-zero naming the view;
     7. rerun skips: with 063 already applied and the ref already installed,
        the release steps do nothing and the build step proceeds.
-  - [ ] Success: the new tests pass.
+  - [x] Success: the new tests pass.
 
-- [ ] **4.5 Commit:** `feat: add slice 172 cutover and eligible rollup build`
+- [x] **4.5 Commit:** `feat: add slice 172 cutover and eligible rollup build`
 
 ## Section 5 — Documentation (effort 1/5)
 

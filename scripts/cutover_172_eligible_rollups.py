@@ -42,6 +42,7 @@ when every step passed.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -108,12 +109,20 @@ class StepFailed(RuntimeError):
 # --- host seams --------------------------------------------------------------
 
 
-def _mt(*args: str) -> tuple[int, str]:
-    """``uv run mt data caggs <args>`` from this checkout, streamed and logged."""
+def _mt(*args: str, as_owner: bool = False) -> tuple[int, str]:
+    """``uv run mt data caggs <args>`` from this checkout, streamed and logged.
+
+    ``as_owner`` runs it with the maintenance URL as ``MT_TIMESCALE_DB_URL``:
+    ``rebuild-coverage`` refreshes through that URL, and only the migration
+    role owns the caggs (runbook 310 does the same).
+    """
     cmd = ["uv", "run", "mt", "data", "caggs", *args]
     say(f"  $ {' '.join(cmd)}")
+    env = dict(os.environ)
+    if as_owner:
+        env["MT_TIMESCALE_DB_URL"] = _maintenance_url()
     with subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
     ) as proc:
         assert proc.stdout is not None
         lines = []
@@ -222,13 +231,13 @@ def step_coverage(ctx: Context, step: Step) -> None:
         ids = build.set_scheduled(conn, view_jobs, False)
         step.note(f"{build.NEXT_COVERAGE_VIEW}: paused job(s) {ids}")
         try:
-            code, _ = _mt("rebuild-coverage", *family)
+            code, _ = _mt("rebuild-coverage", *family, as_owner=True)
         finally:
             ids = build.set_scheduled(conn, view_jobs, True)
             step.note(f"{build.NEXT_COVERAGE_VIEW}: resumed job(s) {ids}")
     if code != 0:
         raise StepFailed(f"rebuild-coverage exited {code}; rerun to resume")
-    code, _ = _mt("rebuild-coverage", *family, "--verify")
+    code, _ = _mt("rebuild-coverage", *family, "--verify", as_owner=True)
     if code != 0:
         raise StepFailed(f"{build.NEXT_COVERAGE_VIEW} --verify exited {code}")
     step.note(f"{build.NEXT_COVERAGE_VIEW}: rebuilt and verified")
