@@ -236,14 +236,11 @@ status: not_started
 
 ## Section 5 — Cutover script (effort 4/5)
 
-- [ ] **5.1 Read the model and plan the steps**
-  - [ ] Read `scripts/cutover_172_eligible_rollups.py`, `cutover_172_build.py`
-        and `cutover_common.py` (hold/release timers, install, `migrate`,
-        `verify_migrate_target`, `restart_serve_if_active`). Reuse them; do not
-        copy logic.
-  - [ ] Success: none (reading); the next task names what is reused.
-
-- [ ] **5.2 Write `scripts/cutover_173_eligible_rollup_swap.py`**
+- [ ] **5.1 Write `scripts/cutover_173_eligible_rollup_swap.py`**
+  - [ ] First read `scripts/cutover_172_eligible_rollups.py`,
+        `cutover_172_build.py` and `cutover_common.py` (hold/release timers,
+        install, `migrate`, `verify_migrate_target`,
+        `restart_serve_if_active`). Reuse them; do not copy logic.
   - [ ] One command, `<ref>` argument, check-then-act steps in this order:
         precheck → hold timers → install → apply 064 → verify → restart
         mt-serve → release timers → report. Keep the file near 300 lines; put
@@ -269,7 +266,7 @@ status: not_started
   - [ ] Success: `uv run python scripts/cutover_173_eligible_rollup_swap.py --help`
         runs; `ruff` and `mypy` clean.
 
-- [ ] **5.3 Cutover failure-table tests**
+- [ ] **5.2 Cutover failure-table tests**
   - [ ] Unit tests in `test/unit/scripts/` (follow how the 172 script's tests
         stub the host commands): one case per row of the design's failure
         table asserting exit code, whether timers end held or released, and
@@ -277,7 +274,7 @@ status: not_started
         completes the swap.
   - [ ] Success: unit tier passes. Tests never run real `systemctl`.
 
-- [ ] **5.4 Commit:** `feat: add cutover script for the eligible rollup swap`
+- [ ] **5.3 Commit:** `feat: add cutover script for the eligible rollup swap`
 
 ## Section 6 — 5m bars load case (effort 2/5)
 
@@ -322,8 +319,6 @@ status: not_started
         (steps, failure table summary, rerun rule, report path); update the
         line that says `prints=all` is the default (near the existing
         "unaffected" note).
-  - [ ] Update runbooks 300 and 310 only where they name `_next` objects as
-        still existing after the swap.
   - [ ] Success: `grep -rn "prints=all (the default)" docs project-documents/user/runbooks`
         returns nothing.
 
