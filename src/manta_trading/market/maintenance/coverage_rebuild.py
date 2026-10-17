@@ -59,8 +59,8 @@ from manta_trading.constants import (
 )
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.cagg_repair import (
-    _PROC_REFRESH,
-    _resolve_cagg_jobs,
+    PROC_REFRESH,
+    resolve_cagg_jobs,
 )
 from manta_trading.market.maintenance.rechunk import PreflightError
 
@@ -338,7 +338,7 @@ def assert_policies_paused(
     operator-visible act with a resume obligation, and burying it inside a
     sweep makes it easy to leave a job paused after a crash.
     """
-    jobs = _resolve_cagg_jobs(conn, view_name)
+    jobs = resolve_cagg_jobs(conn, view_name)
     live = [j for j in jobs if j.scheduled]
     if not live:
         return
@@ -374,8 +374,8 @@ def assert_coverage_index_scheduled(
     """
     paused = [
         j
-        for j in _resolve_cagg_jobs(conn, parent)
-        if j.proc_name == _PROC_REFRESH and not j.scheduled
+        for j in resolve_cagg_jobs(conn, parent)
+        if j.proc_name == PROC_REFRESH and not j.scheduled
     ]
     if not paused:
         return

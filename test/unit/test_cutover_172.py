@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -57,6 +58,8 @@ class Harness:
         self.sweep_error: Exception | None = None
         self.installed = "old"
         self.verify_output = "[]"
+        self.fail_command = ""
+        self.pause_error: Exception | None = None
 
     def mt(self, *args: str, as_owner: bool = False) -> tuple[int, str]:
         if args[0] == "rebuild-coverage":
@@ -72,6 +75,12 @@ class Harness:
         output = self.verify_output if args[0] == "verify" else ""
         return self.mt_codes.get(name, 0), output
 
+    def systemctl(self, args: list[str], **_kwargs: Any) -> None:
+        command = " ".join(args)
+        if command == self.fail_command:
+            raise subprocess.CalledProcessError(1, args)
+        self.events.append(command)
+
     def install(self, *_args: str) -> str:
         self.events.append("install")
         return "mt, version 0.24.1"
@@ -82,6 +91,8 @@ class Harness:
     def set_scheduled(self, _conn: Any, jobs: list[_Job], scheduled: bool) -> list[int]:
         verb = "resume" if scheduled else "pause"
         self.events += [f"{verb} {job.view_name}" for job in jobs]
+        if not scheduled and self.pause_error:
+            raise self.pause_error
         return [job.job_id for job in jobs]
 
     def headroom(self, _url: str) -> float:
@@ -120,7 +131,7 @@ class Harness:
             patch.object(
                 c,
                 "run",
-                side_effect=lambda args, **k: self.events.append(" ".join(args)),
+                side_effect=self.systemctl,
             ),
             patch.object(c, "start_log"),
             patch.object(c, "NOTES_DIR", tmp_path),
@@ -260,6 +271,41 @@ def test_timers_are_released_before_the_build(harness: Harness, tmp_path: Path) 
     assert harness.events.index("systemctl stop mt-minute-pass.timer") < (
         harness.events.index("migrate")
     )
+
+
+def test_a_hold_that_fails_part_way_restarts_what_it_stopped(
+    harness: Harness, tmp_path: Path
+) -> None:
+    harness.fail_command = "systemctl stop mt-daily-pass.timer"
+    with pytest.raises(subprocess.CalledProcessError):
+        harness.run(tmp_path)
+    assert "systemctl start mt-minute-pass.timer" in harness.events
+    assert "install" not in harness.events
+    assert next(tmp_path.glob("*-172-cutover.md")).read_text()
+
+
+def test_a_pause_that_fails_still_resumes(harness: Harness, tmp_path: Path) -> None:
+    import psycopg
+
+    harness.pause_error = psycopg.OperationalError("connection lost")
+    assert harness.run(tmp_path) == 1
+    view_4h = harness.build.BUILD_ORDER[0][1]
+    assert harness.events.index(f"resume {view_4h}") > harness.events.index(
+        f"pause {view_4h}"
+    )
+    assert _repairs(harness.events) == []
+
+
+def test_unexpected_error_still_writes_the_report(
+    harness: Harness, tmp_path: Path
+) -> None:
+    harness.mt_codes["verify"] = 2
+    harness.verify_output = '[{"in_parity": false}]'  # no "view": KeyError
+    with pytest.raises(KeyError):
+        harness.run(tmp_path)
+    report = next(tmp_path.glob("*-172-cutover.md")).read_text()
+    assert "Outcome: FAIL" in report
+    assert "**coverage**: PASS" in report
 
 
 # --- the build helpers --------------------------------------------------------

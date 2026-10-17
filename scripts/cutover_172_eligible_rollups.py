@@ -76,6 +76,8 @@ from cutover_common import (  # noqa: E402
 )
 from psycopg.rows import dict_row  # noqa: E402
 
+from manta_trading.constants import Granularity  # noqa: E402
+
 MIGRATION_TRACK = "minute"
 MIGRATION_ID = "063_minute_eligible_rollups_next"
 HELD_TIMERS = ("mt-minute-pass.timer", "mt-daily-pass.timer", "mt-kalshi-pass.timer")
@@ -124,7 +126,8 @@ def _mt(*args: str, as_owner: bool = False) -> tuple[int, str]:
     with subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
     ) as proc:
-        assert proc.stdout is not None
+        if proc.stdout is None:  # PIPE was requested; this cannot happen
+            raise StepFailed(f"no output pipe from {cmd!r}")
         lines = []
         for line in proc.stdout:
             print(line, end="", flush=True)
@@ -183,13 +186,20 @@ def step_serve(ctx: Context, step: Step) -> None:
 
 
 def _repair_one(
-    conn: psycopg.Connection[Any], step: Step, gran: Any, view: str, headroom: float
+    conn: psycopg.Connection[Any],
+    step: Step,
+    gran: Granularity,
+    view: str,
+    headroom: float,
 ) -> None:
     # No verify first: repair parity-checks each window and skips the built
     # ones, and a whole-table verify per rollup is four extra raw scans.
     view_jobs = build.jobs(conn, view)
-    step.note(f"{view}: paused job(s) {build.set_scheduled(conn, view_jobs, False)}")
     try:
+        # Inside the try: a pause that fails part-way still resumes the jobs
+        # it reached (resuming a running job is a no-op).
+        ids = build.set_scheduled(conn, view_jobs, False)
+        step.note(f"{view}: paused job(s) {ids}")
         code, _ = _mt(
             "repair",
             "--target",
@@ -228,9 +238,9 @@ def step_coverage(ctx: Context, step: Step) -> None:
     family = ("--family", "minute", "--target", "next")
     with _connect() as conn:
         view_jobs = build.jobs(conn, build.NEXT_COVERAGE_VIEW)
-        ids = build.set_scheduled(conn, view_jobs, False)
-        step.note(f"{build.NEXT_COVERAGE_VIEW}: paused job(s) {ids}")
         try:
+            ids = build.set_scheduled(conn, view_jobs, False)
+            step.note(f"{build.NEXT_COVERAGE_VIEW}: paused job(s) {ids}")
             code, _ = _mt("rebuild-coverage", *family, as_owner=True)
         finally:
             ids = build.set_scheduled(conn, view_jobs, True)
@@ -297,14 +307,15 @@ def run_steps(
     return True
 
 
-def hold_timers() -> list[str]:
-    held = [t for t in HELD_TIMERS if unit_active(t)]
-    for timer in held:
+def hold_timers(held: list[str]) -> None:
+    """Stop the active timers, recording each in ``held`` as it stops, so the
+    caller's ``finally`` restarts exactly those even when this fails part-way."""
+    for timer in [t for t in HELD_TIMERS if unit_active(t)]:
         run(["systemctl", "stop", timer], sudo=True)
+        held.append(timer)
     for unit in HELD_PASSES:
         wait_for_unit_to_end(unit)
     say(f"held timers: {', '.join(held) or 'none were active'}")
-    return held
 
 
 def release_timers(held: list[str]) -> None:
@@ -318,7 +329,7 @@ def _report(started: str, steps: list[Step], ctx: Context, ok: bool) -> str:
     try:
         with _connect() as conn:
             figures = (build.row_counts(conn), build.refresh_load(conn))
-    except (StepFailed, psycopg.Error) as exc:
+    except (StepFailed, build.BuildRefused, psycopg.Error, OSError) as exc:
         return build.render_report(started, ctx.ref, ok, rows, None, str(exc))
     return build.render_report(started, ctx.ref, ok, rows, figures, ctx.verify_output)
 
@@ -333,16 +344,22 @@ def main(argv: list[str] | None = None) -> int:
     start_log(NOTES_DIR / f"{started[:10]}-172-cutover.log")
     ctx = Context(args.ref)
     steps: list[Step] = []
-    held = hold_timers()
+    held: list[str] = []
+    ok = False  # stays False unless every step returns PASS
     try:
-        ok = run_steps(ctx, RELEASE_STEPS, steps)
+        try:
+            hold_timers(held)
+            released = run_steps(ctx, RELEASE_STEPS, steps)
+        finally:
+            release_timers(held)
+        ok = released and run_steps(ctx, BUILD_STEPS, steps)
     finally:
-        release_timers(held)
-    ok = ok and run_steps(ctx, BUILD_STEPS, steps)
-    report = build.report_path(NOTES_DIR, started)
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(_report(started, steps, ctx, ok))
-    say(f"report written to {report} — {'PASS' if ok else 'FAIL'}")
+        # Written on every exit, an unexpected exception included: the
+        # traceback still propagates, and the report says how far it got.
+        report = build.report_path(NOTES_DIR, started)
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(_report(started, steps, ctx, ok))
+        say(f"report written to {report} — {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 
 

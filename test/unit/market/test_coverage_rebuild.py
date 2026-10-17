@@ -193,14 +193,14 @@ def _job(job_id: int, proc: str, view: str, *, scheduled: bool) -> dict[str, obj
     }
 
 
-# Imported, not restated: these are the names `_resolve_cagg_jobs` filters the
+# Imported, not restated: these are the names `resolve_cagg_jobs` filters the
 # job catalog on, so a local literal could drift out of agreement with the code
 # under test and quietly make every refusal test vacuous.
 from manta_trading.market.maintenance.cagg_repair import (  # noqa: E402
-    _PROC_COLUMNSTORE as _COLUMNSTORE,
+    PROC_COLUMNSTORE as _COLUMNSTORE,
 )
 from manta_trading.market.maintenance.cagg_repair import (  # noqa: E402
-    _PROC_REFRESH as _REFRESH,
+    PROC_REFRESH as _REFRESH,
 )
 
 
@@ -313,7 +313,7 @@ class TestTargetResolution:
         assert family_source(CoverageFamily.MINUTE, CaggTarget.NEXT) == self._NEXT_4H
 
     def test_daily_next_raises(self) -> None:
-        with pytest.raises(ValueError, match="no next target"):
+        with pytest.raises(ValueError, match=f"no {CaggTarget.NEXT.value} target"):
             family_view(CoverageFamily.DAILY, CaggTarget.NEXT)
         with pytest.raises(ValueError):
             family_source(CoverageFamily.DAILY, CaggTarget.NEXT)

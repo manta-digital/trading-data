@@ -106,7 +106,7 @@ class _FakeConn:
         self.calls.append((sql, params))
         s = sql
         if "FROM timescaledb_information.jobs" in s:
-            # _resolve_cagg_jobs passes (view_name, [procs]) — dispatch on the
+            # resolve_cagg_jobs passes (view_name, [procs]) — dispatch on the
             # view so the coverage-index probe can differ from the target's.
             scoped_view = params[0] if params else None
             if self._coverage_jobs is not None and scoped_view == _COVERAGE_VIEW:

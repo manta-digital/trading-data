@@ -98,8 +98,8 @@ class CaggRepairOutcome:
 # head; the columnstore policy compresses aged chunks. Both must be paused for a
 # cagg under repair (a policy firing mid drop/refresh is the journal's
 # silent-loss collision).
-_PROC_REFRESH: str = "policy_refresh_continuous_aggregate"
-_PROC_COLUMNSTORE: str = "policy_compression"
+PROC_REFRESH: str = "policy_refresh_continuous_aggregate"
+PROC_COLUMNSTORE: str = "policy_compression"
 
 
 # The cagg the minute daemon's coverage index reads (slice 162,
@@ -131,7 +131,7 @@ class CaggJob:
     scheduled: bool
 
 
-def _resolve_cagg_jobs(
+def resolve_cagg_jobs(
     conn: psycopg.Connection[dict[str, object]], view_name: str
 ) -> list[CaggJob]:
     """All refresh/columnstore policy jobs for one cagg, from the catalog.
@@ -143,7 +143,7 @@ def _resolve_cagg_jobs(
         "SELECT job_id, proc_name, hypertable_name, scheduled "
         "FROM timescaledb_information.jobs "
         "WHERE hypertable_name = %s AND proc_name = ANY(%s)",
-        (view_name, [_PROC_REFRESH, _PROC_COLUMNSTORE]),
+        (view_name, [PROC_REFRESH, PROC_COLUMNSTORE]),
     ).fetchall()
     return [
         CaggJob(
@@ -203,8 +203,8 @@ def _check_coverage_index_available(
 
     rows = [
         j
-        for j in _resolve_cagg_jobs(conn, _COVERAGE_INDEX_VIEW)
-        if j.proc_name == _PROC_REFRESH
+        for j in resolve_cagg_jobs(conn, _COVERAGE_INDEX_VIEW)
+        if j.proc_name == PROC_REFRESH
     ]
     paused = [j for j in rows if not j.scheduled]
     if not paused:
@@ -262,7 +262,7 @@ def preflight(
     )
 
     # Check 1: jobs paused.
-    jobs = _resolve_cagg_jobs(conn, view_name)
+    jobs = resolve_cagg_jobs(conn, view_name)
     unpaused = [j for j in jobs if j.scheduled]
     if unpaused:
         ids = ", ".join(str(j.job_id) for j in unpaused)

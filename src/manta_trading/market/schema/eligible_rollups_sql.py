@@ -46,16 +46,18 @@ def interval_seconds_sql(td: timedelta) -> str:
     return f"INTERVAL '{int(td.total_seconds())} seconds'"
 
 
+def next_rollup_view(granularity: Granularity) -> str:
+    """The eligible ``_next`` rollup of a minute granularity."""
+    return target_view_name(GRANULARITY_SOURCE[granularity], CaggTarget.NEXT)
+
+
 NEXT_ROLLUP_VIEWS: tuple[str, ...] = tuple(
-    target_view_name(GRANULARITY_SOURCE[g], CaggTarget.NEXT)
-    for g in MINUTE_CAGG_GRANULARITIES
+    next_rollup_view(g) for g in MINUTE_CAGG_GRANULARITIES
 )
 """The four eligible rollups, smallest bucket first."""
 
 NEXT_COVERAGE_VIEW: str = target_view_name(MINUTE_COVERAGE_VIEW, CaggTarget.NEXT)
-NEXT_COVERAGE_PARENT: str = target_view_name(
-    GRANULARITY_SOURCE[Granularity.H4], CaggTarget.NEXT
-)
+NEXT_COVERAGE_PARENT: str = next_rollup_view(Granularity.H4)
 
 
 def minute_coverage_sql(view: str, parent: str) -> str:
@@ -88,7 +90,7 @@ def eligible_rollup_sql(granularity: Granularity) -> str:
 
     Column names and order match migration 033's current rollups.
     """
-    view = target_view_name(GRANULARITY_SOURCE[granularity], CaggTarget.NEXT)
+    view = next_rollup_view(granularity)
     width = interval_seconds_sql(MINUTE_CAGG_BUCKET_WIDTH[granularity])
     eligible = f"FILTER (WHERE {has_eligible_price()})"
     return f"""
@@ -141,7 +143,7 @@ def _rollup_refresh_policy_sql(granularity: Granularity) -> str:
     bucket, scheduled every bucket but at most hourly (migrations 035, 061)."""
     width = MINUTE_CAGG_BUCKET_WIDTH[granularity]
     return _refresh_policy_sql(
-        target_view_name(GRANULARITY_SOURCE[granularity], CaggTarget.NEXT),
+        next_rollup_view(granularity),
         MINUTE_CAGG_REFRESH_START_OFFSET,
         width,
         min(width, MINUTE_CAGG_REFRESH_SCHEDULE_INTERVAL),

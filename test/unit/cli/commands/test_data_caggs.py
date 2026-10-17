@@ -767,4 +767,6 @@ class TestCaggsTargetAndOrder:
         result, captured = self._rebuild("--family", "daily", "--target", "next")
         assert result.exit_code == 1
         assert captured == {}
-        assert "no next target" in result.output
+        from manta_trading.constants import CaggTarget
+
+        assert f"no {CaggTarget.NEXT.value} target" in result.output

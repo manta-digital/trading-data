@@ -20,29 +20,25 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import psycopg
+from psycopg import sql
 
-from manta_trading.constants import (
-    GRANULARITY_SOURCE,
-    CaggTarget,
-    Granularity,
-    target_view_name,
-)
+from manta_trading.constants import Granularity
 from manta_trading.market.maintenance.cagg_repair import (
-    _PROC_REFRESH,
+    PROC_REFRESH,
     REPAIR_RUN_ORDER,
     CaggJob,
-    _resolve_cagg_jobs,
+    resolve_cagg_jobs,
 )
 from manta_trading.market.maintenance.off_tape_sweep import unevaluated_chunks
 from manta_trading.market.schema.eligible_rollups_sql import (
     NEXT_COVERAGE_VIEW,
     NEXT_ROLLUP_VIEWS,
+    next_rollup_view,
 )
 
 #: The rollups in build order: 4h (the coverage parent) first, as repair wants.
 BUILD_ORDER: tuple[tuple[Granularity, str], ...] = tuple(
-    (g, target_view_name(GRANULARITY_SOURCE[g], CaggTarget.NEXT))
-    for g in REPAIR_RUN_ORDER
+    (g, next_rollup_view(g)) for g in REPAIR_RUN_ORDER
 )
 NEXT_VIEWS: tuple[str, ...] = (*NEXT_ROLLUP_VIEWS, NEXT_COVERAGE_VIEW)
 
@@ -123,7 +119,7 @@ def headroom_gb(
 
 
 def jobs(conn: psycopg.Connection[Any], view: str) -> list[CaggJob]:
-    return _resolve_cagg_jobs(conn, view)
+    return resolve_cagg_jobs(conn, view)
 
 
 def set_scheduled(
@@ -143,8 +139,11 @@ def paused_next_jobs(conn: psycopg.Connection[Any]) -> list[CaggJob]:
 def row_counts(conn: psycopg.Connection[Any]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for view in NEXT_VIEWS:
-        row = conn.execute(f"SELECT count(*) AS n FROM {view}").fetchone()  # noqa: S608
-        counts[view] = int(row["n"]) if row else 0
+        query = sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(view))
+        row = conn.execute(query).fetchone()
+        if row is None:
+            raise BuildRefused(f"count(*) on {view} returned no row")
+        counts[view] = int(row["n"])
     return counts
 
 
@@ -164,7 +163,7 @@ def refresh_load(conn: psycopg.Connection[Any]) -> list[RefreshLoad]:
         " LEFT JOIN timescaledb_information.job_stats s ON s.job_id = j.job_id"
         " WHERE j.hypertable_name = ANY(%s) AND j.proc_name = %s"
         " ORDER BY j.hypertable_name",
-        (list(NEXT_VIEWS), _PROC_REFRESH),
+        (list(NEXT_VIEWS), PROC_REFRESH),
     ).fetchall()
     return [RefreshLoad(r["view"], r["duration"], r["schedule"]) for r in rows]
 
