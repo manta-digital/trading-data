@@ -154,7 +154,7 @@ status: not_started
         (`DEFAULT_PRINT_MODE: Final[PrintMode] = PrintMode.ELIGIBLE`) and
         replace `PRINTS_ELIGIBLE_1M_ONLY_MESSAGE` with
         `PRINTS_ALL_1M_ONLY_MESSAGE` ("prints=all is served at 1m only; roll
-        up the 1m bars"). Update all four users found by
+        up the 1m bars"). Update all six importing files found by
         `grep -rn "PRINTS_ELIGIBLE_1M_ONLY_MESSAGE" src test`.
   - [ ] Read `bars.py` around the `prints` parameter and decide, from the
         design, how `prints=all` behaves at daily and coarser: the design
@@ -185,7 +185,8 @@ status: not_started
   - [ ] Success: `uv run mt data get --help` shows the new default.
 
 - [ ] **3.4 Read-path tests**
-  - [ ] Update `test/integration/api_server/test_bars_prints.py` and
+  - [ ] Update `test/integration/api_server/test_bars_prints.py`,
+        `test/unit/api_server/test_bars.py` and
         `test/unit/cli/commands/test_data_get.py` for the new default and
         message; no test may still import the removed constant.
   - [ ] Add: default request at 5m returns `prints: "eligible"`; `prints=all`
@@ -267,7 +268,7 @@ status: not_started
         runs; `ruff` and `mypy` clean.
 
 - [ ] **5.2 Cutover failure-table tests**
-  - [ ] Unit tests in `test/unit/scripts/` (follow how the 172 script's tests
+  - [ ] Unit tests in `test/unit/test_cutover_173.py` (follow how the 172 script's tests
         stub the host commands): one case per row of the design's failure
         table asserting exit code, whether timers end held or released, and
         the step named in the message; plus a kill-and-rerun case that
