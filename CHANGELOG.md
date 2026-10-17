@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-10-17
+
 ### Added
 - **Eligible rollups are built beside the current ones** (slice 172). Migration 063 adds `minute_5min_ohlcv_next`, `minute_15min_ohlcv_next`, `minute_hourly_ohlcv_next`, `minute_4hour_ohlcv_next` and `minute_coverage_next`, whose prices and volume leave out off-tape prints. They start empty; `scripts/cutover_172_eligible_rollups.py <ref>` releases 063 and fills them once the off-tape history sweep has finished. Nothing that is served changes yet: slice 173 swaps them in and makes `prints=eligible` the default. Until then `mt data caggs status` lists the five `_next` views.
 - **`--target current|next`** on `mt data caggs repair`, `verify` and `rebuild-coverage`, and **`--order oldest-first|newest-first`** on `repair`. The defaults keep every existing command's meaning.
