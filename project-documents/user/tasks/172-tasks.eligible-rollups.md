@@ -85,8 +85,9 @@ status: not_started
 - [ ] **1.2 Resolve rollup views by target**
   - [ ] `cagg_parity.cagg_view(granularity, target=CaggTarget.CURRENT)`
         applies the helper. `compute_parity` and `run_repair` take a `target`
-        keyword (default `CURRENT`) and pass it to every `cagg_view` call
-        (`cagg_repair.py` lines ~410, ~524, ~534; `cagg_parity.py` ~392).
+        keyword (default `CURRENT`) and pass it to every `cagg_view` call.
+        Find the call sites with `grep -rn "cagg_view(" src`; the line
+        numbers cited in this file are hints only.
   - [ ] `repair`'s pre-flight is unchanged in meaning: check 4 still guards
         `_COVERAGE_INDEX_VIEW` (the **current** 4h rollup). Repairing
         `minute_4hour_ohlcv_next` must not count as repairing the coverage
@@ -189,9 +190,17 @@ status: not_started
     4. eligible 1m bars (171's `get_minute_data(prints=eligible)` path) rolled
        up to 5m in SQL equal `minute_5min_ohlcv_next` row for row, volume
        included.
-  - [ ] Use 171's off-tape fixtures (`test/fixtures/off_tape/`) for at least
-        one real marked day (SPY 2026-09-08), and assert its 770.19 and 724.228
-        prints are absent from the `_next` 5m and 1h rows.
+  - [ ] Load 171's off-tape fixtures (`test/fixtures/off_tape/`), mark them
+        with 171's `mark_days`, refresh, and assert each print is absent from
+        the `_next` 5m and 1h rows (slice success criterion 1):
+    1. `SPY_2026-09-08.csv`: 770.19 and 770.3516 highs, 724.228 lows;
+    2. `SPY_2026-09-11.csv`: the 17:33 ET 787.5169 high;
+    3. `AVGO_2026-06-03.csv`: the 16:15 ET 295.4665 low;
+    4. `MSFT_2026-08-05.csv`: the 16:13 ET 384.28 low;
+    5. `MSFT_2026-06-01.csv` (the walkthrough's case): the after-hours 5m max
+       high from 16:40 ET on is lower in `minute_5min_ohlcv_next` than in a
+       raw rollup of the same minutes, and equals the eligible 1m max for
+       that span.
   - [ ] Success: the new file passes; the existing migration tests pass apart
         from the known failures (`test_migration_051_052` ×2).
 
@@ -213,9 +222,18 @@ status: not_started
        and definition are unchanged;
     5. with `minute_4hour_ohlcv_next`'s refresh paused,
        `rebuild-coverage --target next` refuses naming that view.
-  - [ ] Readers are unaffected with `_next` partly built: `mt data health`
-        reports the same verdicts as before 063 (no `_next` row), and
-        `mt data caggs status` lists the five `_next` views.
+  - [ ] Readers are unaffected with `_next` partly built (slice success
+        criterion 3). Capture each reader's output before 063, then again
+        after 063 plus a partial `repair --target next` of one window, and
+        assert equality:
+    1. bars: `get_minute_data` at 5m and 4h for one fixture symbol-day;
+    2. `data_status`: `SELECT * FROM data_status` for the fixture symbols;
+    3. seeder: `build_minute_coverage_index` and
+       `compute_missing_minute_sessions` (`data/gaps/minute_coverage.py`);
+    4. `mt data health`: same verdicts, no `_next` row.
+
+    `/api/v1/status` reads `data_status`, so item 2 covers it. Also assert
+    `mt data caggs status` lists the five `_next` views.
   - [ ] Success: the new tests pass.
 
 - [ ] **3.2 Commit:** `test: cover repair, verify and coverage against _next caggs`
@@ -271,7 +289,9 @@ status: not_started
     4. every pause is followed by a resume, including when repair fails
        (the resume still runs and the script exits non-zero);
     5. a leftover paused `_next` job is resumed at start;
-    6. a failing verify exits non-zero naming the view.
+    6. a failing verify exits non-zero naming the view;
+    7. rerun skips: with 063 already applied and the ref already installed,
+       the release steps do nothing and the build step proceeds.
   - [ ] Success: the new tests pass.
 
 - [ ] **4.5 Commit:** `feat: add slice 172 cutover and eligible rollup build`
