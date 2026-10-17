@@ -307,9 +307,12 @@ def test_readers_unchanged_by_063_and_a_partial_build(pre_063_db: str) -> None:
     _apply(url, MINUTE_MIGRATIONS)
     view = target_view_name(GRANULARITY_SOURCE[Granularity.H4], CaggTarget.NEXT)
     with psycopg.connect(url, autocommit=True, row_factory=tuple_row) as conn:
-        lo, hi = conn.execute(
-            f"SELECT min(time), max(time) FROM minute_ohlcv WHERE symbol = '{_SYMBOL}'"  # noqa: S608
+        span = conn.execute(
+            "SELECT min(time), max(time) FROM minute_ohlcv WHERE symbol = %s",
+            (_SYMBOL,),
         ).fetchone()
+        assert span is not None
+        lo, hi = span
         newest = _epoch_grid_windows(lo, hi, MINUTE_CAGG_CHUNK_INTERVAL)[-1]
     with (
         _paused(url, view),

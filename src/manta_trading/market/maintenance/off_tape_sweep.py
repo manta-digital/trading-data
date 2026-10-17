@@ -118,10 +118,18 @@ def minute_pass_running(conn: psycopg.Connection[Any]) -> bool:
     return bool(PassRunRepository(lambda: nullcontext(conn)).open_runs(PassKind.MINUTE))
 
 
+def unevaluated_chunks(conn: psycopg.Connection[Any]) -> list[Chunk]:
+    """Chunks holding at least one unevaluated (``NULL``) mark, oldest first.
+
+    Empty once the history sweep is complete; slice 172's build waits for it.
+    """
+    return [chunk for chunk in list_chunks(conn) if _has_null(conn, chunk)]
+
+
 def plan(conn: psycopg.Connection[Any]) -> SweepPlan:
     """Pending chunks oldest first; the newest is held back during a pass."""
     chunks = list_chunks(conn)
-    pending = [chunk for chunk in chunks if _has_null(conn, chunk)]
+    pending = unevaluated_chunks(conn)
     deferred = None
     if chunks and pending and pending[-1] == chunks[-1] and minute_pass_running(conn):
         deferred = pending.pop()

@@ -89,7 +89,8 @@ def test_every_price_and_volume_is_filtered_but_count_is_not() -> None:
 def test_statement_order_rollups_then_coverage_then_policies() -> None:
     statements = eligible_rollups_next_statements()
     creates = [s for s in statements if "CREATE MATERIALIZED VIEW" in s]
-    assert [re.search(r"EXISTS (\w+)", s)[1] for s in creates] == [
+    names = [re.findall(r"EXISTS (\w+)", s)[0] for s in creates]
+    assert names == [
         *NEXT_ROLLUP_VIEWS,
         NEXT_COVERAGE_VIEW,
     ]

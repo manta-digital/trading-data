@@ -16,7 +16,7 @@ projectState: >
   is built.
 dateCreated: 20261016
 dateUpdated: 20261016
-status: not_started
+status: in_progress
 ---
 
 # Tasks: Eligible Rollups
@@ -70,72 +70,72 @@ status: not_started
 
 ## Section 1 — Targeting the `_next` views (effort 2/5)
 
-- [ ] **1.1 Define the constants**
-  - [ ] In `constants.py`: `CAGG_NEXT_SUFFIX: Final[str] = "_next"`;
+- [x] **1.1 Define the constants**
+  - [x] In `constants.py`: `CAGG_NEXT_SUFFIX: Final[str] = "_next"`;
         `CaggTarget` (`StrEnum`: `CURRENT="current"`, `NEXT="next"`);
         `RepairOrder` (`StrEnum`: `OLDEST_FIRST="oldest-first"`,
         `NEWEST_FIRST="newest-first"`). Each has a one-line comment naming
         slice 172.
-  - [ ] Add one helper beside `GRANULARITY_SOURCE`'s consumers, e.g.
+  - [x] Add one helper beside `GRANULARITY_SOURCE`'s consumers, e.g.
         `target_view_name(view: str, target: CaggTarget) -> str`, returning
         `view` for `CURRENT` and `view + CAGG_NEXT_SUFFIX` for `NEXT`. Every
         `_next` name in this slice goes through it.
-  - [ ] Success: `ruff` and `mypy` clean.
+  - [x] Success: `ruff` and `mypy` clean.
 
-- [ ] **1.2 Resolve rollup views by target**
-  - [ ] `cagg_parity.cagg_view(granularity, target=CaggTarget.CURRENT)`
+- [x] **1.2 Resolve rollup views by target**
+  - [x] `cagg_parity.cagg_view(granularity, target=CaggTarget.CURRENT)`
         applies the helper. `compute_parity` and `run_repair` take a `target`
         keyword (default `CURRENT`) and pass it to every `cagg_view` call.
         Find the call sites with `grep -rn "cagg_view(" src`; the line
         numbers cited in this file are hints only.
-  - [ ] `repair`'s pre-flight is unchanged in meaning: check 4 still guards
+  - [x] `repair`'s pre-flight is unchanged in meaning: check 4 still guards
         `_COVERAGE_INDEX_VIEW` (the **current** 4h rollup). Repairing
         `minute_4hour_ohlcv_next` must not count as repairing the coverage
         index view.
-  - [ ] Success: with the default target every existing call resolves the
+  - [x] Success: with the default target every existing call resolves the
         same names as before.
 
-- [ ] **1.3 Resolve the minute coverage family by target**
-  - [ ] `coverage_rebuild.rebuild_coverage` takes `target` (default
+- [x] **1.3 Resolve the minute coverage family by target**
+  - [x] `coverage_rebuild.rebuild_coverage` takes `target` (default
         `CURRENT`). For `NEXT` and `CoverageFamily.MINUTE`: the view is
         `minute_coverage_next`, the source is `minute_4hour_ohlcv_next`, and
         `assert_coverage_index_scheduled` checks the **target's** parent
         (`minute_4hour_ohlcv_next`). The daily family rejects `NEXT` with a
         `ValueError` (there is no `daily_coverage_next`).
-  - [ ] The verify path of `rebuild-coverage` takes the same target.
-  - [ ] Success: default behaviour unchanged.
+  - [x] The verify path of `rebuild-coverage` takes the same target.
+  - [x] Success: default behaviour unchanged.
 
-- [ ] **1.4 Add `--target` and `--order` to the CLI**
-  - [ ] In `cli/commands/data.py`: `--target [current|next]` (default
+- [x] **1.4 Add `--target` and `--order` to the CLI**
+  - [x] In `cli/commands/data.py`: `--target [current|next]` (default
         `current`) on `caggs verify`, `caggs repair` and
         `caggs rebuild-coverage`; `--order [oldest-first|newest-first]`
         (default `oldest-first`) on `caggs repair`. Values come from the 1.1
         enums.
-  - [ ] `run_repair` takes `order`; `NEWEST_FIRST` reverses the window list
+  - [x] `run_repair` takes `order`; `NEWEST_FIRST` reverses the window list
         after it is built. The parity check per window is unchanged.
-  - [ ] Output and JSON name the resolved view, so a `--target next` run
+  - [x] Output and JSON name the resolved view, so a `--target next` run
         visibly acts on `_next` names.
-  - [ ] Success: `uv run mt data caggs repair --help` lists both options.
+  - [x] Success: `uv run mt data caggs repair --help` lists both options.
 
-- [ ] **1.5 Targeting unit tests**
-  - [ ] `test/unit/market/test_cagg_parity.py`: `cagg_view` for every
+- [x] **1.5 Targeting unit tests**
+  - [x] `test/unit/market/test_cagg_parity.py`: `cagg_view` for every
         granularity and both targets.
-  - [ ] `test/unit/market/test_cagg_repair.py`: newest-first window order;
+  - [x] `test/unit/market/test_cagg_repair.py`: newest-first window order;
         the coverage-index guard still keys on the current 4h view when the
         target is `minute_4hour_ohlcv_next`.
-  - [ ] `test/unit/market/test_coverage_rebuild.py`: minute family with
+  - [x] `test/unit/market/test_coverage_rebuild.py`: minute family with
         `NEXT` resolves view, source and parent check; daily with `NEXT`
         raises.
-  - [ ] `test/unit/cli/commands/test_data_caggs.py`: `--target` and `--order`
+  - [x] `test/unit/cli/commands/test_data_caggs.py`: `--target` and `--order`
         parse, defaults preserved, an invalid value exits non-zero.
-  - [ ] Success: the unit tier passes.
+  - [x] Success: the unit tier passes.
 
-- [ ] **1.6 Commit:** `feat: target _next caggs in repair, verify and rebuild-coverage`
+- [x] **1.6 Commit:** `feat: target _next caggs in repair, verify and rebuild-coverage`
 
 ## Section 2 — Migration 063 (effort 3/5)
 
-- [ ] **2.1 Render the eligible rollup and coverage SQL**
-  - [ ] New module `market/schema/eligible_rollups_sql.py` (keep
+- [x] **2.1 Render the eligible rollup and coverage SQL**
+  - [x] New module `market/schema/eligible_rollups_sql.py` (keep
         `migrations/minute.py` from growing): a function rendering one eligible
         minute rollup `CREATE MATERIALIZED VIEW ... WITH NO DATA` for a
         granularity, named via the 1.1 helper with `NEXT`, from
@@ -144,43 +144,45 @@ status: not_started
         `COUNT(*) AS minute_count` unfiltered). Column names, order and types
         match the current rollups (migration 033's shape, with `time_bucket`
         as the bucket column).
-  - [ ] Extract the current `minute_coverage` definition (the migration at
+  - [x] Extract the current `minute_coverage` definition (the migration at
         `minute.py` ~2441) into a function taking the view name and parent
         view name. The existing migration calls it with the current names, so
         its SQL is byte-identical; 063 calls it with the `_next` names.
-  - [ ] Success: a unit test asserts the extracted coverage SQL for the
+  - [x] Success: a unit test asserts the extracted coverage SQL for the
         current names equals the pre-extraction text; the rollup SQL contains
         no sub-query in `FROM`.
 
-- [ ] **2.2 Add migration 063**
-  - [ ] Append `063_minute_eligible_rollups_next` to `MINUTE_MIGRATIONS`,
+- [x] **2.2 Add migration 063**
+  - [x] Append `063_minute_eligible_rollups_next` to `MINUTE_MIGRATIONS`,
         `requires_autocommit: True`, one `execute()` per
         `CREATE MATERIALIZED VIEW`, every statement `IF NOT EXISTS` so a rerun
         converges. Order: the four rollups (5m, 15m, 1h, 4h), then
         `minute_coverage_next`.
-  - [ ] Add each object's refresh policy with the same constants migration 061
+  - [x] Add each object's refresh policy with the same constants migration 061
         and slice 169 use for its current twin, and the columnstore policy the
         current minute rollups get (`_setup_minute_cagg_columnstore`;
         parameterize it by view name if it is not already). The `_next` mat
         hypertables use `MINUTE_CAGG_CHUNK_INTERVAL` (repair's pre-flight
         check 2 requires it).
-  - [ ] Description text: what 063 creates, that it is `WITH NO DATA`, and
+  - [x] Description text: what 063 creates, that it is `WITH NO DATA`, and
         that the build is `scripts/cutover_172_eligible_rollups.py`.
-  - [ ] Bump the chain-tip test: `test_chain_ends_at_062` →
+  - [x] Bump the chain-tip test: `test_chain_ends_at_062` →
         `test_chain_ends_at_063` and the migration count 65 → 66
         (`test/unit/test_schema_migrations.py`).
-  - [ ] Success: `uv run mt data migrate apply` on the test database applies
+  - [x] Success: `uv run mt data migrate apply` on the test database applies
         063, and a second run is a no-op.
 
-- [ ] **2.3 Migration 063 integration tests**
-  - [ ] New `test/integration/test_migration_063_eligible_rollups_next.py`:
+- [x] **2.3 Migration 063 integration tests**
+  - [x] New `test/integration/test_migration_063_eligible_rollups_next.py`:
     1. cold start: all five `_next` objects exist, empty, each with a refresh
        and a columnstore job, chunk interval `MINUTE_CAGG_CHUNK_INTERVAL`;
+
+       minute_coverage_next mirrors minute_coverage: refresh policy only, no columnstore, and its twin's chunk interval; the four rollups have both jobs at MINUTE_CAGG_CHUNK_INTERVAL.
     2. populated: on a database holding the current rollups with data, 063
        leaves every current object's row count and definition unchanged;
     3. rerun of 063 after a partial apply (drop one `_next` object, rerun)
        converges.
-  - [ ] Eligible-value tests on fixture minutes, after refreshing the `_next`
+  - [x] Eligible-value tests on fixture minutes, after refreshing the `_next`
         rollups:
     1. a 5m bucket with one all-marked minute: prices and volume exclude it,
        `minute_count` counts it;
@@ -190,7 +192,7 @@ status: not_started
     4. eligible 1m bars (171's `get_minute_data(prints=eligible)` path) rolled
        up to 5m in SQL equal `minute_5min_ohlcv_next` row for row, volume
        included.
-  - [ ] Load 171's off-tape fixtures (`test/fixtures/off_tape/`), mark them
+  - [x] Load 171's off-tape fixtures (`test/fixtures/off_tape/`), mark them
         with 171's `mark_days`, refresh, and assert each print is absent from
         the `_next` 5m and 1h rows (slice success criterion 1):
     1. `SPY_2026-09-08.csv`: 770.19 and 770.3516 highs, 724.228 lows;
@@ -201,10 +203,10 @@ status: not_started
        high from 16:40 ET on is lower in `minute_5min_ohlcv_next` than in a
        raw rollup of the same minutes, and equals the eligible 1m max for
        that span.
-  - [ ] Success: the new file passes; the existing migration tests pass apart
+  - [x] Success: the new file passes; the existing migration tests pass apart
         from the known failures (`test_migration_051_052` ×2).
 
-- [ ] **2.4 Commit:** `feat: add migration 063 eligible _next rollups`
+- [x] **2.4 Commit:** `feat: add migration 063 eligible _next rollups`
 
 ## Section 3 — Targeting against real `_next` views (effort 2/5)
 
