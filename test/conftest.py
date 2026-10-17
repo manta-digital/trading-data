@@ -297,6 +297,24 @@ def session_migrated_db(session_ephemeral_db: str) -> str:
     return session_ephemeral_db
 
 
+@pytest.fixture(scope="module")
+def module_migrated_db() -> Iterator[str]:
+    """Module-scoped :func:`migrated_db`: one throwaway database per test file.
+
+    For a file whose tests share one loaded dataset and only read it after
+    the fixture builds it (slice 172's fixture-day rollups).
+    """
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+    from manta_trading.market.schema.runner import apply_migrations
+
+    with _throwaway_database("mt_test_m") as url:
+        with ConnectionPool(url, min_size=1, max_size=2) as pool:
+            apply_migrations(pool, MINUTE_MIGRATIONS)
+        yield url
+
+
 @pytest.fixture
 def ephemeral_tick_db() -> Iterator[str]:
     """A bare throwaway database standing in for the tick database (slice 923).

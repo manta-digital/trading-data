@@ -33,6 +33,7 @@ from manta_trading.constants import (
     MINUTE_COVERAGE_VIEW,
     MINUTE_OHLCV_CHUNK_INTERVAL,
     TRADING_SESSIONS_EXTENSION_YEARS,
+    Granularity,
 )
 from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
 from manta_trading.data.acquisition.state import LastAttemptOutcome
@@ -41,6 +42,14 @@ from manta_trading.data.quality.fetch_status import (
     FetchStatus,
 )
 from manta_trading.data.universe.eodhd_classification import EodhdType
+from manta_trading.market.schema.eligible_rollups_sql import (
+    NEXT_ROLLUP_VIEWS,
+    eligible_rollups_next_statements,
+    minute_coverage_sql,
+)
+from manta_trading.market.schema.eligible_rollups_sql import (
+    interval_seconds_sql as _interval_seconds_sql,
+)
 from manta_trading.market.schema.seed_calendar import (
     NASDAQ_CALENDAR,
     NYSE_CALENDAR,
@@ -83,11 +92,6 @@ def _minute_cagg_views_sql_array() -> str:
     ``mat_N`` literal, which is assignment-order-dependent)."""
     quoted = ", ".join(f"'{v}'" for v in _MINUTE_CAGG_VIEWS)
     return f"ARRAY[{quoted}]"
-
-
-def _interval_seconds_sql(td: timedelta) -> str:
-    """Render a timedelta as a seconds-based SQL INTERVAL literal (exact)."""
-    return f"INTERVAL '{int(td.total_seconds())} seconds'"
 
 
 #: Every minute cagg refresh policy's start_offset, rendered once (035, 053).
@@ -912,7 +916,13 @@ def _setup_and_backfill_compression(conn: Any) -> None:
 
 
 def _setup_minute_cagg_columnstore(conn: Any) -> None:
-    """Enable columnstore compression + policy on the four minute caggs (slice 163).
+    """Migration 045: columnstore on the four current minute caggs."""
+    _setup_cagg_columnstore(conn, _MINUTE_CAGG_VIEWS, "045_minute_cagg_columnstore")
+
+
+def _setup_cagg_columnstore(conn: Any, views: tuple[str, ...], migration_id: str) -> None:
+    """Enable columnstore compression + policy on minute caggs (slice 163; by
+    view name since slice 172, so 063 reuses it for the ``_next`` rollups).
 
     Requires an autocommit connection (TimescaleDB policy management
     restriction). Operates on each cagg by **view name** via the
@@ -938,22 +948,22 @@ def _setup_minute_cagg_columnstore(conn: Any) -> None:
     # separately) is a syntax error.
     compress_after = _interval_seconds_sql(MINUTE_CAGG_COMPRESS_AFTER)
 
-    # Confirm all four caggs exist before mutating any (fail-fast, not partial).
+    # Confirm every cagg exists before mutating any (fail-fast, not partial).
     with conn.cursor() as cur:
         cur.execute(
             "SELECT view_name FROM timescaledb_information.continuous_aggregates "
             "WHERE view_name = ANY(%s)",
-            (list(_MINUTE_CAGG_VIEWS),),
+            (list(views),),
         )
         found = {row[0] for row in cur.fetchall()}
-    missing = [v for v in _MINUTE_CAGG_VIEWS if v not in found]
+    missing = [v for v in views if v not in found]
     if missing:
         raise RuntimeError(
-            "045_minute_cagg_columnstore: expected minute caggs not found in "
+            f"{migration_id}: expected minute caggs not found in "
             f"catalog: {missing} — apply the cagg-creation migrations first"
         )
 
-    for view in _MINUTE_CAGG_VIEWS:
+    for view in views:
         # Step 1: enable columnstore on the cagg, segmented by symbol. ALTER ...
         # SET is idempotent (re-setting the same options is a no-op).
         conn.execute(
@@ -981,6 +991,13 @@ def _setup_minute_cagg_columnstore(conn: Any) -> None:
             f"after => {compress_after})"
         )
         _log.info("columnstore policy installed on %s (%s)", view, compress_after)
+
+
+def _create_eligible_rollups_next(conn: Any) -> None:
+    """Migration 063: the ``_next`` caggs and policies, then columnstore."""
+    for sql in eligible_rollups_next_statements():
+        conn.execute(sql)
+    _setup_cagg_columnstore(conn, NEXT_ROLLUP_VIEWS, "063_minute_eligible_rollups_next")
 
 
 MINUTE_MIGRATIONS: list[dict[str, Any]] = [
@@ -2437,22 +2454,9 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
                 # time_bucket rename already applied), so every downstream query
                 # binds unchanged — the payoff of 167 D2's column contract.
                 # WITH NO DATA: materialization is the operational step.
-                f"""
-                CREATE MATERIALIZED VIEW IF NOT EXISTS {MINUTE_COVERAGE_VIEW}
-                WITH (timescaledb.continuous) AS
-                SELECT
-                    time_bucket(
-                        {_interval_seconds_sql(COVERAGE_BUCKET_INTERVAL)},
-                        time_bucket
-                    ) AS time_bucket,
-                    symbol,
-                    SUM(minute_count) AS bars,
-                    MIN(time_bucket)  AS first_bucket,
-                    MAX(time_bucket)  AS last_bucket
-                FROM minute_4hour_ohlcv
-                GROUP BY 1, symbol
-                WITH NO DATA
-                """,
+                minute_coverage_sql(
+                    MINUTE_COVERAGE_VIEW, GRANULARITY_SOURCE[Granularity.H4]
+                ),
                 f"""
                 CREATE MATERIALIZED VIEW IF NOT EXISTS {DAILY_COVERAGE_VIEW}
                 WITH (timescaledb.continuous) AS
@@ -2714,5 +2718,21 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "metadata-only change on the compressed hypertable."
         ),
         "sql": "ALTER TABLE minute_ohlcv ADD COLUMN IF NOT EXISTS off_tape smallint;",
+    },
+    {
+        "id": "063_minute_eligible_rollups_next",
+        "description": (
+            "Create the eligible minute rollups beside the current ones (slice "
+            "172): minute_{5min,15min,hourly,4hour}_ohlcv_next, whose prices "
+            "and volume leave out off-tape prints, and minute_coverage_next "
+            "over the 4h one. All WITH NO DATA, with the refresh and "
+            "columnstore policies of their current twins and the 70-day chunk "
+            "interval. Nothing reads them yet: the build is "
+            "scripts/cutover_172_eligible_rollups.py and slice 173 swaps them "
+            "in. Every statement is guarded, so a rerun converges."
+        ),
+        # One cagg DDL per execute(), outside a transaction (as 033/051).
+        "requires_autocommit": True,
+        "python_fn": _create_eligible_rollups_next,
     },
 ]

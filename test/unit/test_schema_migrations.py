@@ -62,8 +62,8 @@ def _patch_runner_psycopg_connect():
     Without this, unit tests that trigger requires_autocommit migrations would
     try to open a real DB connection to 'postgresql://host/db'.
 
-    The mock cursor's ``fetchall`` yields the four minute-cagg view names so the
-    045 columnstore migration's fail-fast existence guard is satisfied when the
+    The mock cursor's ``fetchall`` yields the cagg view names it was asked about
+    so the 045/063 columnstore fail-fast existence guard is satisfied when the
     full migration sequence runs end-to-end here (042's chunk query filters to a
     different shape and is unaffected — it reads len()/iteration, both empty-safe
     on MagicMock, and its own fetchall rows are ignored by these runner tests).
@@ -71,12 +71,6 @@ def _patch_runner_psycopg_connect():
     mock_conn = MagicMock()
     mock_conn.__enter__ = MagicMock(return_value=mock_conn)
     mock_conn.__exit__ = MagicMock(return_value=False)
-    _cagg_rows = [
-        ("minute_5min_ohlcv",),
-        ("minute_15min_ohlcv",),
-        ("minute_hourly_ohlcv",),
-        ("minute_4hour_ohlcv",),
-    ]
     mock_cur = mock_conn.cursor.return_value.__enter__.return_value
 
     # fetchall is query-aware: only the 045 cagg-existence query (which selects
@@ -87,7 +81,8 @@ def _patch_runner_psycopg_connect():
         last_execute = mock_cur.execute.call_args
         sql = str(last_execute.args[0]) if last_execute else ""
         if "continuous_aggregates" in sql:
-            return _cagg_rows
+            # Every view asked about exists (045's four, 063's four _next).
+            return [(view,) for view in last_execute.args[1][0]]
         return []
 
     mock_cur.fetchall.side_effect = _fetchall_side_effect
@@ -232,7 +227,8 @@ class TestMigrationsListIntegrity:
         # 62 -> 63 with slice 234's 060 (pass_runs admits tick).
         # 63 -> 64 with 061 (minute cagg refresh window for the weekly firing).
         # 64 -> 65 with slice 171's 062 (minute_ohlcv.off_tape).
-        assert len(MIGRATIONS) == 65
+        # 65 -> 66 with slice 172's 063 (eligible _next rollups).
+        assert len(MIGRATIONS) == 66
 
 
 # ---------------------------------------------------------------------------
@@ -1311,10 +1307,10 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_062() -> None:
+def test_chain_ends_at_063() -> None:
     """The newest migration must be last (slice 922 retargeted this from 054;
     slice 221 from 056; slice 232 from 058; slice 234 from 059; the weekly
-    refresh-window fix from 060; slice 171 from 061).
+    refresh-window fix from 060; slice 171 from 061; slice 172 from 062).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
@@ -1325,7 +1321,7 @@ def test_chain_ends_at_062() -> None:
     (see ``POSITION_CRITICAL_IDS``), which is why the tip check names a later
     migration.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == "062_minute_ohlcv_off_tape"
+    assert MINUTE_MIGRATIONS[-1]["id"] == "063_minute_eligible_rollups_next"
 
 
 class TestMigration061WeeklyRefreshWindow:

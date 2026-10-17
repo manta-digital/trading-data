@@ -17,6 +17,7 @@ from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
 from manta_trading.market.schema.runner import apply_migrations
 
 _ID = "062_minute_ohlcv_off_tape"
+_INDEX = next(i for i, m in enumerate(MINUTE_MIGRATIONS) if m["id"] == _ID)
 _START = datetime(2026, 9, 8, 13, 30, tzinfo=UTC)
 _CHECKSUM = (
     "SELECT md5(string_agg(concat_ws(',', time, symbol, open, high, low, close,"
@@ -27,9 +28,8 @@ _CHECKSUM = (
 @pytest.fixture()
 def pre_062_db(ephemeral_db: str) -> Iterator[str]:
     """Chain through 061, 30 bars in one chunk, that chunk compressed."""
-    assert MINUTE_MIGRATIONS[-1]["id"] == _ID
     with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
-        apply_migrations(pool, MINUTE_MIGRATIONS[:-1])
+        apply_migrations(pool, MINUTE_MIGRATIONS[:_INDEX])
     with psycopg.connect(ephemeral_db, autocommit=True) as conn:
         with conn.cursor() as cur:
             cur.executemany(
@@ -78,7 +78,7 @@ def test_adds_nullable_smallint_over_compressed_chunk(pre_062_db: str) -> None:
 def test_idempotent_on_rerun(pre_062_db: str) -> None:
     _apply_062(pre_062_db)
     with psycopg.connect(pre_062_db, autocommit=True) as conn:
-        conn.execute(MINUTE_MIGRATIONS[-1]["sql"])
+        conn.execute(MINUTE_MIGRATIONS[_INDEX]["sql"])
         assert _column(conn) == ("smallint", "YES")
 
 
