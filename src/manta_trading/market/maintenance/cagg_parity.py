@@ -34,7 +34,9 @@ from manta_trading.constants import (
     MINUTE_CAGG_GRANULARITIES,
     MINUTE_CAGG_MAINTENANCE_STATEMENT_TIMEOUT,
     MINUTE_OHLCV_TABLE,
+    CaggTarget,
     Granularity,
+    target_view_name,
 )
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.rechunk import _window_start
@@ -42,9 +44,9 @@ from manta_trading.market.maintenance.rechunk import _window_start
 logger = get_logger(__name__)
 
 
-def cagg_view(granularity: Granularity) -> str:
-    """Continuous-aggregate view name for a minute granularity."""
-    return GRANULARITY_SOURCE[granularity]
+def cagg_view(granularity: Granularity, target: CaggTarget = CaggTarget.CURRENT) -> str:
+    """Continuous-aggregate view name for a minute granularity in ``target``."""
+    return target_view_name(GRANULARITY_SOURCE[granularity], target)
 
 
 class WindowParity(StrEnum):
@@ -366,6 +368,7 @@ def compute_parity(
     granularities: tuple[Granularity, ...] = MINUTE_CAGG_GRANULARITIES,
     *,
     interval: timedelta = MINUTE_CAGG_CHUNK_INTERVAL,
+    target: CaggTarget = CaggTarget.CURRENT,
 ) -> list[CaggParityReport]:
     """Compute cagg-vs-raw parity for the given minute caggs (read-only).
 
@@ -389,7 +392,7 @@ def compute_parity(
         raw_counts = _raw_window_counts(conn, windows)
         reports: list[CaggParityReport] = []
         for gran in granularities:
-            view_name = cagg_view(gran)
+            view_name = cagg_view(gran, target)
             cagg_counts = _cagg_window_counts(conn, view_name, windows)
             window_counts = [
                 WindowCounts(start=start, end=end, raw_count=raw, cagg_count=cagg)

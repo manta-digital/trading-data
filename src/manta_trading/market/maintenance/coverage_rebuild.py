@@ -53,7 +53,9 @@ from manta_trading.constants import (
     DAILY_COVERAGE_VIEW,
     GRANULARITY_SOURCE,
     MINUTE_COVERAGE_VIEW,
+    CaggTarget,
     Granularity,
+    target_view_name,
 )
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.cagg_repair import (
@@ -96,6 +98,27 @@ can actually materialize is the *parent cagg's*, not raw ``minute_ohlcv``'s.
 Sweeping to raw's edge would issue refreshes over a range the parent has not
 filled, materializing nothing and understating the trailing edge.
 """
+
+
+def family_view(family: CoverageFamily, target: CaggTarget) -> str:
+    """The coverage cagg ``family`` rebuilds in ``target`` (slice 172).
+
+    Only the minute family has a ``_next`` twin (over the eligible 4h rollup);
+    there is no ``daily_coverage_next``, so the daily family rejects NEXT.
+    """
+    if family is CoverageFamily.DAILY and target is CaggTarget.NEXT:
+        raise ValueError(
+            f"the {family.value} coverage family has no {CaggTarget.NEXT.value} target"
+        )
+    return target_view_name(FAMILY_VIEW[family], target)
+
+
+def family_source(family: CoverageFamily, target: CaggTarget) -> str:
+    """The relation ``family``'s cagg reads in ``target``. For the minute
+    family that is also the parent whose refresh must stay scheduled."""
+    family_view(family, target)  # rejects daily + NEXT
+    return target_view_name(FAMILY_SOURCE[family], target)
+
 
 _TIME_COLUMN: dict[CoverageFamily, str] = {
     CoverageFamily.DAILY: "time",
@@ -196,7 +219,9 @@ class CoverageRebuildError(RuntimeError):
 
 
 def _source_bounds(
-    conn: psycopg.Connection[dict[str, object]], family: CoverageFamily
+    conn: psycopg.Connection[dict[str, object]],
+    family: CoverageFamily,
+    target: CaggTarget,
 ) -> tuple[datetime | None, datetime | None]:
     """``(min, max)`` of the source relation's time column.
 
@@ -204,7 +229,7 @@ def _source_bounds(
     epoch — a fixed 1962 floor would issue decades of empty refreshes on a
     database seeded later, and would silently miss anything older.
     """
-    source = FAMILY_SOURCE[family]
+    source = family_source(family, target)
     column = _TIME_COLUMN[family]
     row = conn.execute(
         f"SELECT min({column}) AS lo, max({column}) AS hi FROM {source}"  # noqa: S608
@@ -333,8 +358,10 @@ def assert_policies_paused(
 
 def assert_coverage_index_scheduled(
     conn: psycopg.Connection[dict[str, object]],
+    parent: str = GRANULARITY_SOURCE[Granularity.H4],
 ) -> None:
-    """Refuse if ``minute_4hour_ohlcv``'s refresh policy is paused.
+    """Refuse if ``parent``'s refresh policy is paused (default
+    ``minute_4hour_ohlcv``; ``minute_4hour_ohlcv_next`` for the NEXT target).
 
     That cagg feeds the minute daemon's coverage index. Pausing it makes
     ``compute_missing_minute_sessions`` see recent sessions as missing and
@@ -345,7 +372,6 @@ def assert_coverage_index_scheduled(
     Note this is the opposite polarity to :func:`assert_policies_paused`: the
     target must be paused, its parent must not.
     """
-    parent = GRANULARITY_SOURCE[Granularity.H4]
     paused = [
         j
         for j in _resolve_cagg_jobs(conn, parent)
@@ -375,6 +401,7 @@ def rebuild_coverage(
     dry_run: bool = False,
     on_progress: Callable[[RebuildProgress, SubWindow], None] | None = None,
     now: Callable[[], datetime] | None = None,
+    target: CaggTarget = CaggTarget.CURRENT,
 ) -> RebuildResult:
     """Rematerialize one coverage cagg over its full history.
 
@@ -394,28 +421,30 @@ def rebuild_coverage(
         dry_run: Plan and report without issuing any refresh.
         on_progress: Called after each window with the live counters.
         now: Clock seam for tests.
+        target: The current coverage cagg or its ``_next`` twin (slice 172).
 
     Raises:
         PreflightError: policies are not in the required state.
         CoverageRebuildError: a sub-window refresh failed.
+        ValueError: ``target`` is NEXT for the daily family.
     """
     clock = now or (lambda: datetime.now(tz=UTC))
-    view_name = FAMILY_VIEW[family]
+    view_name = family_view(family, target)
     started = clock()
 
     if not dry_run:
         assert_policies_paused(conn, view_name)
         if family is CoverageFamily.MINUTE:
-            assert_coverage_index_scheduled(conn)
+            assert_coverage_index_scheduled(conn, family_source(family, target))
 
-    lo, hi = _source_bounds(conn, family)
+    lo, hi = _source_bounds(conn, family, target)
     progress = RebuildProgress(family=family, view_name=view_name)
 
     if lo is None or hi is None:
         logger.warning(
             "coverage rebuild: %s source %s is empty — nothing to materialize",
             view_name,
-            FAMILY_SOURCE[family],
+            family_source(family, target),
         )
         return RebuildResult(
             family=family,
@@ -508,7 +537,9 @@ def rebuild_coverage(
 
 
 def verify_coverage(
-    conn: psycopg.Connection[dict[str, object]], family: CoverageFamily
+    conn: psycopg.Connection[dict[str, object]],
+    family: CoverageFamily,
+    target: CaggTarget = CaggTarget.CURRENT,
 ) -> dict[str, object]:
     """Content-based check that a rebuild actually landed.
 
@@ -523,8 +554,8 @@ def verify_coverage(
       one bucket, not zero, because the open bucket is never materialized;
     - the cagg holds rows for a comparable number of distinct symbols.
     """
-    view_name = FAMILY_VIEW[family]
-    source = FAMILY_SOURCE[family]
+    view_name = family_view(family, target)
+    source = family_source(family, target)
     column = _TIME_COLUMN[family]
 
     src = conn.execute(
@@ -567,6 +598,8 @@ __all__ = [
     "SubWindow",
     "assert_coverage_index_scheduled",
     "assert_policies_paused",
+    "family_source",
+    "family_view",
     "plan_windows",
     "rebuild_coverage",
     "verify_coverage",

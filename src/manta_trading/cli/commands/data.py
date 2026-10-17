@@ -19,7 +19,12 @@ import typer
 # reject anything else.
 from manta_trading.cli.commands._pass_run import make_pass_run_recorder
 from manta_trading.cli.output import make_table, print_error, print_result
-from manta_trading.constants import PRINTS_ELIGIBLE_1M_ONLY_MESSAGE, PrintMode
+from manta_trading.constants import (
+    PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
+    CaggTarget,
+    PrintMode,
+    RepairOrder,
+)
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.rechunk import RechunkTarget
 from manta_trading.market.schema.databases import (
@@ -3439,6 +3444,11 @@ _CAGG_MAINTENANCE_STANDING_RULE: str = (
 _EXIT_PARITY_FAILURE: int = 2
 """caggs verify exit code when any cagg is out of parity (script detector)."""
 
+_TARGET_HELP: str = (
+    "Which caggs to act on: current (the live ones, default) or next (the "
+    "eligible _next caggs built beside them, slice 172)."
+)
+
 
 def _resolve_minute_granularities(
     granularity_opt: str, *, json_output: bool
@@ -3500,6 +3510,11 @@ def caggs_verify(
         "--detail",
         help="Report per 70-day window instead of the per-year rollup.",
     ),
+    target: CaggTarget = typer.Option(
+        CaggTarget.CURRENT,
+        "--target",
+        help=_TARGET_HELP,
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
     """Verify minute-cagg parity against the raw table (read-only).
@@ -3527,7 +3542,7 @@ def caggs_verify(
         granularity_opt, json_output=json_output
     )
 
-    reports = compute_parity(settings.timescale_db_url, granularities)
+    reports = compute_parity(settings.timescale_db_url, granularities, target=target)
     any_failure = any(not r.in_parity for r in reports)
 
     if json_output:
@@ -3660,6 +3675,17 @@ def caggs_repair(
         help="Attested free GB on the DB volume (pre-flight cannot read disk "
         "from SQL; required for a real run).",
     ),
+    target: CaggTarget = typer.Option(
+        CaggTarget.CURRENT,
+        "--target",
+        help=_TARGET_HELP,
+    ),
+    repair_order: RepairOrder = typer.Option(
+        RepairOrder.OLDEST_FIRST,
+        "--order",
+        help="Window order of the sweep. newest-first builds the most recent "
+        "history first (the eligible rollup build, slice 172).",
+    ),
 ) -> None:
     """Re-materialize under-materialized / re-chunked minute caggs (slice 163).
 
@@ -3740,6 +3766,8 @@ def caggs_repair(
             dry_run=dry_run,
             assume_headroom_gb=assume_headroom_gb,
             progress=lambda msg: print(msg, flush=True),
+            target=target,
+            order=repair_order,
         )
     except PreflightError as exc:
         print_error(f"Pre-flight refused: {exc}", json_mode=False)
@@ -3819,6 +3847,11 @@ def caggs_rebuild_coverage(
         help="Skip the rebuild; only run the content-based verification "
         "(spans, symbol counts, head lag against the source).",
     ),
+    cagg_target: CaggTarget = typer.Option(
+        CaggTarget.CURRENT,
+        "--target",
+        help=_TARGET_HELP + " next exists for --family minute only.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
     """Rematerialize a coverage cagg over its full history (slice 169 Task G).
@@ -3849,6 +3882,7 @@ def caggs_rebuild_coverage(
         REBUILD_SUBWINDOW,
         CoverageFamily,
         CoverageRebuildError,
+        family_view,
         rebuild_coverage,
         verify_coverage,
     )
@@ -3866,6 +3900,12 @@ def caggs_rebuild_coverage(
         print_error(
             f"Unknown --family {family!r}. Valid: {valid}", json_mode=json_output
         )
+        raise typer.Exit(1) from None
+
+    try:
+        view_name = family_view(target, cagg_target)
+    except ValueError as exc:
+        print_error(str(exc), json_mode=json_output)
         raise typer.Exit(1) from None
 
     span = (
@@ -3895,7 +3935,7 @@ def caggs_rebuild_coverage(
             settings.timescale_db_url, autocommit=True, row_factory=_dict_row
         ) as conn:
             if verify_only:
-                report = verify_coverage(conn, target)
+                report = verify_coverage(conn, target, cagg_target)
                 _print_coverage_verification(report, json_output=json_output)
                 raise typer.Exit(0 if report["head_within_one_bucket"] else 1)
 
@@ -3906,8 +3946,11 @@ def caggs_rebuild_coverage(
                 force=force,
                 dry_run=dry_run,
                 on_progress=_emit_window if not json_output else None,
+                target=cagg_target,
             )
-            report = None if dry_run else verify_coverage(conn, target)
+            report = (
+                None if dry_run else verify_coverage(conn, target, cagg_target)
+            )
     except PreflightError as exc:
         print_error(str(exc), json_mode=json_output)
         raise typer.Exit(2) from None
@@ -3959,7 +4002,7 @@ def caggs_rebuild_coverage(
             "command does not resume them:\n"
             "  SELECT job_id, proc_name, hypertable_name, scheduled\n"
             "  FROM timescaledb_information.jobs\n"
-            "  WHERE hypertable_name IN ('minute_coverage', 'daily_coverage');\n"
+            f"  WHERE hypertable_name = '{view_name}';\n"
             "See user/runbooks/300-cagg-maintenance-pausing.md (R4).",
             json_mode=False,
         )

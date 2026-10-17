@@ -2,7 +2,8 @@
 (slice 163).
 
 Repairs the two defects the slice targets in one pass, one cagg at a time, over
-70-day epoch-grid windows oldest → newest:
+70-day epoch-grid windows oldest → newest (``RepairOrder.NEWEST_FIRST``
+reverses that, slice 172):
 
     parity check → (if PENDING) drop_chunks → refresh_continuous_aggregate(force)
         → compress_chunk
@@ -36,7 +37,9 @@ from manta_trading.constants import (
     GRANULARITY_SOURCE,
     MINUTE_CAGG_CHUNK_INTERVAL,
     MINUTE_OHLCV_TABLE,
+    CaggTarget,
     Granularity,
+    RepairOrder,
 )
 from manta_trading.logging import get_logger
 from manta_trading.market.maintenance.cagg_parity import (
@@ -405,9 +408,10 @@ def _repair_one_cagg(
     *,
     dry_run: bool,
     progress: Callable[[str], None],
+    target: CaggTarget = CaggTarget.CURRENT,
 ) -> CaggRepairOutcome:
-    """Sweep one cagg over the given oldest→newest windows."""
-    view_name = cagg_view(granularity)
+    """Sweep one cagg in ``target`` over the given windows, in list order."""
+    view_name = cagg_view(granularity, target)
     already_done = 0
     rebuilt = 0
     planned_pending = 0
@@ -488,6 +492,8 @@ def run_repair(
     assume_headroom_gb: float | None = None,
     progress: Callable[[str], None] | None = None,
     interval: timedelta = MINUTE_CAGG_CHUNK_INTERVAL,
+    target: CaggTarget = CaggTarget.CURRENT,
+    order: RepairOrder = RepairOrder.OLDEST_FIRST,
 ) -> RepairResult:
     """Repair the given minute caggs by re-materializing PENDING windows.
 
@@ -505,7 +511,10 @@ def run_repair(
     transactionality (see module docstring). Returns per-cagg outcomes.
 
     ``assume_headroom_gb``/``interval`` are operator/test inputs; ``progress``
-    receives one line per window (defaults to the module logger).
+    receives one line per window (defaults to the module logger). ``target``
+    picks the current or the ``_next`` caggs (slice 172); ``order`` reverses
+    the window list for NEWEST_FIRST, and each window is still parity-checked
+    before it is rebuilt.
     """
     emit = progress if progress is not None else logger.info
     result = RepairResult(dry_run=dry_run)
@@ -521,7 +530,7 @@ def run_repair(
         for gran in granularities:
             result.per_cagg[gran] = CaggRepairOutcome(
                 granularity=gran,
-                view_name=cagg_view(gran),
+                view_name=cagg_view(gran, target),
                 total_windows=0,
                 already_done=0,
                 rebuilt=0,
@@ -529,9 +538,11 @@ def run_repair(
             )
         return result
     windows = _epoch_grid_windows(bounds[0], bounds[1], interval)
+    if order is RepairOrder.NEWEST_FIRST:
+        windows.reverse()
 
     for gran in granularities:
-        view_name = cagg_view(gran)
+        view_name = cagg_view(gran, target)
         # Autocommit connection for the mutating sweep — refresh_continuous_
         # aggregate forbids a txn block, so each statement commits on its own.
         # _TimeoutConnection sets the statement_timeout and cancels the
@@ -546,7 +557,7 @@ def run_repair(
                     required_headroom_gb=_REQUIRED_HEADROOM_GB,
                 )
             outcome = _repair_one_cagg(
-                conn, gran, windows, dry_run=dry_run, progress=emit
+                conn, gran, windows, dry_run=dry_run, progress=emit, target=target
             )
         result.per_cagg[gran] = outcome
         emit(

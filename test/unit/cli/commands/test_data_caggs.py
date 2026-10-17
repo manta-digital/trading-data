@@ -399,7 +399,7 @@ class TestCaggsVerify:
         s = _settings()
         captured = {}
 
-        def _fake_compute(url, grans):
+        def _fake_compute(url, grans, **_kw):
             captured["grans"] = grans
             return [_parity_report(granularity=g, in_parity=True) for g in grans]
 
@@ -445,7 +445,7 @@ class TestCaggsRepair:
         s = _settings()
         captured = {}
 
-        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress):
+        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress, **_kw):
             captured["dry_run"] = dry_run
             captured["headroom"] = assume_headroom_gb
             return RepairResult(dry_run=dry_run)
@@ -468,7 +468,7 @@ class TestCaggsRepair:
         s = _settings()
         captured = {}
 
-        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress):
+        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress, **_kw):
             captured["headroom"] = assume_headroom_gb
             return RepairResult(dry_run=dry_run)
 
@@ -540,7 +540,7 @@ class TestCaggsRepair:
         s = _settings()
         captured = {}
 
-        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress):
+        def _fake_repair(url, grans, *, dry_run, assume_headroom_gb, progress, **_kw):
             captured["grans"] = grans
             return RepairResult(dry_run=dry_run)
 
@@ -628,3 +628,143 @@ class TestCaggsRepair:
                 result = runner.invoke(app, ["data", "caggs", "repair", "--dry-run"])
         assert result.exit_code == 0, result.output
         assert "NEXT:" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# --target / --order (slice 172)
+# ---------------------------------------------------------------------------
+
+
+def _capture_repair(captured: dict):
+    from manta_trading.market.maintenance.cagg_repair import RepairResult
+
+    def _fake_repair(url, grans, **kw):
+        captured.update(kw)
+        return RepairResult(dry_run=kw["dry_run"])
+
+    return _fake_repair
+
+
+class TestCaggsTargetAndOrder:
+    def _repair(self, *args: str) -> tuple[object, dict]:
+        captured: dict = {}
+        with _patch_app(_settings()):
+            with patch(
+                "manta_trading.market.maintenance.cagg_repair.run_repair",
+                side_effect=_capture_repair(captured),
+            ):
+                result = runner.invoke(
+                    app, ["data", "caggs", "repair", "--dry-run", *args]
+                )
+        return result, captured
+
+    def test_repair_defaults_are_current_and_oldest_first(self):
+        from manta_trading.constants import CaggTarget, RepairOrder
+
+        result, captured = self._repair()
+        assert result.exit_code == 0, result.output
+        assert captured["target"] is CaggTarget.CURRENT
+        assert captured["order"] is RepairOrder.OLDEST_FIRST
+
+    def test_repair_target_and_order_parse(self):
+        from manta_trading.constants import CaggTarget, RepairOrder
+
+        result, captured = self._repair("--target", "next", "--order", "newest-first")
+        assert result.exit_code == 0, result.output
+        assert captured["target"] is CaggTarget.NEXT
+        assert captured["order"] is RepairOrder.NEWEST_FIRST
+
+    def test_repair_invalid_target_exits_nonzero(self):
+        result, captured = self._repair("--target", "bogus")
+        assert result.exit_code != 0
+        assert captured == {}
+
+    def test_repair_invalid_order_exits_nonzero(self):
+        result, captured = self._repair("--order", "sideways")
+        assert result.exit_code != 0
+        assert captured == {}
+
+    def test_repair_help_lists_both_options(self):
+        result = runner.invoke(app, ["data", "caggs", "repair", "--help"])
+        assert "--target" in result.output
+        assert "--order" in result.output
+
+    def test_verify_target_propagates_and_defaults(self):
+        from manta_trading.constants import CaggTarget
+
+        captured: list = []
+
+        def _fake_compute(url, grans, **kw):
+            captured.append(kw["target"])
+            return [_parity_report(granularity=g, in_parity=True) for g in grans]
+
+        with _patch_app(_settings()):
+            with patch(
+                "manta_trading.market.maintenance.cagg_parity.compute_parity",
+                side_effect=_fake_compute,
+            ):
+                default = runner.invoke(
+                    app, ["data", "caggs", "verify", "--granularity", "4h"]
+                )
+                nxt = runner.invoke(
+                    app,
+                    ["data", "caggs", "verify", "--granularity", "4h"]
+                    + ["--target", "next"],
+                )
+                bad = runner.invoke(app, ["data", "caggs", "verify", "--target", "x"])
+        assert default.exit_code == 0, default.output
+        assert nxt.exit_code == 0, nxt.output
+        assert bad.exit_code != 0
+        assert captured == [CaggTarget.CURRENT, CaggTarget.NEXT]
+
+    def _rebuild(self, *args: str) -> tuple[object, dict]:
+        from manta_trading.market.maintenance.coverage_rebuild import RebuildResult
+
+        captured: dict = {}
+
+        def _fake_rebuild(conn, family, **kw):
+            captured["family"] = family
+            captured["target"] = kw["target"]
+            return RebuildResult(
+                family=family,
+                view_name="v",
+                windows=0,
+                refreshed=0,
+                skipped=0,
+                rows_before=0,
+                rows_after=0,
+                span_start=None,
+                span_end=None,
+                elapsed_seconds=0.0,
+                subwindow=kw["subwindow"],
+            )
+
+        with _patch_app(_settings()):
+            with (
+                patch("psycopg.connect", MagicMock()),
+                patch(
+                    "manta_trading.market.maintenance.coverage_rebuild.rebuild_coverage",
+                    side_effect=_fake_rebuild,
+                ),
+            ):
+                result = runner.invoke(
+                    app,
+                    ["data", "caggs", "rebuild-coverage", "--dry-run", *args],
+                )
+        return result, captured
+
+    def test_rebuild_coverage_target_parses_and_defaults(self):
+        from manta_trading.constants import CaggTarget
+
+        default, captured_default = self._rebuild("--family", "minute")
+        nxt, captured_next = self._rebuild("--family", "minute", "--target", "next")
+        assert default.exit_code == 0, default.output
+        assert nxt.exit_code == 0, nxt.output
+        assert captured_default["target"] is CaggTarget.CURRENT
+        assert captured_next["target"] is CaggTarget.NEXT
+
+    def test_rebuild_coverage_daily_next_is_refused(self):
+        result, captured = self._rebuild("--family", "daily", "--target", "next")
+        assert result.exit_code == 1
+        assert captured == {}
+        assert "no next target" in result.output

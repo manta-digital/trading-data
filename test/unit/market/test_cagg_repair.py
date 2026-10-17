@@ -10,17 +10,27 @@ execute() boundary and assertions are on call *order*, not SQL text.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
 import psycopg
 import pytest
 
-from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL, Granularity
+from manta_trading.constants import (
+    CAGG_NEXT_SUFFIX,
+    GRANULARITY_SOURCE,
+    MINUTE_CAGG_CHUNK_INTERVAL,
+    CaggTarget,
+    Granularity,
+    RepairOrder,
+)
 from manta_trading.market.maintenance.cagg_repair import (
     _REQUIRED_HEADROOM_GB,
+    CaggRepairOutcome,
     RepairError,
     _rebuild_window,
     _repair_one_cagg,
     preflight,
+    run_repair,
 )
 from manta_trading.market.maintenance.rechunk import PreflightError
 
@@ -483,3 +493,88 @@ class TestRebuildFailureWrapping:
                 conn, Granularity.H4, self._one_window(),
                 dry_run=False, progress=_noop,
             )
+
+
+# ---------------------------------------------------------------------------
+# Targeting and order (slice 172)
+# ---------------------------------------------------------------------------
+
+_NEXT_4H = GRANULARITY_SOURCE[Granularity.H4] + CAGG_NEXT_SUFFIX
+
+
+class TestTargetAndOrder:
+    def _run(self, **kw):
+        """run_repair over three windows with the DB seams stubbed; returns the
+        windows and view each per-cagg sweep received."""
+        mod = "manta_trading.market.maintenance.cagg_repair"
+        cm = MagicMock()
+        cm.__enter__ = MagicMock(return_value=MagicMock())
+        cm.__exit__ = MagicMock(return_value=False)
+        seen: dict = {}
+
+        def _fake_sweep(conn, gran, windows, *, dry_run, progress, target):
+            seen["windows"] = list(windows)
+            seen["target"] = target
+            return CaggRepairOutcome(gran, "v", len(windows), 0, 0, 0)
+
+        bounds = (_utc(2019), _utc(2019) + 2 * MINUTE_CAGG_CHUNK_INTERVAL)
+        with (
+            patch(f"{mod}._TimeoutConnection", return_value=cm),
+            patch(f"{mod}._raw_bounds", return_value=bounds),
+            patch(f"{mod}._repair_one_cagg", side_effect=_fake_sweep),
+        ):
+            run_repair("postgresql://x", (Granularity.H4,), dry_run=True, **kw)
+        return seen
+
+    def test_default_order_is_oldest_first(self):
+        seen = self._run()
+        starts = [w[0] for w in seen["windows"]]
+        assert len(starts) >= 3
+        assert starts == sorted(starts)
+        assert seen["target"] is CaggTarget.CURRENT
+
+    def test_newest_first_reverses_the_windows(self):
+        oldest = self._run()["windows"]
+        seen = self._run(order=RepairOrder.NEWEST_FIRST, target=CaggTarget.NEXT)
+        assert seen["windows"] == list(reversed(oldest))
+        assert seen["target"] is CaggTarget.NEXT
+
+    def test_sweep_acts_on_the_target_view(self):
+        conn = _FakeConn(parity_sequence=[(1000, 1000)])
+        outcome = _repair_one_cagg(
+            conn,
+            Granularity.H4,
+            TestSweep()._windows(1),
+            dry_run=False,
+            progress=_noop,
+            target=CaggTarget.NEXT,
+        )
+        assert outcome.view_name == _NEXT_4H
+        assert any(_NEXT_4H in s for s in conn.executed)
+
+    def test_next_4h_is_not_the_coverage_index_view(self):
+        """Repairing minute_4hour_ohlcv_next must not count as repairing the
+        coverage index: a paused CURRENT 4h refresh still refuses."""
+        conn = _FakeConn(
+            jobs=[_job(1103, _REFRESH, scheduled=False, view=_NEXT_4H)],
+            coverage_jobs=[_job(1003, _REFRESH, scheduled=False, view=_COVERAGE_VIEW)],
+        )
+        with pytest.raises(PreflightError, match="coverage index"):
+            preflight(
+                conn,
+                _NEXT_4H,
+                assume_headroom_gb=_REQUIRED_HEADROOM_GB,
+                required_headroom_gb=_REQUIRED_HEADROOM_GB,
+            )
+
+    def test_next_4h_passes_with_the_current_4h_scheduled(self):
+        conn = _FakeConn(
+            jobs=[_job(1103, _REFRESH, scheduled=False, view=_NEXT_4H)],
+            coverage_jobs=[_job(1003, _REFRESH, scheduled=True, view=_COVERAGE_VIEW)],
+        )
+        preflight(
+            conn,
+            _NEXT_4H,
+            assume_headroom_gb=_REQUIRED_HEADROOM_GB,
+            required_headroom_gb=_REQUIRED_HEADROOM_GB,
+        )

@@ -1234,6 +1234,41 @@ DAILY_OHLCV_TABLE: str = GRANULARITY_SOURCE[Granularity.D1]
 and ``daily_coverage`` derive from. Derived from GRANULARITY_SOURCE so the name
 has exactly one definition."""
 
+MINUTE_CAGG_BUCKET_WIDTH: Final[dict[Granularity, timedelta]] = {
+    Granularity.M5: timedelta(minutes=5),
+    Granularity.M15: timedelta(minutes=15),
+    Granularity.H1: timedelta(hours=1),
+    Granularity.H4: timedelta(hours=4),
+}
+"""``time_bucket`` width of each minute rollup. Migration 033 spelled these out
+for the current rollups; the eligible ``_next`` rollups (slice 172) render
+them, and their refresh ``end_offset``, from here."""
+
+CAGG_NEXT_SUFFIX: Final[str] = "_next"
+"""Suffix of the eligible replacement minute caggs built beside the current
+ones (slice 172). Never spell a ``_next`` name out; use ``target_view_name``."""
+
+
+class CaggTarget(StrEnum):
+    """Which set of minute caggs a maintenance command acts on (slice 172)."""
+
+    CURRENT = "current"
+    NEXT = "next"
+
+
+class RepairOrder(StrEnum):
+    """Window order of a ``caggs repair`` sweep (slice 172)."""
+
+    OLDEST_FIRST = "oldest-first"
+    NEWEST_FIRST = "newest-first"
+
+
+def target_view_name(view: str, target: CaggTarget) -> str:
+    """The name of ``view`` in ``target``'s set: unchanged for CURRENT, with
+    ``CAGG_NEXT_SUFFIX`` for NEXT (slice 172)."""
+    return view + CAGG_NEXT_SUFFIX if target is CaggTarget.NEXT else view
+
+
 DAILY_CAGG_GRANULARITIES: tuple[Granularity, ...] = (
     Granularity.W1,
     Granularity.MO1,

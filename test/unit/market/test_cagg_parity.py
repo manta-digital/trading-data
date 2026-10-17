@@ -12,13 +12,23 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-from manta_trading.constants import MINUTE_CAGG_CHUNK_INTERVAL, Granularity
+import pytest
+
+from manta_trading.constants import (
+    CAGG_NEXT_SUFFIX,
+    GRANULARITY_SOURCE,
+    MINUTE_CAGG_CHUNK_INTERVAL,
+    MINUTE_CAGG_GRANULARITIES,
+    CaggTarget,
+    Granularity,
+)
 from manta_trading.market.maintenance.cagg_parity import (
     CaggChunkSummary,
     WindowCounts,
     WindowParity,
     YearParity,
     _epoch_grid_windows,
+    cagg_view,
     compute_parity,
     rollup_by_year,
 )
@@ -248,3 +258,44 @@ class TestYearParityHelper:
         y = YearParity(2020, 0, 0)
         assert y.coverage == 0.0
         assert y.parity is WindowParity.DONE
+
+
+# ---------------------------------------------------------------------------
+# Target resolution (slice 172)
+# ---------------------------------------------------------------------------
+
+
+class TestCaggViewTarget:
+    @pytest.mark.parametrize("granularity", MINUTE_CAGG_GRANULARITIES)
+    def test_current_is_the_granularity_source(self, granularity) -> None:
+        assert cagg_view(granularity) == GRANULARITY_SOURCE[granularity]
+        assert (
+            cagg_view(granularity, CaggTarget.CURRENT)
+            == GRANULARITY_SOURCE[granularity]
+        )
+
+    @pytest.mark.parametrize("granularity", MINUTE_CAGG_GRANULARITIES)
+    def test_next_appends_the_suffix(self, granularity) -> None:
+        assert (
+            cagg_view(granularity, CaggTarget.NEXT)
+            == GRANULARITY_SOURCE[granularity] + CAGG_NEXT_SUFFIX
+        )
+
+    def test_compute_parity_reads_the_target_views(self) -> None:
+        cs = CaggChunkSummary("v", 117, _70D)
+        patches = TestComputeParityBoundary()._patch_helpers(
+            bounds=(_utc(2019, 1, 1), _utc(2019, 2, 1)),
+            windows=[TestComputeParityBoundary._W1],
+            raw_counts=[100],
+            cagg_counts=[100],
+            chunk_summary=cs,
+        )
+        with patches[0], patches[1], patches[2], patches[3], \
+                patches[4] as cagg_mock, patches[5] as chunk_mock:
+            reports = compute_parity(
+                "postgresql://x", (Granularity.H4,), target=CaggTarget.NEXT
+            )
+        expected = GRANULARITY_SOURCE[Granularity.H4] + CAGG_NEXT_SUFFIX
+        assert reports[0].view_name == expected
+        assert cagg_mock.call_args.args[1] == expected
+        assert chunk_mock.call_args.args[1] == expected

@@ -15,12 +15,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from manta_trading.constants import (
+    CAGG_NEXT_SUFFIX,
     COVERAGE_BUCKET_INTERVAL,
     COVERAGE_BUCKET_ORIGIN,
     COVERAGE_REFRESH_MIN_WINDOW_BUCKETS,
     DAILY_COVERAGE_VIEW,
     GRANULARITY_SOURCE,
     MINUTE_COVERAGE_VIEW,
+    CaggTarget,
     Granularity,
 )
 from manta_trading.market.maintenance.coverage_rebuild import (
@@ -28,6 +30,8 @@ from manta_trading.market.maintenance.coverage_rebuild import (
     FAMILY_VIEW,
     REBUILD_SUBWINDOW,
     CoverageFamily,
+    family_source,
+    family_view,
     plan_windows,
 )
 
@@ -289,3 +293,55 @@ class TestCoverageIndexRefusal:
         parent = GRANULARITY_SOURCE[Granularity.H4]
         conn = _FakeConn([_job(1124, _REFRESH, parent, scheduled=True)])
         assert_coverage_index_scheduled(conn)  # type: ignore[arg-type]
+
+
+class TestTargetResolution:
+    """The minute family's ``_next`` twin (slice 172); daily has none."""
+
+    _NEXT_4H = GRANULARITY_SOURCE[Granularity.H4] + CAGG_NEXT_SUFFIX
+
+    def test_current_resolves_the_existing_names(self) -> None:
+        for family in CoverageFamily:
+            assert family_view(family, CaggTarget.CURRENT) == FAMILY_VIEW[family]
+            assert family_source(family, CaggTarget.CURRENT) == FAMILY_SOURCE[family]
+
+    def test_minute_next_resolves_view_and_parent(self) -> None:
+        assert (
+            family_view(CoverageFamily.MINUTE, CaggTarget.NEXT)
+            == MINUTE_COVERAGE_VIEW + CAGG_NEXT_SUFFIX
+        )
+        assert family_source(CoverageFamily.MINUTE, CaggTarget.NEXT) == self._NEXT_4H
+
+    def test_daily_next_raises(self) -> None:
+        with pytest.raises(ValueError, match="no next target"):
+            family_view(CoverageFamily.DAILY, CaggTarget.NEXT)
+        with pytest.raises(ValueError):
+            family_source(CoverageFamily.DAILY, CaggTarget.NEXT)
+
+    def test_rebuild_checks_the_targets_parent(self) -> None:
+        """For NEXT the parent whose refresh must be scheduled is
+        minute_4hour_ohlcv_next, not the current 4h rollup."""
+        from manta_trading.market.maintenance.coverage_rebuild import rebuild_coverage
+        from manta_trading.market.maintenance.rechunk import PreflightError
+
+        conn = _FakeConn([_job(1124, _REFRESH, self._NEXT_4H, scheduled=False)])
+        with pytest.raises(PreflightError, match=self._NEXT_4H):
+            rebuild_coverage(
+                conn,  # type: ignore[arg-type]
+                CoverageFamily.MINUTE,
+                target=CaggTarget.NEXT,
+            )
+        job_queries = [s for s in conn.executed if "timescaledb_information.jobs" in s]
+        assert len(job_queries) == 2  # the target's own jobs, then the parent's
+
+    def test_rebuild_daily_next_raises_before_any_query(self) -> None:
+        from manta_trading.market.maintenance.coverage_rebuild import rebuild_coverage
+
+        conn = _FakeConn([])
+        with pytest.raises(ValueError):
+            rebuild_coverage(
+                conn,  # type: ignore[arg-type]
+                CoverageFamily.DAILY,
+                target=CaggTarget.NEXT,
+            )
+        assert conn.executed == []
