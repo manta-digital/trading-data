@@ -328,3 +328,32 @@ def _view(family: CoverageFamily) -> str:
     from manta_trading.market.maintenance.coverage_rebuild import FAMILY_VIEW
 
     return FAMILY_VIEW[family]
+
+
+class TestNextTarget:
+    """``--target next`` rebuilds minute_coverage_next from the eligible 4h
+    rollup and leaves the current coverage cagg alone (slice 172)."""
+
+    def test_rebuilds_next_from_the_next_parent(self, swept_db: str) -> None:
+        from manta_trading.constants import CaggTarget, target_view_name
+
+        parent = target_view_name(GRANULARITY_SOURCE[Granularity.H4], CaggTarget.NEXT)
+        view = target_view_name(MINUTE_COVERAGE_VIEW, CaggTarget.NEXT)
+        with _connect(swept_db) as conn:
+            conn.execute(f"CALL refresh_continuous_aggregate('{parent}', NULL, NULL)")
+            _pause_coverage_jobs(conn, view)
+            current_before = _rows(conn, MINUTE_COVERAGE_VIEW)
+            result = rebuild_coverage(
+                conn,
+                CoverageFamily.MINUTE,
+                subwindow=_SUBWINDOW,
+                target=CaggTarget.NEXT,
+            )
+            report = verify_coverage(conn, CoverageFamily.MINUTE, CaggTarget.NEXT)
+            current_after = _rows(conn, MINUTE_COVERAGE_VIEW)
+
+        assert result.view_name == view
+        assert result.rows_after == 12
+        assert report["source"] == parent
+        assert report["head_within_one_bucket"] is True
+        assert current_after == current_before == 0
