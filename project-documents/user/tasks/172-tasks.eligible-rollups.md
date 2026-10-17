@@ -12,14 +12,15 @@ projectState: >
   migration chain ends at 063 (test_chain_ends_at_063). The four minute
   rollups and minute_coverage aggregate raw values. Slice 172 was split from
   173 on 2026-10-16: this slice builds the eligible rollups beside the current
-  ones; 173 swaps them in and switches the API default. Sections 1-4 are
-  built: migration 063 (the `_next` rollups and coverage, WITH NO DATA),
-  `--target` and `--order` on the caggs commands, and the cutover script
-  scripts/cutover_172_eligible_rollups.py. Docs (section 5) and final
-  validation (section 6) remain.
+  ones; 173 swaps them in and switches the API default. Slice 172 is built:
+  migration 063 (the `_next` rollups and coverage, WITH NO DATA), `--target`
+  and `--order` on the caggs commands, the cutover script
+  scripts/cutover_172_eligible_rollups.py, the docs, and final validation.
+  The production cutover runs in Phase 7 after the off-tape sweep finishes
+  (`off-tape unevaluated` is zero).
 dateCreated: 20261016
 dateUpdated: 20261016
-status: in_progress
+status: complete
 ---
 
 # Tasks: Eligible Rollups
@@ -318,37 +319,41 @@ status: in_progress
 
 ## Section 5 — Documentation (effort 1/5)
 
-- [ ] **5.1 Runbook 100 and CHANGELOG**
-  - [ ] Runbook 100: a section for the 172 cutover. When to run it (after
+- [x] **5.1 Runbook 100 and CHANGELOG**
+  - [x] Runbook 100: a section for the 172 cutover. When to run it (after
         `off-tape unevaluated` is zero), the one command, how to read the
         report, how to rerun after a failure, and that the five `_next` rows
         in `mt data caggs status` are expected until slice 173. Name views and
         jobs by name, never by job id.
-  - [ ] `--target` and `--order`: document them where runbook 310 and the
+  - [x] `--target` and `--order`: document them where runbook 310 and the
         repair runbook describe `rebuild-coverage` and `repair`.
-  - [ ] CHANGELOG: an entry under the next version (patch: no reader-visible
+  - [x] CHANGELOG: an entry under the next version (patch: no reader-visible
         change).
-  - [ ] Success: every command in the runbook section runs as written on the
+  - [x] Success: every command in the runbook section runs as written on the
         test database.
 
-- [ ] **5.2 Commit:** `docs: document the eligible rollup build`
+- [x] **5.2 Commit:** `docs: document the eligible rollup build`
 
 ## Section 6 — Final validation (effort 1/5)
 
-- [ ] **6.1 Run the gates**
-  - [ ] `ruff check` and `ruff format --check` on the touched files; mypy per
+- [x] **6.1 Run the gates**
+  - [x] `ruff check` and `ruff format --check` on the touched files; mypy per
         the conventions.
-  - [ ] Unit tier passes.
-  - [ ] Integration tier: only the known failures remain
+  - [x] Unit tier passes.
+  - [x] Integration tier: only the known failures remain
         (`test_cli_lists` priority1 ×2, `test_migration_051_052` ×2,
         `test_policy_advances_head` unaided ×2).
-  - [ ] The load tier is not run: this slice changes no read path.
-  - [ ] Success: all of the above, with any other failure re-run in
+
+    test_cold_start's refresh-policy count failed once 063 added five policies;
+    fixed in 3dee602 by adding the _next views to its expected caggs.
+
+  - [x] The load tier is not run: this slice changes no read path.
+  - [x] Success: all of the above, with any other failure re-run in
         isolation before it is investigated.
 
-- [ ] **6.2 Record results in the design**
-  - [ ] Update the slice design's Verification Walkthrough with the commands
+- [x] **6.2 Record results in the design**
+  - [x] Update the slice design's Verification Walkthrough with the commands
         as actually run on the test database and their output summaries.
-  - [ ] Set the design's and this file's `status` to `complete`.
+  - [x] Set the design's and this file's `status` to `complete`.
 
-- [ ] **6.3 Commit:** `docs: record 172 verification and complete slice`
+- [x] **6.3 Commit:** `docs: record 172 verification and complete slice`

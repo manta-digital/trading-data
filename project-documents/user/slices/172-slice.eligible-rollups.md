@@ -7,7 +7,7 @@ dependencies: [171, 163, 169]
 interfaces: [173]
 dateCreated: 20261016
 dateUpdated: 20261016
-status: not_started
+status: complete
 ---
 
 # Slice Design: Eligible Rollups
@@ -187,19 +187,77 @@ The build runs as the automation identity through the existing NOPASSWD unit com
 
 ### Verification Walkthrough
 
-1. On the test database:
+Run on 2026-10-16 against a throwaway database on the test cluster (the
+`MT_TIMESCALE_TEST_URL` cluster), created for the purpose and dropped after.
+`mt` was pointed at it by exporting both `MT_TIMESCALE_DB_URL` and
+`MT_TIMESCALE_MAINTENANCE_URL` to its URL, after checking that `Settings()`
+resolved both to it. It held three slice 171 fixture days (MSFT 2026-06-01,
+SPY 2026-09-08, AVGO 2026-06-03) written through `write_minute_data_bulk`,
+so they carry insert-time marks, with the current 5m and 4h rollups
+refreshed.
+
+1. Migrations, applied twice:
    ```bash
-   uv run mt data migrate apply                                            # 063
-   uv run mt data caggs repair --target next --granularity 4h --order newest-first
-   uv run mt data caggs verify --target next --granularity 4h              # exit 0
-   uv run mt data caggs status                                             # _next rows listed
-   uv run mt data health                                                   # unchanged
+   uv run mt data migrate apply      # "Applied: 063_minute_eligible_rollups_next ... 65 migration(s) applied"
+   uv run mt data migrate apply      # "0 migration(s) applied"
    ```
-2. Values: for MSFT 2026-06-01, compare the 5m after-hours high from `minute_5min_ohlcv` (near 487) and `minute_5min_ohlcv_next` (near 460).
-3. Production (Phase 7):
+2. Build and verify the 4h rollup. `repair` refuses until the view's own jobs
+   are paused (runbook 300), so pause them by name first and resume after:
    ```bash
-   uv run python scripts/cutover_172_eligible_rollups.py vX.Y.Z           # install, 063, build, verify, report
+   uv run mt data caggs verify --target next --granularity 4h        # exit 2 (empty)
+   psql "$URL" -c "SELECT alter_job(job_id, scheduled => false) FROM timescaledb_information.jobs WHERE hypertable_name = 'minute_4hour_ohlcv_next'"
+   uv run mt data caggs repair --target next --granularity 4h --order newest-first --assume-headroom-gb 100
+   #   minute_4hour_ohlcv_next window 1/2 2026-07-16..2026-09-24 rebuilt (raw 959, 0.1s)
+   #   minute_4hour_ohlcv_next window 2/2 2026-05-07..2026-07-16 rebuilt (raw 1,920, 0.1s)
+   psql "$URL" -c "SELECT alter_job(job_id, scheduled => true) FROM timescaledb_information.jobs WHERE hypertable_name = 'minute_4hour_ohlcv_next'"
+   uv run mt data caggs verify --target next --granularity 4h        # "... minute_4hour_ohlcv_next ... PARITY", exit 0
    ```
+   The same for 1h, 15m and 5m (each "2 windows — 0 already at parity, 2
+   rebuilt"), then the coverage twin with its jobs paused:
+   ```bash
+   uv run mt data caggs rebuild-coverage --family minute --target next           # "Rebuilt minute_coverage_next ... head lag 0:00:00 [OK]"
+   uv run mt data caggs rebuild-coverage --family minute --target next --verify  # exit 0
+   uv run mt data caggs rebuild-coverage --family daily --target next            # "the daily coverage family has no next target", exit 1
+   uv run mt data caggs verify --target next                                     # four PARITY lines, exit 0
+   ```
+3. Listing and health:
+   ```bash
+   uv run mt data caggs status --json   # lists the five _next views beside the current ones
+   uv run mt data health                # no _next row; its verdicts read the current objects only
+   ```
+   On the throwaway database health is UNHEALTHY for reasons of its own (no
+   daily data, a fixture-only minute table, no Kalshi passes). That it is
+   unchanged by 063 and a partial build is asserted by
+   `test_readers_unchanged_by_063_and_a_partial_build`, which compares health,
+   bars, `data_status` and the seeder's coverage index before and after.
+   Caveat: `mt data health`'s tick rows read the tick database named in
+   `.env`, read-only, whatever the primary URL is.
+4. Values, MSFT 2026-06-01, the 5m high from 16:40 ET on:
+   ```sql
+   SELECT max(high) FROM minute_5min_ohlcv       WHERE symbol = 'MSFT' AND time_bucket >= '2026-06-01 20:40+00' AND time_bucket < '2026-06-02 04:00+00';  -- 487.6942
+   SELECT max(high) FROM minute_5min_ohlcv_next  WHERE symbol = 'MSFT' AND time_bucket >= '2026-06-01 20:40+00' AND time_bucket < '2026-06-02 04:00+00';  -- 461.6978
+   ```
+5. Production (Phase 7, after `mt-run data off-tape sweep --maintenance-url "$MT_TIMESCALE_MAINTENANCE_URL" --dry-run` reports `0 to sweep`), as `manta` from the dev checkout at the ref:
+   ```bash
+   uv run python scripts/cutover_172_eligible_rollups.py vX.Y.Z    # install, 063, build, verify, report
+   ```
+   Read `project-documents/user/notes/<date>-172-cutover.md`; exit 0 only when
+   every step passed. Not run here: success criterion 5 in production is
+   verified then.
+
+Found during implementation:
+
+- `SHOW data_directory` is denied to `trading_migrate` in production (no
+  `pg_read_all_settings`). The script reads the data directory from
+  `pg_lsclusters` for the URL's port instead, and refuses unless the database
+  host is the machine it runs on. Measured from the dev checkout on
+  2026-10-16: 1159.4 GB free.
+- The build gate checks every minute chunk (`off_tape_sweep.unevaluated_chunks`),
+  not the health line's one-session count: the sweep runs oldest first, so
+  the newest session reads clean while history is still unswept.
+- `rebuild-coverage` refreshes through `MT_TIMESCALE_DB_URL`, and only the
+  migration role owns the caggs, so the script runs it with that variable set
+  to the maintenance URL, as runbook 310 does.
 
 ## Implementation Notes
 
