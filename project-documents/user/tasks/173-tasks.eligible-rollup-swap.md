@@ -138,7 +138,10 @@ status: not_started
        converges; and a rerun on a fully applied database is a no-op;
     4. reader gap (transactional path only): a thread reading `data_status`
        and the 4h rollup in a loop while 064 runs sees no missing-name
-       error.
+       error;
+    5. counts unchanged: the `data_status` rows, the coverage index and the
+       counts behind `mt data accounting` and `/api/v1/status` are equal
+       before and after 064.
   - [ ] Success: the integration tier file passes. Re-run any flake alone
         before investigating.
 
@@ -189,6 +192,9 @@ status: not_started
         at 5m is 422 with the message; `prints=all` at 1m is unchanged; a
         bucket whose minutes are all marked is absent from the 5m response
         (use 171's off-tape fixtures in `test/fixtures/off_tape/`, mark, refresh).
+  - [ ] Criterion 1: for the SPY, AVGO and MSFT cases in slice 171's success
+        criteria, assert the off-tape values are absent from the 5m **and**
+        the 1h bars, one assertion per granularity.
   - [ ] Success: unit tier and `test/integration/api_server` pass, run
         separately.
 
@@ -255,7 +261,8 @@ status: not_started
         post-swap `verify`, coverage freshness) leaves the timers **held**
         and exits non-zero naming the step.
   - [ ] Post-swap checks: `caggs verify` on all four rollups, coverage
-        freshness, and the value-parity check (4.2).
+        freshness, the value-parity check (4.2), and that no `_next` or
+        `_prev` object remains (query the catalog for the derived names).
   - [ ] Report to `project-documents/user/notes/<date>-173-cutover.md`: each
         step's outcome, row counts per rollup, and the verify output. Exit 0
         only when every step passed.
@@ -335,7 +342,9 @@ status: not_started
   - [ ] Run `test/load/test_167_data_status_nfr.py`,
         `test_169_coverage_freshness_probe_nfr.py` and `test_187_api_nfr.py`
         (the load tier's known pre-existing failures are in project memory;
-        never cap the run under 90 minutes).
+        never cap the run under 90 minutes). The load tier is a manual gate;
+        wiring it into CI belongs to slice 907 (see slice 187, D9), so no
+        wiring task is added here.
   - [ ] Record each result against its pass number from the design's NFR
         table, plus the `COVERAGE_BUCKET_LAG_BUDGET` check, in a new
         `project-documents/user/notes/173-nfr-results.md` with front matter.
@@ -343,9 +352,10 @@ status: not_started
         miss and the figure and the Project Manager is told.
 
 - [ ] **8.3 Design walkthrough and traceability**
-  - [ ] Walk the design's Success Criteria 1-5 and Technical Requirements one
-        by one against tests and notes; list any not covered by an automated
-        test in the notes file, with how it is verified in Phase 7
+  - [ ] Walk the design's Success Criteria 1-5, Technical Requirements and
+        Integration Requirements one by one against tests and notes; list any not covered by an automated
+        test in the notes file (mt-ui's 5m-and-up charts showing no spikes is
+        one: it is checked in the Phase 7 walkthrough), with how it is verified in Phase 7
         (production cutover).
   - [ ] Set the design's and this file's `status` per the process guide.
   - [ ] Success: every criterion maps to a test, a note, or a named Phase 7
