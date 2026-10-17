@@ -7,47 +7,48 @@ conventionsSource: AGENTS.md
 projectRules: []
 project: trading-data
 verdict: CONCERNS
-verdictSource: stated
+verdictSource: derived
 sourceDocument: project-documents/user/tasks/173-tasks.eligible-rollup-swap.md
 aiModel: xiaomi/mimo-v2.6-pro
 aiProfile: openrouter
 status: complete
 dateCreated: 20261017
 dateUpdated: 20261017
-reviewedSha: b5a4c7b4a3a127d7e81f0852908019d890f4809e
+reviewedSha: 0352322714f6e474f7e66f4288cf8a44b9d47325
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 25
-turns: 13
-promptTokens: 331892
-cachedTokens: 288512
-completionTokens: 16916
-reasoningTokens: 14333
-durationSeconds: 410.5
-costUsd: 0.034741
+toolCallsMade: 10
+turns: 6
+promptTokens: 115493
+cachedTokens: 93312
+completionTokens: 10189
+reasoningTokens: 8397
+durationSeconds: 251.8
+costUsd: 0.018886
 costBasis: alias_pricing
 runId: run-20261017-p5-05794663
 squadronVersion: 0.23.0
 findings:
   - id: F001
     severity: concern
-    category: ci-cd
-    summary: "Load-tier CI gating left implicit — no wiring task and no reference to slice 907"
-    location: "project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:277"
+    category: task-structure
+    summary: "Task 5.1 is a read-only task with no success criterion and an unmet hand-off promise"
+    location: "project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:239-245"
   - id: F002
-    severity: concern
-    category: traceability
-    summary: "Integration Requirements are neither tested nor inside 8.3's traceability scope"
-    location: "project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:345"
+    severity: note
+    category: documentation
+    summary: "Frontmatter `project: trading-data` diverges from its own slice design and all other task files"
+    location: "project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:4"
   - id: F003
     severity: note
-    category: test-coverage
-    summary: "Success criterion 1's 1h half has no direct assertion"
-    location: "project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:184"
+    category: scope
+    summary: "Task 7.3 extends documentation scope beyond the design's named doc set"
+    location: "project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:317-331"
   - id: F004
-    severity: note
-    category: traceability
-    summary: "Cutover post-swap checks omit criterion 3's residual-object assertion"
-    location: "project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:257"
+    severity: pass
+    category: coverage
+    summary: "Every success criterion and requirement maps to a task, with no untraceable scope creep"
+    location: "project-documents/user/tasks/173-tasks.eligible-rollup-swap.md"
 ---
 
 # Review: tasks — slice 173
@@ -57,41 +58,70 @@ findings:
 
 ## Findings
 
-### [CONCERN] Load-tier CI gating left implicit — no wiring task and no reference to slice 907
+### [CONCERN] Task 5.1 is a read-only task with no success criterion and an unmet hand-off promise
 
-Task 6.1 adds a new load case to `test/load/test_187_api_nfr.py` and 8.2 (line 334) runs the tier manually, but neither the task file nor the slice design says where the tier is gated. Verified in the repo: `.github/workflows/ci.yml` runs no test job at all (publish-on-tag only), and the load files gate only on `MT_RUN_LOAD_TESTS=1` (`test/load/test_187_api_nfr.py:37`). The project's established pattern for load-test work — recorded in `project-documents/user/tasks/167-tasks.cagg-backed-data-status-bars-summary-reach-the-sub-second-nfr.md:406-410` and `project-documents/user/tasks/169-tasks.coverage-cagg-refresh-repair-the-current-bucket-is-never-re-materialized-1.md:285-295` — is to state plainly that CI gating is slice 907's scope ("Reference 907 so the gap is tracked, not forgotten"; "do not claim CI gating that does not exist"). 173's file never mentions 907. The fix is one line in the conventions or under 6.1 — the load case runs under the documented manual gate recorded by 8.2, and CI gating is slice 907's — not a new CI task.
+Task 5.1 ("Read the model and plan the steps") states "Success: none (reading); the next task names what is reused." Two problems: (1) it is the only task in the file with no completable success criterion, which the review standard requires of every task; (2) the hand-off it promises is not delivered — 5.2 never enumerates the reused `cutover_common` helpers (hold/release timers, install, migrate, `verify_migrate_target`, `restart_serve_if_active`) that 5.1 lists. Fix by merging 5.1 into 5.2 as a first step ("read these three files; reuse hold/release, install, migrate, verify, restart via `cutover_common`"), or by making 5.2's first bullet name the reused helpers so 5.1's stated success is actually satisfiable. This is the "too granular — should be merged" case; it does not block Section 5 work.
 
-### [CONCERN] Integration Requirements are neither tested nor inside 8.3's traceability scope
+### [NOTE] Frontmatter `project: trading-data` diverges from its own slice design and all other task files
 
-The slice design's Success Criteria include an Integration Requirements subsection (`project-documents/user/slices/173-slice.eligible-rollup-swap.md:205`): "`mt data accounting`, `mt data status`, `/api/v1/status` and the coverage index read the same counts before and after the swap", plus the mt-ui chart behavior. Task 8.3 walks only "Success Criteria 1-5 and Technical Requirements", so these two requirements drop out of the traceability net entirely, and no task compares the count surfaces before and after 064 — 2.4's reader-gap test asserts only that no missing-name error occurs, and 5.2's report records row counts but no before/after equality on those commands. Slice 172's task 3.1 item 2 (172-tasks, "Capture each reader's output before 063, then again after … assert equality") is the in-repo precedent for the missing assertion. Either add that before/after comparison to 2.4 (extending the populated case), or widen 8.3's scope to the Integration Requirements and name how each is verified in Phase 7 — the mt-ui half is legitimately Phase 7 only, but it should be named somewhere.
+The task file declares `project: trading-data`, while `173-slice.eligible-rollup-swap.md` declares `project: trading` and every other file in `project-documents/user/tasks/` uses `project: trading`. The corpus is mixed (recent notes/analysis files use `trading-data`), so this may reflect an in-flight rename rather than an error — but the paired slice and task documents disagree today. Align the task file's frontmatter with the slice design, or confirm which value `file-naming-conventions` intends for task documents.
 
-### [NOTE] Success criterion 1's 1h half has no direct assertion
+### [NOTE] Task 7.3 extends documentation scope beyond the design's named doc set
 
-Criterion 1 (`173-slice.eligible-rollup-swap.md:186`) says the 171 values are absent from the 5m **and 1h** bars; task 3.4 asserts only the 5m response (and the all-marked-bucket case), and the design's Verification Walkthrough curls 5m only. Coverage is transitive — 172's task 2.3 asserted the prints absent from the `_next` 5m and 1h rows against the same fixtures, and 2.4.2 here asserts the current names return the former `_next` rows — so the residual risk is low. Adding one 1h assertion beside the 5m case in 3.4, or naming the transitive mapping in 8.3's notes, closes the gap cheaply.
+The design's Technical Scope item 6 and Technical Requirements name only the 140 architecture amendment, the two API references, the CHANGELOG, and runbook 100. Task 7.3 additionally updates runbooks 300 and 310 and makes its success criterion a grep across `docs` and `project-documents/user/runbooks` ("prints=all (the default)" must be gone). This is justified stale-documentation cleanup forced by the default change, and it is correctly bounded ("only where they name `_next` objects as still existing"), so it is acceptable — but it is scope beyond what the design names and is worth a line in the design if the PM wants strict traceability.
 
-### [NOTE] Cutover post-swap checks omit criterion 3's residual-object assertion
+### [PASS] Every success criterion and requirement maps to a task, with no untraceable scope creep
 
-Success criterion 3 requires that after the cutover "no `_next` or `_prev` object remains", but 5.2's post-swap checks list only `caggs verify`, coverage freshness and the value-parity check. The substance is covered (the drops are 064's, asserted in 2.4.1/2.4.2, and the swap-state detection enumerates existing objects), so this is cosmetic: one post-swap line asserting no `_next`/`_prev` name exists would make the script's exit 0 mean criterion 3 literally holds in production.
+Cross-reference verified: FC1 → 3.4 (explicit "Criterion 1" assertions for the SPY/AVGO/MSFT cases at 5m and 1h); FC2 → 2.4 item 4 (reader-gap test on `data_status` and the 4h rollup, transactional path, matching the Technical Requirement wording); FC3 → 5.2 post-swap checks (verify on all four rollups, coverage freshness, value parity, no `_next`/`_prev` remains) plus 3.3/3.4 for the default and the 422; FC4 → 5.2 swap-state detection and failure handling plus 5.3's failure-table and kill-and-rerun tests; FC5 → 8.2 re-runs recorded against the design's pass numbers, with the 5m bars load case added in Section 6 exactly as scoped ("Do not add 15m, 1h or 4h cases"). Technical Requirements: probe-first → Section 1 with results recorded in the design; migration integration tests (cold, populated, partial-rerun, no-gap reader) → 2.4 items 1–4; NULL-bucket read behavior → 3.2/3.4; health failure states and most-marked-symbol sampling → 4.1/4.3; quality bar → 8.1 and 7.2/7.3. Integration Requirements: counts unchanged → 2.4 item 5; mt-ui charts → 8.3's named Phase 7 check. The load test lives in `test/load/test_187_api_nfr.py` (verified to exist, along with `_BARS_BOUND_S` and the named 1m test), and CI gating is explicitly deferred to slice 907 per slice 187 D9 (verified), not left implicit. Sequencing is sound (probe → 064 → read path → health check → cutover → load case → docs → NFR re-runs), the release-gate/merge is correctly kept out of the task list per the Git Rules, and every section ends in a commit checkpoint.
 
 ### Run Digest
 
-- Response length: 5079 chars
+- Response length: 4975 chars
 - Response is newline-free: no
-- Tool calls made: 25
-- Tool calls failed: 1
+- Tool calls made: 10
+- Tool calls failed: 0
 - Stop reason: stop
 - Output budget: 131072 tokens
 - System prompt: custom
 - Settings sources: n/a (non-SDK)
-- Reasoning characters: 54494
+- Reasoning characters: 31808
 - Effort: backend default
-- Turns: 13
-- Tokens — prompt / cached / cache write / completion / reasoning: 331892 / 288512 / not computed / 16916 / 14333
-- Duration: 410.5 s
-- Cost: $0.03 (alias_pricing)
+- Turns: 6
+- Tokens — prompt / cached / cache write / completion / reasoning: 115493 / 93312 / not computed / 10189 / 8397
+- Duration: 251.8 s
+- Cost: $0.02 (alias_pricing)
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 4
 - Finding-shaped matches — inside fences: 0
 - Finding-shaped matches — in findings section: 4
 - Finding-shaped matches — surviving validation: 4
+
+### Raw Response
+
+## Summary
+[overall assessment: CONCERNS]
+
+The task breakdown is thorough and well-sequenced: all five functional criteria, the four technical requirements, and both integration requirements of the slice design trace to concrete tasks, the probe gate correctly precedes migration 064, test tasks immediately follow their implementation tasks, and commit checkpoints are distributed one per section. The load-test addition in `tests/load/` matches the design's NFR table, and the CI-wiring deferral to slice 907 is explicit and verified against slice 187 (D9) rather than left implicit. One structural defect (task 5.1) should be fixed; two minor notes below.
+
+## Findings
+
+### [CONCERN] Task 5.1 is a read-only task with no success criterion and an unmet hand-off promise
+category: task-structure
+location: project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:239-245
+Task 5.1 ("Read the model and plan the steps") states "Success: none (reading); the next task names what is reused." Two problems: (1) it is the only task in the file with no completable success criterion, which the review standard requires of every task; (2) the hand-off it promises is not delivered — 5.2 never enumerates the reused `cutover_common` helpers (hold/release timers, install, migrate, `verify_migrate_target`, `restart_serve_if_active`) that 5.1 lists. Fix by merging 5.1 into 5.2 as a first step ("read these three files; reuse hold/release, install, migrate, verify, restart via `cutover_common`"), or by making 5.2's first bullet name the reused helpers so 5.1's stated success is actually satisfiable. This is the "too granular — should be merged" case; it does not block Section 5 work.
+
+### [NOTE] Frontmatter `project: trading-data` diverges from its own slice design and all other task files
+category: documentation
+location: project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:4
+The task file declares `project: trading-data`, while `173-slice.eligible-rollup-swap.md` declares `project: trading` and every other file in `project-documents/user/tasks/` uses `project: trading`. The corpus is mixed (recent notes/analysis files use `trading-data`), so this may reflect an in-flight rename rather than an error — but the paired slice and task documents disagree today. Align the task file's frontmatter with the slice design, or confirm which value `file-naming-conventions` intends for task documents.
+
+### [NOTE] Task 7.3 extends documentation scope beyond the design's named doc set
+category: scope
+location: project-documents/user/tasks/173-tasks.eligible-rollup-swap.md:317-331
+The design's Technical Scope item 6 and Technical Requirements name only the 140 architecture amendment, the two API references, the CHANGELOG, and runbook 100. Task 7.3 additionally updates runbooks 300 and 310 and makes its success criterion a grep across `docs` and `project-documents/user/runbooks` ("prints=all (the default)" must be gone). This is justified stale-documentation cleanup forced by the default change, and it is correctly bounded ("only where they name `_next` objects as still existing"), so it is acceptable — but it is scope beyond what the design names and is worth a line in the design if the PM wants strict traceability.
+
+### [PASS] Every success criterion and requirement maps to a task, with no untraceable scope creep
+category: coverage
+location: project-documents/user/tasks/173-tasks.eligible-rollup-swap.md
+Cross-reference verified: FC1 → 3.4 (explicit "Criterion 1" assertions for the SPY/AVGO/MSFT cases at 5m and 1h); FC2 → 2.4 item 4 (reader-gap test on `data_status` and the 4h rollup, transactional path, matching the Technical Requirement wording); FC3 → 5.2 post-swap checks (verify on all four rollups, coverage freshness, value parity, no `_next`/`_prev` remains) plus 3.3/3.4 for the default and the 422; FC4 → 5.2 swap-state detection and failure handling plus 5.3's failure-table and kill-and-rerun tests; FC5 → 8.2 re-runs recorded against the design's pass numbers, with the 5m bars load case added in Section 6 exactly as scoped ("Do not add 15m, 1h or 4h cases"). Technical Requirements: probe-first → Section 1 with results recorded in the design; migration integration tests (cold, populated, partial-rerun, no-gap reader) → 2.4 items 1–4; NULL-bucket read behavior → 3.2/3.4; health failure states and most-marked-symbol sampling → 4.1/4.3; quality bar → 8.1 and 7.2/7.3. Integration Requirements: counts unchanged → 2.4 item 5; mt-ui charts → 8.3's named Phase 7 check. The load test lives in `test/load/test_187_api_nfr.py` (verified to exist, along with `_BARS_BOUND_S` and the named 1m test), and CI gating is explicitly deferred to slice 907 per slice 187 D9 (verified), not left implicit. Sequencing is sound (probe → 064 → read path → health check → cutover → load case → docs → NFR re-runs), the release-gate/merge is correctly kept out of the task list per the Git Rules, and every section ends in a commit checkpoint.
