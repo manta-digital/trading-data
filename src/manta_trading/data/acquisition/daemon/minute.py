@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
 
 import httpx
 import psycopg
@@ -26,6 +25,10 @@ from manta_trading.constants import (
     MINUTE_TRUNCATION_LOOKBACK,
     FetchEntryPoint,
     MinutePassPhase,
+)
+from manta_trading.data.acquisition.daemon.bar_prices import (
+    UNUSABLE_BAR_ERRORS,
+    parse_ohlc_prices,
 )
 from manta_trading.data.acquisition.daemon.daily import (
     CycleReport,
@@ -1460,20 +1463,11 @@ def _record_minute_attempt(
         )
 
 
-_OHLC_FIELDS = ("open", "high", "low", "close")
-
-
 def _bar_to_row(symbol: str, bar: dict) -> tuple | None:
     """Convert one provider bar to a stage-table row, or None to skip it.
 
-    Provider payloads occasionally carry null or absent price fields (EODHD
-    sent open=null for CVR and LFWD, 2026-08-14). A price that is missing,
-    non-numeric, non-finite, or <= 0 makes the bar unusable: skip it with a
-    warning. Never substitute a default — a fabricated 0.00 price poisons
-    every consumer downstream. InvalidOperation is in the except tuple
-    because Decimal raises it (an ArithmeticError, not a ValueError) on
-    unparseable input like str(None); the finite/positive check guards the
-    values Decimal accepts but the table must never hold ("NaN", "Inf", 0).
+    A bar with an unusable price is skipped with a warning; see
+    ``parse_ohlc_prices`` for what counts as unusable.
     """
     try:
         ts_epoch = bar.get("timestamp")
@@ -1483,14 +1477,9 @@ def _bar_to_row(symbol: str, bar: dict) -> tuple | None:
             bar_ts = datetime.fromisoformat(bar.get("datetime", "")).replace(
                 tzinfo=_UTC
             )
-        prices: dict[str, Decimal] = {}
-        for field in _OHLC_FIELDS:
-            value = Decimal(str(bar[field]))
-            if not value.is_finite() or value <= 0:
-                raise ValueError(f"unusable {field} price: {value}")
-            prices[field] = value
+        prices = parse_ohlc_prices(bar)
         volume = int(bar.get("volume") or 0)
-    except (KeyError, ValueError, TypeError, InvalidOperation):
+    except UNUSABLE_BAR_ERRORS:
         _logger.warning("Skipping malformed minute bar for %s: %r", symbol, bar)
         return None
     return (

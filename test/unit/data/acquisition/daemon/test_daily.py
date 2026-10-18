@@ -431,3 +431,41 @@ class TestRunDailyRefetch:
         _, mock_do, _ = self._run_refetch()
         call_kwargs = mock_do.call_args.kwargs
         assert call_kwargs["via"] == "refetch"
+
+
+class TestInsertDailyBarsPriceGuard:
+    """Issue #37: a daily bar with a missing or non-positive price used to be
+    stored with a fabricated 0. It is now skipped with a warning, exactly as
+    the minute path does."""
+
+    GOOD = {"date": "2024-01-02", "open": 10.5, "high": 10.9, "low": 10.1,
+            "close": 10.7, "volume": 1200}
+
+    def _written_rows(self, bars: list[dict]) -> list[tuple]:
+        from manta_trading.data.acquisition.daemon.daily import _insert_daily_bars
+
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        copy = cur.copy.return_value.__enter__.return_value
+        _insert_daily_bars(conn, "CVR", bars)
+        return [c.args[0] for c in copy.write_row.call_args_list]
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"open": None},
+            {"close": 0},
+            {"low": -1},
+            {"high": "NaN"},
+        ],
+    )
+    def test_unusable_price_skipped(self, bad: dict, caplog) -> None:
+        bad_bar = {**self.GOOD, "date": "2024-01-03", **bad}
+        rows = self._written_rows([self.GOOD, bad_bar])
+        assert len(rows) == 1
+        assert rows[0][1] == "CVR"
+        assert "Skipping malformed daily bar" in caplog.text
+
+    def test_missing_price_never_defaults_to_zero(self) -> None:
+        bar = {k: v for k, v in self.GOOD.items() if k != "open"}
+        assert self._written_rows([bar]) == []

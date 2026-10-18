@@ -121,13 +121,7 @@ class TimescaleMinuteDataDB:
         Args:
             symbol: Stock symbol.
             data: DataFrame with DatetimeIndex and columns:
-                open, high, low, close, volume. Optionally may also
-                include the six adjustment columns produced upstream
-                by the orchestrator: adj_open, adj_high, adj_low,
-                adj_close, k_factor, adjusted_at. When all six are
-                present they are written alongside the raw columns
-                in the same transaction; missing or partial adj
-                columns are an error (raise).
+                open, high, low, close, volume.
 
         Returns:
             True if successful, False otherwise.
@@ -135,21 +129,6 @@ class TimescaleMinuteDataDB:
         if data is None or data.empty:
             _logger.warning("No data to write for %s", symbol)
             return False
-
-        adj_columns = (
-            "adj_open", "adj_high", "adj_low", "adj_close",
-            "k_factor", "adjusted_at",
-        )
-        present = [c for c in adj_columns if c in data.columns]
-        if present and len(present) != len(adj_columns):
-            missing = sorted(set(adj_columns) - set(present))
-            _logger.error(
-                "Partial adjustment columns supplied for %s; missing %s. "
-                "All six (%s) or none must be supplied.",
-                symbol, missing, list(adj_columns),
-            )
-            return False
-        with_adj = len(present) == len(adj_columns)
 
         try:
             start_time = time.perf_counter()
@@ -164,28 +143,14 @@ class TimescaleMinuteDataDB:
                 copy_data.rename(columns={time_col: "time"}, inplace=True)
 
             copy_data["symbol"] = symbol
-            base_cols = ["time", "symbol", "open", "high", "low", "close", "volume"]
-            if with_adj:
-                copy_cols = base_cols + list(adj_columns)
-            else:
-                copy_cols = base_cols
+            copy_cols = ["time", "symbol", "open", "high", "low", "close", "volume"]
             copy_data = copy_data[copy_cols]
 
-            # Ensure timestamps are UTC (covers both the row-time index
-            # and adjusted_at if present).
+            # Ensure timestamps are UTC.
             if copy_data["time"].dt.tz is None:
                 copy_data["time"] = copy_data["time"].dt.tz_localize("UTC")
             else:
                 copy_data["time"] = copy_data["time"].dt.tz_convert("UTC")
-            if with_adj:
-                if copy_data["adjusted_at"].dt.tz is None:
-                    copy_data["adjusted_at"] = copy_data[
-                        "adjusted_at"
-                    ].dt.tz_localize("UTC")
-                else:
-                    copy_data["adjusted_at"] = copy_data[
-                        "adjusted_at"
-                    ].dt.tz_convert("UTC")
 
             astype_map: dict[str, str] = {
                 "open": "float64",
@@ -195,16 +160,6 @@ class TimescaleMinuteDataDB:
                 "volume": "int64",
                 "symbol": "str",
             }
-            if with_adj:
-                # adj OHLC and k_factor cast to float64 for CSV transit;
-                # PostgreSQL casts to NUMERIC on INSERT.
-                astype_map.update({
-                    "adj_open": "float64",
-                    "adj_high": "float64",
-                    "adj_low": "float64",
-                    "adj_close": "float64",
-                    "k_factor": "float64",
-                })
             copy_data = copy_data.astype(astype_map)
 
             # Generate CSV buffer
@@ -223,69 +178,30 @@ class TimescaleMinuteDataDB:
             # ... ON CONFLICT (symbol, time) DO NOTHING into the live
             # hypertable. This honours migration 011's UNIQUE
             # (symbol, time) index — overlapping fetches now silently
-            # skip duplicates instead of raising. When adjustment
-            # columns are supplied they ride along in the same staging
-            # table and INSERT, keeping raw + adj atomic.
-            if with_adj:
-                staging_create_sql = """
-                    CREATE TEMP TABLE IF NOT EXISTS staging_minute_ohlcv (
-                        time        TIMESTAMPTZ NOT NULL,
-                        symbol      TEXT        NOT NULL,
-                        open        NUMERIC(12, 4) NOT NULL,
-                        high        NUMERIC(12, 4) NOT NULL,
-                        low         NUMERIC(12, 4) NOT NULL,
-                        close       NUMERIC(12, 4) NOT NULL,
-                        volume      BIGINT      NOT NULL,
-                        adj_open    NUMERIC(20, 8),
-                        adj_high    NUMERIC(20, 8),
-                        adj_low     NUMERIC(20, 8),
-                        adj_close   NUMERIC(20, 8),
-                        k_factor    NUMERIC(20, 12),
-                        adjusted_at TIMESTAMPTZ
-                    ) ON COMMIT DROP
-                """
-                staging_copy_sql = (
-                    "COPY staging_minute_ohlcv "
-                    "(time, symbol, open, high, low, close, volume, "
-                    "adj_open, adj_high, adj_low, adj_close, k_factor, "
-                    "adjusted_at) "
-                    "FROM STDIN WITH (FORMAT CSV, NULL '')"
-                )
-                insert_sql = """
-                    INSERT INTO minute_ohlcv
-                        (time, symbol, open, high, low, close, volume,
-                         adj_open, adj_high, adj_low, adj_close,
-                         k_factor, adjusted_at)
-                    SELECT time, symbol, open, high, low, close, volume,
-                           adj_open, adj_high, adj_low, adj_close,
-                           k_factor, adjusted_at
-                    FROM staging_minute_ohlcv
-                    ON CONFLICT (symbol, time) DO NOTHING
-                """
-            else:
-                staging_create_sql = """
-                    CREATE TEMP TABLE IF NOT EXISTS staging_minute_ohlcv (
-                        time   TIMESTAMPTZ NOT NULL,
-                        symbol TEXT        NOT NULL,
-                        open   NUMERIC(12, 4) NOT NULL,
-                        high   NUMERIC(12, 4) NOT NULL,
-                        low    NUMERIC(12, 4) NOT NULL,
-                        close  NUMERIC(12, 4) NOT NULL,
-                        volume BIGINT      NOT NULL
-                    ) ON COMMIT DROP
-                """
-                staging_copy_sql = (
-                    "COPY staging_minute_ohlcv "
-                    "(time, symbol, open, high, low, close, volume) "
-                    "FROM STDIN WITH (FORMAT CSV, NULL '')"
-                )
-                insert_sql = """
-                    INSERT INTO minute_ohlcv
-                        (time, symbol, open, high, low, close, volume)
-                    SELECT time, symbol, open, high, low, close, volume
-                    FROM staging_minute_ohlcv
-                    ON CONFLICT (symbol, time) DO NOTHING
-                """
+            # skip duplicates instead of raising.
+            staging_create_sql = """
+                CREATE TEMP TABLE IF NOT EXISTS staging_minute_ohlcv (
+                    time   TIMESTAMPTZ NOT NULL,
+                    symbol TEXT        NOT NULL,
+                    open   NUMERIC(12, 4) NOT NULL,
+                    high   NUMERIC(12, 4) NOT NULL,
+                    low    NUMERIC(12, 4) NOT NULL,
+                    close  NUMERIC(12, 4) NOT NULL,
+                    volume BIGINT      NOT NULL
+                ) ON COMMIT DROP
+            """
+            staging_copy_sql = (
+                "COPY staging_minute_ohlcv "
+                "(time, symbol, open, high, low, close, volume) "
+                "FROM STDIN WITH (FORMAT CSV, NULL '')"
+            )
+            insert_sql = """
+                INSERT INTO minute_ohlcv
+                    (time, symbol, open, high, low, close, volume)
+                SELECT time, symbol, open, high, low, close, volume
+                FROM staging_minute_ohlcv
+                ON CONFLICT (symbol, time) DO NOTHING
+            """
 
             with pool.connection() as conn:
                 with conn.cursor() as cur:
@@ -301,9 +217,8 @@ class TimescaleMinuteDataDB:
             write_time = time.perf_counter() - start_time
             rows_per_sec = len(data) / write_time if write_time > 0 else 0
             _logger.info(
-                "TimescaleDB bulk write: %.3fs (%d rows, %.0f rows/s, "
-                "adj=%s)",
-                write_time, len(data), rows_per_sec, with_adj,
+                "TimescaleDB bulk write: %.3fs (%d rows, %.0f rows/s)",
+                write_time, len(data), rows_per_sec,
             )
             return True
 
@@ -340,6 +255,8 @@ class TimescaleMinuteDataDB:
 
         Raises:
             ValueError: ``prints=ELIGIBLE`` with an aggregation (until slice 172).
+            psycopg.Error: any database failure, including a cancelled query.
+                An empty frame always means an empty window.
         """
         if prints is PrintMode.ELIGIBLE and aggregation:
             raise ValueError(PRINTS_ELIGIBLE_1M_ONLY_MESSAGE)
@@ -389,9 +306,11 @@ class TimescaleMinuteDataDB:
                 "TimescaleDB query cancelled for %s (statement_timeout)", symbol
             )
             raise
-        except Exception as e:
-            _logger.error("TimescaleDB query failed for %s: %s", symbol, e)
-            return pd.DataFrame()
+        except Exception:
+            # Re-raised: an empty frame here made a lost connection look
+            # like "no data for this symbol" (issue #37).
+            _logger.exception("TimescaleDB query failed for %s", symbol)
+            raise
 
     def _get_aggregated_data(
         self,

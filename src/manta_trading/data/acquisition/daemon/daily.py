@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
-from decimal import Decimal
 
 import httpx
 import psycopg
@@ -23,6 +22,10 @@ from manta_trading.constants import (
 )
 from manta_trading.market.db_session import make_configure_connection
 from manta_trading.providers.types import ProviderType
+from manta_trading.data.acquisition.daemon.bar_prices import (
+    UNUSABLE_BAR_ERRORS,
+    parse_ohlc_prices,
+)
 from manta_trading.data.acquisition.daemon.cadence import daily_pass_boundary
 from manta_trading.data.acquisition.quota import CallType, QuotaWaitAborted
 from manta_trading.data.acquisition.outcomes import (
@@ -974,19 +977,20 @@ def _insert_daily_bars(conn: psycopg.Connection, symbol: str, bars: list[dict]) 
         try:
             bar_date = date.fromisoformat(bar["date"])
             bar_ts = datetime(bar_date.year, bar_date.month, bar_date.day, tzinfo=_UTC)
+            prices = parse_ohlc_prices(bar)
             rows.append(
                 (
                     bar_ts,
                     symbol,
-                    Decimal(str(bar.get("open", 0))),
-                    Decimal(str(bar.get("high", 0))),
-                    Decimal(str(bar.get("low", 0))),
-                    Decimal(str(bar.get("close", 0))),
+                    prices["open"],
+                    prices["high"],
+                    prices["low"],
+                    prices["close"],
                     int(bar.get("volume") or 0),
                 )
             )
-        except (KeyError, ValueError):
-            _logger.warning("Skipping malformed bar for %s: %r", symbol, bar)
+        except UNUSABLE_BAR_ERRORS:
+            _logger.warning("Skipping malformed daily bar for %s: %r", symbol, bar)
 
     if not rows:
         return

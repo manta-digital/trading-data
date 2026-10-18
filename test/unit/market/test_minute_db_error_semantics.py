@@ -3,18 +3,16 @@
 A cancelled query and an empty window used to be the same value — an empty
 DataFrame. After slice 186's D5 that ambiguity reached clients as
 ``200 {"count": 0}``, so a statement timeout looked exactly like a closed
-market. Cancellation now propagates; every other failure keeps its previous
-"log and return empty" behavior, which the CLI and daemon rely on.
+market. Cancellation propagates (slice 186), and since issue #37 so does every
+other failure: an empty frame now always means an empty window.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
 import psycopg
 import pytest
 
@@ -79,12 +77,18 @@ def test_daily_class_does_not_swallow_a_cancellation() -> None:
         RuntimeError("unexpected"),
     ],
 )
-def test_other_failures_still_return_an_empty_frame(error: Exception) -> None:
-    """Deliberately unchanged: the CLI and daemon treat an empty frame as "no
-    data for this symbol" and narrowing that behavior is not this slice's
-    business."""
-    result: Any = _db_raising(error).get_minute_data(
-        "AAPL", _START, _END, None, adjusted=False
-    )
-    assert isinstance(result, pd.DataFrame)
-    assert result.empty
+def test_other_failures_propagate(
+    error: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Issue #37: returning an empty frame made a lost connection look like
+    "no data for this symbol" to the CLI and the API alike."""
+    db = _db_raising(error)
+    with (
+        caplog.at_level(
+            logging.ERROR, logger="manta_trading.market.timescale_minute_db"
+        ),
+        pytest.raises(type(error)),
+    ):
+        db.get_minute_data("AAPL", _START, _END, None, adjusted=False)
+
+    assert any(r.levelno == logging.ERROR for r in caplog.records)

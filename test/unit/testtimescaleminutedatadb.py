@@ -224,15 +224,14 @@ class TestTimescaleMinuteDataDBUnit:
         pool, conn, cur = _mock_pool()
         db._pool = pool
 
-        # Invalid aggregation should return empty DataFrame (error caught)
-        result = db.get_minute_data(
-            "TSLA",
-            datetime(2024, 8, 22, 9, 30),
-            datetime(2024, 8, 22, 16, 0),
-            aggregation="invalid",
-        )
-        assert isinstance(result, pd.DataFrame)
-        assert result.empty
+        # Raised, not an empty frame: an empty frame means an empty window (#37)
+        with pytest.raises(ValueError, match="Unsupported aggregation"):
+            db.get_minute_data(
+                "TSLA",
+                datetime(2024, 8, 22, 9, 30),
+                datetime(2024, 8, 22, 16, 0),
+                aggregation="invalid",
+            )
 
     def test_get_aggregated_data_raises_for_invalid(self):
         with patch("manta_trading.market.timescale_minute_db.ConnectionPool"):
