@@ -9,7 +9,7 @@ dependencies:
 relatedReference: user/reference/data-correctness-architecture.md
 archIndex: 140
 dateCreated: 20260429
-dateUpdated: 20261016
+dateUpdated: 20261018
 status: complete
 ---
 
@@ -719,9 +719,10 @@ either via cron/systemd timer, or as an inline once-per-day guarded
 action inside the long-running daemon's main loop. Either is fine;
 implementation chooses the one with lower operational surface.
 
-When new CAs land in `splits`/`dividends`, the daemon's
-CA-drift detection (next cycle) recomputes affected `adj_*` ranges
-via band-based UPDATE.
+New CAs in `splits`/`dividends` take effect on the next read: prices
+are adjusted on read since slice 152, so nothing is recomputed. (The
+CA-drift recompute this paragraph used to describe was deleted in
+slice 152; see "What changed" below.)
 
 #### `mt data status [--symbol X]`
 

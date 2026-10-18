@@ -6,11 +6,38 @@ parent: user/architecture/120-arch.data-acquisition.md
 relatedSlices: [127, 128]
 archIndex: 120
 dateCreated: 20260427
-dateUpdated: 20261016
+dateUpdated: 20261018
 status: accepted
 ---
 
 # ADR 120-arch-adjustment-policy: Split/dividend adjustment policy
+
+> **Superseded in part by slice 152 (adjusted on read).** The storage,
+> verification and recompute sections below record slice 127's
+> adjusted-on-write design. They no longer describe the code. Current model:
+>
+> - Prices are stored raw only. Migration `030_drop_adj_columns_daily_ohlcv`
+>   and its minute twin dropped `adj_open`, `adj_high`, `adj_low`,
+>   `adj_close`, `k_factor` and `adjusted_at`.
+> - Adjustment is computed on every read by one function,
+>   `manta_trading.data.adjustment.adjusted()`, using the k-factor formula
+>   below (unchanged). `prev_close` comes from `daily_ohlcv`. The `splits`
+>   and `dividends` tables are the inputs.
+> - 1m, the minute caggs, 1d and the daily caggs all use that same function,
+>   so they share one basis. `GET /api/v1/bars` takes `adjusted=true|false`,
+>   default true.
+> - Volume is not adjusted, not even for splits.
+> - k is chosen by the bar's UTC calendar date. A 4h, weekly, monthly or
+>   quarterly bucket that spans an ex-date therefore carries one k for prices
+>   from both sides of the action.
+> - Gone with the stored columns: the Stage A and Stage B verifiers, CA-drift
+>   recompute, the NULL-adj invariant, bulk recompute, the legacy-row
+>   back-fill, and the AlphaVantage dependency. The sections that describe
+>   them are kept as history.
+>
+> Alternative B below ("compute adjusted on read") is, in effect, the design
+> slice 152 adopted. See 140-arch.data-quality-operations.md ("Slice 152
+> replaces the adjusted-on-write model with adjusted-on-read").
 
 ## Context
 
