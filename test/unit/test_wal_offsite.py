@@ -145,7 +145,8 @@ class TestPush:
         result = _push(push)
         assert result.returncode == 0, result.stderr
         assert _calls(push["log"]) == [
-            f"copy {push['wal']} b2:bucket-x/wal --min-age 2m --exclude *.tmp"
+            f"copy {push['wal']} b2:bucket-x/wal --no-traverse --min-age 2m "
+            "--exclude *.tmp --s3-no-check-bucket"
         ]
         assert push["stamp"].exists()
         assert not push["journal"].exists()
@@ -181,7 +182,9 @@ class TestPush:
         result = _push(push, "--verify")
         assert result.returncode == 0, result.stderr
         expected = f"check {push['wal']} b2:bucket-x/wal --one-way --min-age 2m"
-        assert _calls(push["log"]) == [f"{expected} --exclude *.tmp"]
+        assert _calls(push["log"]) == [
+            f"{expected} --exclude *.tmp --s3-no-check-bucket"
+        ]
         assert not push["stamp"].exists()
 
     def test_verify_failure_is_non_zero(self, push: dict[str, Path]) -> None:
@@ -197,7 +200,9 @@ class TestPush:
         result = _push(push, "--sync-max-delete", "53")
         assert result.returncode == 0, result.stderr
         expected = f"sync {push['wal']} b2:bucket-x/wal --max-delete 53 --min-age 2m"
-        assert _calls(push["log"]) == [f"{expected} --exclude *.tmp"]
+        assert _calls(push["log"]) == [
+            f"{expected} --exclude *.tmp --s3-no-check-bucket"
+        ]
         assert not push["stamp"].exists()
 
 

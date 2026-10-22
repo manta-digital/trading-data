@@ -76,10 +76,14 @@ elif ! flock -n 9; then
   exit 0
 fi
 
-FILTERS=(--min-age "$MIN_AGE" --exclude '*.tmp')
+# The B2 key may not create buckets: without --s3-no-check-bucket the plain
+# copy sat for hours uploading almost nothing (measured 2026-10-21: a full
+# copy of 2,200 files took 2m42s with these flags). --no-traverse looks each
+# local file up directly instead of listing the remote's whole WAL prefix.
+FILTERS=(--min-age "$MIN_AGE" --exclude '*.tmp' --s3-no-check-bucket)
 [ -z "$BWLIMIT" ] || FILTERS+=(--bwlimit "$BWLIMIT")
 case "$MODE" in
-  copy)  RCLONE=(rclone copy "$WAL_DIR" "$REMOTE" "${FILTERS[@]}") ;;
+  copy)  RCLONE=(rclone copy "$WAL_DIR" "$REMOTE" --no-traverse "${FILTERS[@]}") ;;
   check) RCLONE=(rclone check "$WAL_DIR" "$REMOTE" --one-way "${FILTERS[@]}") ;;
   sync)  RCLONE=(rclone sync "$WAL_DIR" "$REMOTE" --max-delete "$MAX_DELETE" "${FILTERS[@]}") ;;
 esac
