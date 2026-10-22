@@ -3,11 +3,23 @@ docType: slice-design
 slice: backup-health-in-mt-data-health-make-a-broken-archive-a-failed-unit
 project: trading-data
 parent: user/architecture/900-slices.foundation-cleanup.md
-dependencies: [919, 920, 227]
+dependencies:
+- 919
+- 920
+- 227
 interfaces: []
 dateCreated: 20261022
 dateUpdated: 20261022
 status: not_started
+turns: 21
+promptTokens: 1205419
+cachedTokens: 1107630
+cacheWriteTokens: 97757
+completionTokens: 19397
+durationSeconds: 188.7
+costUsd: 1.39198
+usageRounds: 1
+pricedRounds: 1
 ---
 
 # Slice Design: Backup Health in `mt data health` — Make a Broken Archive a Failed Unit
