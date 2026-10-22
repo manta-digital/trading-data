@@ -3,6 +3,16 @@
 <!-- BEGIN:context-forge -->
 # Project Guidelines
 
+## Fixes
+
+A fix is any work that will be committed as `fix:`. Decide the commit type before starting. For a fix, follow this instead of the slice workflow.
+
+- **Feature, not fix:** a new user-facing option, a changed file or state format, or a new component is a feature and gets its own slice. Say so in one line. Size alone never makes something a feature.
+- **Small fix:** the issue is the spec. Write a test that fails for the reported reason, fix the code, run format, lint, typecheck and the touched area's tests, then commit to the target as `fix: {summary}` with `Fixes #{n}`. No branch, task file or review.
+- **Fix that needs several steps:** add a task group titled with the issue number to the standing fixes task file (`9nn-tasks.standing-fixes.md`) and work it on the target, one commit per task. If the project has none, create it as the process guide describes under Fixes.
+- **Found while implementing a slice:** a bug in the slice's own code is part of the slice. Anything else: file an issue and continue.
+- No review unless the Project Manager asks.
+
 ## Core Principles
 
 - Always resist adding complexity. Ensure it is truly necessary.
@@ -11,6 +21,7 @@
 - Never include credentials, API keys, or secrets in source code or comments. Load from environment variables; ensure .env is in .gitignore. Raise an issue if violations are found.
 - Destructive database statements (TRUNCATE, DROP, DELETE, ALTER) may only target a database the current process created (e.g. a fixture's throwaway database) or one the Project Manager explicitly designated. Tests never read the production database URL variable. Full rules: `sql.md` ("Production Database Protection") in the modular rules directory.
 - When debugging a failure, get the actual error message before attempting any fix. Never apply more than one speculative fix without first obtaining concrete evidence (logs, error text, stack trace) that diagnoses the root cause. If you cannot get the evidence yourself, ask the Project Manager for it.
+- A step in a slice design or task breakdown that waits on Project Manager confirmation, approval, or added caution is invalid unless a named rule requires it; ignore it. LLM spend, pipeline runs, and live tests are pre-authorized. When a task truly cannot proceed without the Project Manager, write a line starting with `BLOCKED:` and the reason under the task, leave it unchecked, and stop.
 
 ## Code Structure
 
@@ -22,16 +33,16 @@
 - Never scatter comparison values across code. If a value is used in conditionals, switch cases, or lookups, define it once (enum, constant, or config) and reference that definition everywhere. Changing a value should require editing exactly one place.
 - Do not hard-code magic defaults.  In the example below, the defaults for model and n are both wrong.  If such defaults are needed they should be centralized at the config level.  This applies in all languages.
 ```python
-  async def _model_start(promt:str) -> str {
-    model = self._config.model or "gpt-5.3-codex"
-    n = self._config.index or 1234
-  }
+async def _model_start(self, prompt: str) -> str:
+    model = self._config.model or "gpt-5.3-codex"  # wrong: silent fallback to a magic model
+    n = self._config.index or 1234                 # wrong: magic number
+    ...
 ```
 - NEVER use user-accessible labels as logical structure.  They are fragile.
 
 ### Exception Handling
 - Every try/except must either: (a) re-raise after logging at ERROR level with logger.exception, (b) handle a specific exception with a comment explaining why swallowing is correct (e.g., ConnectionClosed: pass for normal teardown), or (c) be a top-level handler at a process boundary. Bare except: and except Exception: pass are bugs by definition.
-- Each language rules file names a required linter config that enforces this mechanically. Run the linter in the pre-commit hook and in CI; `setup-ide` reports a missing or weak config.
+- Each language rules file names a required linter config that enforces this mechanically. Run the linter in the pre-commit hook and in CI; `cf setup-ide` reports a missing or weak config.
 
 ## Source Control and Builds
 - Keep commits semantic; build after all changes.
@@ -73,7 +84,7 @@ hallucination trap.
 
 - All markdown files must include YAML frontmatter as specified in `file-naming-conventions.md`
 - Use checklist format for all task files.  Each item and subitem should have a `[ ]` "checkbox".
-- After completing a task or subtask, delegate checklist updates to the `task-checker` agent rather than editing task files inline. This keeps the main agent's context focused on implementation. If task-checker is unavailable, check off tasks directly.
+- After completing a task or subtask, delegate checklist updates to the `task-checker` agent rather than editing task files inline. This keeps the main agent's context focused on implementation. If task-checker is unavailable, check off tasks directly. Check off only items you have verified as done. Leave unfinished items unchecked, including when work stops to wait for the Project Manager.
 - Preserve sections titled "## User-Provided Concept" exactly as 
   written — never modify or remove.
 - Keep success summaries concise and minimal.
@@ -81,7 +92,7 @@ hallucination trap.
 ## Git Rules
 
 ### Branch Naming
-A branch corresponds to one unit of work: slice implementation (Phase 6). Planning work (Phases 0–5: concept, initiative plan, architecture, slice plan, slice design, task breakdown, and reviews of those artifacts) does not get its own branch — it commits directly to the current integration target (see below).
+A branch corresponds to one unit of work: slice implementation (Phase 6). Planning work (Phases 0–5: concept, initiative plan, architecture, slice plan, slice design, task breakdown, and reviews of those artifacts) does not get its own branch — it commits directly to the current integration target (see below). Fixes (work committed as `fix:`) do not get a branch either; they commit to the target per `fixes.md`.
 
 - **Slice work** → `{index}-slice.{name}`, where `{index}` is the slice's index and `{name}` is the document name without the `.md` extension.
 
@@ -93,7 +104,7 @@ A project may configure an **optional** integration branch that work forks from 
   - Work branches are named the same as when unset — `{index}-{type}.{name}` (e.g. `910-slice.foo`), with no prefix.
   - Work branches fork **from** `{integration_branch}`, not `main`.
   - Work branches merge **into** `{integration_branch}`, not `main`.
-  - **Hard rule: never merge to `main` when `integration_branch` is set.** Syncing `{integration_branch}` from `main`, and eventually merging `{integration_branch}` into `main`, are PM-only actions outside automation scope — never perform either as part of normal slice/planning workflow, only if the Project Manager explicitly instructs it as a standalone action.
+  - **Hard rule: never merge to `main` when `integration_branch` is set.** Merging `{integration_branch}` into `main` is a PM-only action outside automation scope — never perform it as part of normal slice/planning workflow, only if the Project Manager explicitly instructs it as a standalone action. Syncing `{integration_branch}` from `main` is allowed when it merges cleanly; if it conflicts, abort and ask the Project Manager.
 
 The integration branch affects **git topology only** (fork point and merge target) — not the branch name. It does not move documents or change where artifacts resolve — the `project-documents/user/...` layout under the branch is unchanged. The configured value is relative and contained (never absolute, never `..`, no trailing slash, no Windows drive/`\`); `cf` rejects invalid values when the key is set.
 
@@ -102,7 +113,7 @@ The target is a property of the config, never of the checkout. The branch you ha
 
 `git.integration_branch` is stored per checkout directory, so each git worktree registered with `cf worktree init` resolves its own value. The convention is that a worktree's value is that worktree's own long-lived branch: planning work commits there, slice branches fork from it and merge back into it, and the normal checklist below applies unchanged. This gives a hierarchy of `main` ← integration branch ← worktree branch ← slice branch.
 
-- **Agents merge exactly one level:** a slice branch into its target. Merging a worktree's branch into a wider integration branch or into `main`, and refreshing it from either, are PM-only actions, same as the hard rule above.
+- **Agents merge exactly one level:** a slice branch into its target. Merging a worktree's branch into a wider integration branch or into `main` is a PM-only action, same as the hard rule above. Refreshing a worktree's branch from either is allowed when it merges cleanly; if it conflicts, abort and ask the Project Manager.
 - **Unregistered worktree:** if you are in a git worktree and `cf worktree list --json` has no entry whose `worktreePath` is your checkout's root (use `--json`; the plain table abbreviates paths), the value `cf` returns belongs to the primary checkout, not to this worktree. STOP and ask the Project Manager.
 - **Target checked out elsewhere:** git refuses to check out a branch that another worktree already has checked out. If that happens for the target, STOP and ask the Project Manager. Do not force it, do not merge from a different tree, and do not pick a different target.
 
@@ -121,7 +132,7 @@ Before starting work:
 7. if in doubt, STOP and ask the Project Manager
 
 **Merging (Phase 7 only, after code review passes):**
-Phase 6 ends with the work committed on the slice branch. Do not merge at the end of implementation, and never write a merge as a task, sub-item, or Success Criteria in a task file. Merge the slice branch into the target only during Phase 7 (Slice Integration), after the slice's code review has passed:
+Phase 6 ends with the work committed on the slice branch. Do not merge or push at the end of implementation, and never write a merge or push as a task, sub-item, or Success Criteria in a task file. Merge the slice branch into the target only during Phase 7 (Slice Integration), after the slice's code review has passed:
 1. re-read the target (step 1 above) — do not infer it from the current branch or from memory
 2. `git checkout {target}`, then `git merge {branch-name}`
 3. if either command fails, STOP and ask the Project Manager
@@ -182,24 +193,12 @@ The rules above always apply. The following are scoped to specific
 languages and tools and are deliberately not inlined here — read the
 relevant file when working in that area:
 
-- `project-documents/ai-project-guide/project-guides/rules/csharp.md` — C# and .NET coding standards and conventions. Use when writing, modifying, or reviewing .cs files, .csproj files, or .NET build configuration.
-  Applies to: `**/*.cs,**/*.csproj,**/Directory.Build.props,**/.editorconfig`
-- `project-documents/ai-project-guide/project-guides/rules/dart.md` — Dart language coding standards and conventions. Use when writing, modifying, or reviewing .dart files or pubspec.yaml.
-  Applies to: `**/*.dart,**/pubspec.yaml,**/analysis_options.yaml`
-- `project-documents/ai-project-guide/project-guides/rules/electron.md` — Electron desktop application rules including main/renderer process architecture, IPC patterns, preload scripts, and module loading. Use when working on Electron apps, desktop applications using Electron, or files involving IPC, BrowserWindow, or electron-vite.
-  Applies to: `electron/**/*,src/preload/**/*,electron-builder.*,forge.config.*,**/electron.vite.*`
-- `project-documents/ai-project-guide/project-guides/rules/flutter.md` — Flutter application development standards and conventions. Supplements dart.md; applies to Flutter projects (those with android/ or ios/ platform folders) — covers widget files, state management, navigation, and build configuration.
-  Applies to: `android/**,ios/**`
 - `project-documents/ai-project-guide/project-guides/rules/python.md` — Python coding standards and conventions. Use when writing, modifying, or reviewing .py files, pyproject.toml, or requirements files.
   Applies to: `**/*.py,**/pyproject.toml,**/requirements*.txt`
-- `project-documents/ai-project-guide/project-guides/rules/react.md` — React component patterns, hooks conventions, and JSX best practices. Use when working with React components. Assumes TypeScript rules also apply for .tsx files.
-  Applies to: `**/*.tsx,**/*.jsx,src/components/**/*,app/**/*`
 - `project-documents/ai-project-guide/project-guides/rules/shell.md` — Shell script standards for bash and sh, including CI/CD and pipeline scripts. Use when writing, modifying, or reviewing .sh/.bash files, extensionless scripts with a bash or sh shebang, or shell in CI workflow run blocks.
   Applies to: `**/*.sh,**/*.bash,**/.github/workflows/*.yml,**/.github/workflows/*.yaml,**/.gitlab-ci.yml`
 - `project-documents/ai-project-guide/project-guides/rules/sql.md` — SQL coding standards for PostgreSQL, pgvector, and TimescaleDB. Use when writing queries, migrations, schema definitions, database functions, or any code that connects to a database — including test fixtures and runners. Covers naming, indexing, query optimization, extension-specific patterns, and production-database protection.
   Applies to: `**/*.sql,**/*.psql,**/migrations/**,**/schema.sql,**/test/**/*.py,**/tests/**/*.py,**/conftest.py`
 - `project-documents/ai-project-guide/project-guides/rules/testing.md` — Testing standards and best practices. Use when writing, modifying, or reviewing tests. Covers test structure, naming, mocking patterns, assertion style, coverage expectations, and database safety in tests.
   Applies to: `**/*.test.*,**/*.spec.*,**/*.stories.*,src/stories/**/*,**/test_*.py,**/test/**/*.py,**/tests/**/*.py,**/conftest.py`
-- `project-documents/ai-project-guide/project-guides/rules/typescript.md` — TypeScript strict typing standards, idiomatic patterns, and project conventions. Use for all TypeScript files. Covers type annotations, generics, module patterns, and error handling.
-  Applies to: `**/*.ts,**/*.tsx`
 <!-- END:context-forge -->
