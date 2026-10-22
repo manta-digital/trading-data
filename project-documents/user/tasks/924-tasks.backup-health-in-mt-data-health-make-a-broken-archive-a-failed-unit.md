@@ -216,9 +216,9 @@ Create `src/manta_trading/cli/commands/health_backup.py`. Module docstring: slic
   - [ ] Replace (value changed, output `set`); append when absent (`set`); identical value (`unchanged`, file byte-identical); other lines, including a credential line, byte-identical and in order; no trailing newline in the original; special characters in the value; temp file left behind on failure is none (target is an unwritable dir); the value never appears on stdout or stderr.
   - [ ] Success: new and existing tests in the module pass.
 
-- [ ] **6.4 `backup_roots_env_set` in `deploy/lib/backup_roots_env.sh`** (new file; the install step's logic lives here so it can be tested without root)
-  - [ ] `backup_roots_env_set <env-file> <owner> <group> <conf>`: source `backup_clusters.sh` and `env_add_keys.sh` from the same directory; call `backup_clusters_load <conf>` and return non-zero printing the table's error if it fails, **before** the env file is opened for writing.
-  - [ ] Join `BC_ROOT` with `,` using one shell variable for the separator, defined at the top of the file with a note that it must match `BACKUP_ROOTS_SEPARATOR` in `constants.py` (task 6.5 holds them together).
+- [ ] **6.4 `backup_roots_env_set` in `deploy/lib/env_add_keys.sh`** (no new file; the install step's logic lives beside `env_set_key` so it can be tested without root)
+  - [ ] `backup_roots_env_set <env-file> <owner> <group> <conf>`: source `backup_clusters.sh` from the same directory; call `backup_clusters_load <conf>` and return non-zero printing the table's error if it fails, **before** the env file is opened for writing.
+  - [ ] Join `BC_ROOT` with `,` using one shell variable for the separator, defined at the top of `env_add_keys.sh` with a note that it must match `BACKUP_ROOTS_SEPARATOR` in `constants.py` (task 6.5 holds them together).
   - [ ] Call `env_set_key <env-file> <owner> MT_BACKUP_ROOTS=<joined>` and relay its `set`/`unchanged` output; on failure return non-zero.
   - [ ] Then set the file to `<owner>:<group>` mode `0640` (success criterion 8), on every run including `unchanged`.
   - [ ] Success: `shellcheck` and `bash -n` clean.
@@ -244,11 +244,11 @@ Create `src/manta_trading/cli/commands/health_backup.py`. Module docstring: slic
 - [ ] **7.1 Runbook 200** (`project-documents/user/runbooks/200-backup-and-restore.md`)
   - [ ] In the flag section (around the `ARCHIVE-BROKEN` bullet), say the flags are now read by `mt data health`: a flag, a quiet checker or an unreadable root fails `mt-health.service`. Name the row format `backup <root>`.
   - [ ] Add how to clear it: fix the cause named in the detail; the cron removes the flag within 30 minutes; the next hourly health run goes green.
-  - [ ] Success: the section is accurate against the design's example output.
+  - [ ] Success: `grep -n "mt data health" ` on the flag section finds the new text, and it names the `backup <root>` row format and `mt-health.service`.
 
 - [ ] **7.2 Runbook 100** (`project-documents/user/runbooks/100-*.md`, "Is anything wrong? — the health check")
   - [ ] Add the backup rows to the list of what the check covers, and `MT_BACKUP_ROOTS` to the environment-file notes (written by `install-production.sh`).
-  - [ ] Success: the check list matches `data_health`'s docstring.
+  - [ ] Success: `grep -n "backup" ` on the health-check section finds the backup rows in the check list and `MT_BACKUP_ROOTS` in the environment notes.
 
 - [ ] **7.3 Unit comment and env examples**
   - [ ] `deploy/systemd/mt-health.service`: extend the comment above `ExecStart` to include backup flags and checker liveness.
@@ -274,6 +274,7 @@ Create `src/manta_trading/cli/commands/health_backup.py`. Module docstring: slic
 
 - [ ] **8.2 Walk the design's success criteria**
   - [ ] Run the Verification Walkthrough steps 3–6 (scratch root, flag, dead checker, missing setting) with `uv run mt data health` against a `mktemp -d` root. They need no production access. Capture the output in the commit message or a note under the slice's task file.
+  - [ ] Run `MT_BACKUP_ROOTS=/data/backup,/data/backup/17-tick uv run mt data health` on this host (read-only) and confirm both real roots print a `backup <root>` row; record whether each reads OK or FAIL and why. This is the in-slice check of the integration requirement that the rows run against the real roots.
   - [ ] Check each of success criteria 1–7 against a test from tasks 3–5 and criterion 8 (including mode and owner) against task 6.5; list any criterion without a test.
   - [ ] Success: every criterion maps to a passing test or a walkthrough output. Walkthrough steps 1–2 and the design's manta9000 integration requirement need the released tag installed on the host; they are deferred to issue #54.
 
