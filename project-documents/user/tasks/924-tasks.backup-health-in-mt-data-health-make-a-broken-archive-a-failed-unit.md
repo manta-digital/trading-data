@@ -4,17 +4,30 @@ slice: backup-health-in-mt-data-health-make-a-broken-archive-a-failed-unit
 project: trading-data
 lld: user/slices/924-slice.backup-health-in-mt-data-health-make-a-broken-archive-a-failed-unit.md
 parent: user/architecture/900-slices.foundation-cleanup.md
-dependencies: [919, 920, 227, 234]
+dependencies:
+- 919
+- 920
+- 227
+- 234
 interfaces: []
-projectState: >
-  Slice design committed and reviewed (PASS, round 1). `mt data health`
-  (919) gathers tick rows before connecting (234). `backup_health_cron.sh`
-  (920) writes `ARCHIVE-BROKEN`, `BACKUP-STALE` and `backup-health.log` under
-  each cluster root; nothing reads them. `install-production.sh` step 4 never
-  touches an existing `/etc/manta-trading.env`.
+projectState: 'Slice design committed and reviewed (PASS, round 1). `mt data health`
+  (919) gathers tick rows before connecting (234). `backup_health_cron.sh` (920) writes
+  `ARCHIVE-BROKEN`, `BACKUP-STALE` and `backup-health.log` under each cluster root;
+  nothing reads them. `install-production.sh` step 4 never touches an existing `/etc/manta-trading.env`.
+
+  '
 dateCreated: 20261022
 dateUpdated: 20261022
 status: not_started
+turns: 13
+promptTokens: 641905
+cachedTokens: 575943
+cacheWriteTokens: 65940
+completionTokens: 12878
+durationSeconds: 108.7
+costUsd: 0.450472
+usageRounds: 1
+pricedRounds: 1
 ---
 
 # Tasks: Backup Health in `mt data health`
