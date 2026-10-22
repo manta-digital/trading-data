@@ -102,7 +102,7 @@ Create `src/manta_trading/cli/commands/health_backup.py`. Module docstring: slic
     - `archive_broken_2026-10-18.txt` — main root, 2026-10-18 06:00: `archiver_failing`, `unarchived_backlog` (24454157880 bytes, threshold 4294967296), `archive_tmp_leftover`, `FAILED …` and `FLAGS archive=3 stale=…` lines, with `PASS` lines between.
     - `backup_stale_2026-10-18.txt` — `offsite_wal_stale` (2564 min old, limit 180).
     - `archive_wedged_2026-09-06.txt` — the `archive_wedged` body.
-  - [ ] Source the real text from the production flag history: `grep -rn "ARCHIVE-BROKEN raised\|BACKUP-STALE raised" ` over `journalctl -t manta-backup` and runbook 200's drill row (2026-09-06). If the full text cannot be recovered, build the file from `scripts/check_backup_health.sh`'s exact output format and the numbers above, and say so in the fixture's neighbouring README line. Do not invent check names: use the names in runbook 200's check table.
+  - [ ] Build each file from `scripts/check_backup_health.sh`'s exact output format, the numbers above, and the check names and wording in runbook 200 (its check table and the 2026-09-06 drill row). Do not read production journals. Do not invent check names.
   - [ ] Success: three fixture files exist; each starts with a title line and a `detected:` line.
 
 - [ ] **3.2 `parse_backup_roots(raw) -> list[str] | str` (D5)**
@@ -215,21 +215,26 @@ Create `src/manta_trading/cli/commands/health_backup.py`. Module docstring: slic
   - [ ] Replace (value changed, output `set`); append when absent (`set`); identical value (`unchanged`, file byte-identical); other lines, including a credential line, byte-identical and in order; no trailing newline in the original; special characters in the value; temp file left behind on failure is none (target is an unwritable dir); the value never appears on stdout or stderr.
   - [ ] Success: new and existing tests in the module pass.
 
-- [ ] **6.4 Install step 4 writes `MT_BACKUP_ROOTS`** in `deploy/install-production.sh`
-  - [ ] Source `deploy/lib/backup_clusters.sh` and `deploy/lib/env_add_keys.sh` from the pinned checkout (`${INSTALL_DIR}/deploy/lib/…`), after step 2 has checked it out.
-  - [ ] After the existing create-or-leave logic, call `backup_clusters_load "${INSTALL_DIR}/deploy/backup-clusters.conf"`; on failure `die` naming the table's error. This must happen **before** the environment file is opened for writing.
-  - [ ] Join `BC_ROOT` with `,` (no `BACKUP_ROOTS_SEPARATOR` literal scattered: define one shell variable at the top of the script's constants block and note it must match `constants.py`; the parity test in 6.5 holds them together).
-  - [ ] Call `env_set_key "${ENV_FILE}" "root" "MT_BACKUP_ROOTS=<joined>"`; on failure `die "could not set MT_BACKUP_ROOTS in /etc/manta-trading.env"`. Print `MT_BACKUP_ROOTS set` or `MT_BACKUP_ROOTS unchanged`.
-  - [ ] Re-assert `root:${SERVICE_USER}` `0640` after, as the script does now.
-  - [ ] Replace the comment "Never overwrite, never merge" with "never touch a key you do not manage; this script manages exactly `MT_BACKUP_ROOTS`" (D4). Update the script's header and the `sha256` echo so it still makes sense (credentials untouched).
-  - [ ] Success: `shellcheck deploy/install-production.sh` clean; `bash -n` clean.
+- [ ] **6.4 `backup_roots_env_set` in `deploy/lib/backup_roots_env.sh`** (new file; the install step's logic lives here so it can be tested without root)
+  - [ ] `backup_roots_env_set <env-file> <owner> <group> <conf>`: source `backup_clusters.sh` and `env_add_keys.sh` from the same directory; call `backup_clusters_load <conf>` and return non-zero printing the table's error if it fails, **before** the env file is opened for writing.
+  - [ ] Join `BC_ROOT` with `,` using one shell variable for the separator, defined at the top of the file with a note that it must match `BACKUP_ROOTS_SEPARATOR` in `constants.py` (task 6.5 holds them together).
+  - [ ] Call `env_set_key <env-file> <owner> MT_BACKUP_ROOTS=<joined>` and relay its `set`/`unchanged` output; on failure return non-zero.
+  - [ ] Then set the file to `<owner>:<group>` mode `0640` (success criterion 8), on every run including `unchanged`.
+  - [ ] Success: `shellcheck` and `bash -n` clean.
 
-- [ ] **6.5 Test the install step**
-  - [ ] Look at how existing tests exercise `install-production.sh` (`grep -rl install-production test`). If none can run it without root, test the step through a thin sourced function: move the "derive and set `MT_BACKUP_ROOTS`" lines into a function in `deploy/lib/` (e.g. `backup_roots_env_set <file> <owner> <conf>`) and test that function against the real `deploy/backup-clusters.conf` and a temp env file.
-  - [ ] Cases: result is `MT_BACKUP_ROOTS=/data/backup,/data/backup/17-tick`; every other line byte-identical; second run prints `unchanged`; malformed table (temp copy with a bad row) returns non-zero and the env file is byte-identical; the joined value parses cleanly through `parse_backup_roots` (separator parity).
-  - [ ] Success: all pass.
+- [ ] **6.5 Wire the install script and test the function**
+  - [ ] In `deploy/install-production.sh` step 4, after the existing create-or-leave logic: source the lib from `${INSTALL_DIR}/deploy/lib/`, call `backup_roots_env_set "${ENV_FILE}" root "${SERVICE_USER}" "${INSTALL_DIR}/deploy/backup-clusters.conf"`; on non-zero `die` (table error: name it; write failure: `could not set MT_BACKUP_ROOTS in /etc/manta-trading.env`). Print `MT_BACKUP_ROOTS set` or `MT_BACKUP_ROOTS unchanged`.
+  - [ ] Replace the comment "Never overwrite, never merge" with "never touch a key you do not manage; this script manages exactly `MT_BACKUP_ROOTS`" (D4); update the script header and the `sha256` echo so they still make sense. Keep the existing `chown`/`chmod 0640` lines.
+  - [ ] Test `backup_roots_env_set` in `test/unit/test_provision_tick_lib.py` (or a sibling module), against the real `deploy/backup-clusters.conf` and a temp env file owned by the current user:
+    - result line is `MT_BACKUP_ROOTS=/data/backup,/data/backup/17-tick`;
+    - every other line byte-identical;
+    - a second run prints `unchanged`;
+    - **mode is `0640` and owner/group are the ones passed, after the first run and after the `unchanged` run** (criterion 8);
+    - malformed table (temp copy with a bad row) returns non-zero and the env file is byte-identical;
+    - the joined value parses cleanly through `parse_backup_roots` (separator parity).
+  - [ ] Success: all pass; `shellcheck deploy/install-production.sh` and `bash -n` clean.
 
-- [ ] **6.6 Checkpoint**: shellcheck, ruff, the unit tier for `test/unit/test_provision_tick_lib.py` and the new test, commit `feat: install writes MT_BACKUP_ROOTS from the cluster table`.
+- [ ] **6.6 Checkpoint**: shellcheck, ruff, the unit tier for `test/unit/test_provision_tick_lib.py`, commit `feat: install writes MT_BACKUP_ROOTS from the cluster table`.
 
 ---
 
@@ -268,7 +273,7 @@ Create `src/manta_trading/cli/commands/health_backup.py`. Module docstring: slic
 
 - [ ] **8.2 Walk the design's success criteria**
   - [ ] Run the Verification Walkthrough steps 3–6 (scratch root, flag, dead checker, missing setting) with `uv run mt data health` against a `mktemp -d` root. They need no production access. Capture the output in the commit message or a note under the slice's task file.
-  - [ ] Check each of success criteria 1–7 against a test from tasks 3–5 and criterion 8 against task 6.5; list any criterion without a test.
-  - [ ] Success: every criterion maps to a passing test or a walkthrough output. Walkthrough steps 1–2 (install and the real unit on manta9000) belong to release installation and are not tasks here.
+  - [ ] Check each of success criteria 1–7 against a test from tasks 3–5 and criterion 8 (including mode and owner) against task 6.5; list any criterion without a test.
+  - [ ] Success: every criterion maps to a passing test or a walkthrough output. Walkthrough steps 1–2 and the design's manta9000 integration requirement need the released tag installed on the host; they are deferred to issue #54.
 
 - [ ] **8.3 Final commit** of any leftover changes: `chore: finalize slice 924` (skip if the tree is clean).
