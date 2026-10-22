@@ -131,3 +131,27 @@ def test_journal_cursor_reads_the_whole_journal(
     monkeypatch.setattr(common, "out", fake_out)
     assert common.journal_cursor() == "s=abc;i=1"
     assert calls == [["journalctl", "-n", "0", "--show-cursor", "-q"]]
+
+
+def test_install_calls_the_main_checkout_installer_from_a_worktree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sudoers rule names the main checkout's installer, so a cutover run
+    from a worktree must resolve that path, not its own."""
+    calls: list[list[str]] = []
+    sha = "a" * 40
+
+    def fake_run(args: list[str], **_k: object) -> _Done:
+        calls.append(args)
+        if "--git-common-dir" in args:
+            return _Done("/repos/trading-data/.git")
+        return _Done(sha)
+
+    monkeypatch.setattr(common, "run", fake_run)
+    monkeypatch.setattr(common, "out", lambda *_a, **_k: sha)
+    common.install("v1", sha)
+    assert calls[-1] == [
+        "/repos/trading-data/deploy/install-production.sh",
+        "--ref",
+        "v1",
+    ]

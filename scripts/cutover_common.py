@@ -138,8 +138,12 @@ def release_timer(was_active: bool) -> None:
 
 
 def install(ref: str, commit: str) -> str:
-    # Absolute so the sudoers rule (deploy/sudoers.d/manta-ops) can name it.
-    installer = Path(__file__).resolve().parents[1] / "deploy/install-production.sh"
+    # The sudoers rule (deploy/sudoers.d/manta-ops) names the main checkout's
+    # installer; a cutover run from a git worktree must still call that path.
+    common_dir = run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]
+    ).stdout.strip()
+    installer = Path(common_dir).parent / "deploy/install-production.sh"
     run([str(installer), "--ref", ref], sudo=True, stream=True)
     installed = out(
         ["-u", SERVICE_USER, "git", "-C", str(INSTALL_DIR), "rev-parse", "HEAD"],
