@@ -50,7 +50,10 @@ LIB_DIR="$SCRIPT_DIR/lib"
 
 # --- Constants: the one definition of every number, name, and path -----------
 WAL_OFFSITE_INTERVAL_MIN=60   # renders the push schedule, --stale-after (3x)
-KEEP_DAYS=7                   # D4a: local == offsite retention
+# Base backups are weekly, so the previous one is exactly 7 days old when the
+# next lands; 6 prunes it, leaving one base (the newest is kept whatever its
+# age). Offsite follows local (D4a), so B2 holds one base too.
+KEEP_DAYS=6
 CRON_USER=manta
 ARCHIVE_MODE=on
 WAL_COMPRESSION=zstd

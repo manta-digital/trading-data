@@ -79,14 +79,13 @@ fi
 # The backup lands in <dest>.inprogress and is renamed only after
 # verification passes, so nothing at <dest> is ever a partial or unverified
 # backup. A partial from a failed *copy* is removed (a weekly cron that left
-# partials behind would silently fill the disk); a completed copy that fails
-# *verification* is preserved as <dest>.failed for diagnosis — measured
-# 2026-08-16, the copy phase alone is ~2 hours, too expensive to discard as a
-# side effect of a verification problem.
+# partials behind would silently fill the disk). A completed copy that fails
+# verification is removed too: a failed base is not restorable, and keeping
+# ~100 GB of one filled /data in the October 2026 outage. The disk-space check
+# below is what keeps verification from failing for want of room.
 TMP_DEST="$DEST.inprogress"
 VERIFY_DIR="$DEST.verify"
-FAILED_DEST="$DEST.failed"
-for leftover in "$TMP_DEST" "$VERIFY_DIR" "$FAILED_DEST"; do
+for leftover in "$TMP_DEST" "$VERIFY_DIR"; do
   if [ -e "$leftover" ]; then
     echo "error: leftover from a previous run exists: $leftover — inspect and remove it first" >&2
     exit 1
@@ -94,12 +93,24 @@ for leftover in "$TMP_DEST" "$VERIFY_DIR" "$FAILED_DEST"; do
 done
 trap 'rm -rf "$TMP_DEST" "$VERIFY_DIR"' EXIT
 
+# Space for the whole run, checked before the multi-hour copy: the compressed
+# dump (at most the databases' size) plus the extracted verification tree
+# (about the databases' size) both land beside whatever is already on the disk.
+DB_BYTES=$(psql "$DB_URL" --no-password -Atc "SELECT sum(pg_database_size(datname)) FROM pg_database")
+case "$DB_BYTES" in ''|*[!0-9]*) echo "error: could not read the cluster size from $DB_URL" >&2; exit 1 ;; esac
+FREE_BYTES=$(df --output=avail -B1 "$(dirname "$DEST")" | tail -1 | tr -d ' ')
+NEED_BYTES=$((2 * DB_BYTES))
+if [ "$FREE_BYTES" -lt "$NEED_BYTES" ]; then
+  echo "error: not enough free space under $(dirname "$DEST"): need $((NEED_BYTES >> 30)) GiB (dump + verification tree), have $((FREE_BYTES >> 30)) GiB" >&2
+  exit 1
+fi
+
 echo "base backup starting: $(date -Is)"
 pg_basebackup -d "$DB_URL" -D "$TMP_DEST" -Ft -z -Xs \
   --checkpoint="$CHECKPOINT_MODE" --no-password
 
-# Copy phase done — from here on, failures preserve the archives.
-trap 'rm -rf "$VERIFY_DIR"; mv "$TMP_DEST" "$FAILED_DEST"; echo "error: verification failed — backup preserved at $FAILED_DEST for diagnosis, NOT restorable-verified" >&2' EXIT
+# Copy phase done. A failure from here is a failed verification: the trap set
+# above removes the unverified backup and its extraction.
 
 echo "backup complete, verifying (extract + manifest checksums): $(date -Is)"
 # Determined empirically against prod 2026-08-16 (task 3.4): PG17's

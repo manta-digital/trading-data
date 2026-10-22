@@ -88,9 +88,10 @@ Use the wrapper — it refuses missing arguments, streams WAL during the copy
 `pg_verifybackup` by **extracting to a sibling scratch dir first** — measured
 2026-08-16: PG17's `pg_verifybackup` handles plain format only (tar support
 is PG18). The destination only appears once verification passes. A failed
-copy removes its partial; a completed copy that fails verification is
-preserved at `<dest>.failed` (the copy alone is ~2 h — never discard it to a
-verification problem):
+copy removes its partial, and so does a completed copy that fails
+verification (a failed base is not restorable and ~100 GB). The script checks
+before the copy that the disk has room for the dump plus the extracted
+verification tree (twice the cluster size):
 
 ```bash
 mkdir -p /data/backup/base
