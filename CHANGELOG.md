@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-10-22
+
+### Fixed
+- **Daily ingest no longer writes 0 prices** (#37). A missing price from the provider used to be stored as `0`; it now fails explicitly. Minute reads that hit an error log it and raise instead of returning a silent fallback, and a dead `adj_*` branch is gone.
+- **The hourly offsite WAL push finishes.** It was killed at 59 minutes every hour and uploaded almost nothing; it now runs without a wall-clock cap (the lock skips an overlapping run) and uses `--no-traverse --s3-no-check-bucket`. A full pass over the archive takes minutes.
+- **Base backups keep one copy.** Retention is 6 days instead of 7, so the weekly base replaces the previous one. A base that fails verification is deleted instead of kept, and `backup_prod.sh` refuses to start unless the disk holds the dump plus the verification tree.
+- **Cutover scripts call the installer by its sudo-allowed path** when run from a git worktree.
+
 ## [0.24.1] - 2026-10-17
 
 ### Added
