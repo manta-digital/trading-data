@@ -11,15 +11,16 @@ interfaces: []
 dateCreated: 20261022
 dateUpdated: 20261022
 status: not_started
-turns: 21
-promptTokens: 1205419
-cachedTokens: 1107630
-cacheWriteTokens: 97757
-completionTokens: 19397
-durationSeconds: 188.7
-costUsd: 1.39198
-usageRounds: 1
-pricedRounds: 1
+turns: 32
+promptTokens: 2471030
+cachedTokens: 2364393
+cacheWriteTokens: 106583
+completionTokens: 24019
+durationSeconds: 233.0
+costUsd: 1.806469
+usageRounds: 2
+pricedRounds: 2
+revision_number: 1
 ---
 
 # Slice Design: Backup Health in `mt data health` — Make a Broken Archive a Failed Unit
