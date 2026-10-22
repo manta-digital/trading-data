@@ -69,8 +69,8 @@ script writes that setting from `deploy/backup-clusters.conf`, so the cluster ta
   - the setting's separator.
 - `deploy/install-production.sh`: in its environment-file step, set `MT_BACKUP_ROOTS` from the pinned checkout's
   `deploy/backup-clusters.conf`. Every other key is left untouched.
-- `deploy/lib/env_set_key.sh`: replace one key's value, or append it if absent. The write is atomic, and the file's owner
-  and mode are preserved.
+- `deploy/lib/env_add_keys.sh`: a sibling function `env_set_key` that replaces one key's value, or appends it if absent.
+  It shares the file's existing atomic write (see D4) rather than duplicating it.
 - Tests:
   - unit tests on real flag-file contents;
   - a parity test that holds the Python file names to the cron template;
@@ -190,6 +190,7 @@ Status: decided
 - Lenient parsing:
   - line endings and surrounding whitespace are ignored;
   - the `detected:` line is found by prefix anywhere in the file.
+- If there is no `detected:` line, the detail reads `<FLAG> (no detected time): …`, and the rest is unchanged.
 - If a flag file is present but holds no `FAIL ` line (a hand-written or truncated flag), the detail is its first
   non-empty line, or `(empty)`, and the check still fails. A flag's presence decides the verdict; its content is only
   the explanation.
@@ -206,7 +207,7 @@ Status: decided
 
 ### D4 — `MT_BACKUP_ROOTS` is written by `install-production.sh`, not `setup-backup.sh`
 Status: decided
-- **Deviation from the slice plan entry, which names `setup-backup.sh`.**
+- **Deviation from the original slice plan entry, which named `setup-backup.sh`; the entry is now amended to match.**
   - `setup-backup.sh --env-file` is the dev checkout's `.env`, which holds the backup credentials. The health unit reads
     `/etc/manta-trading.env`, a different file.
   - `setup-backup.sh` is a root step outside the operator's sudoers list. `install-production.sh` is inside it
@@ -215,13 +216,22 @@ Status: decided
     derived from the cluster table at the pinned ref, so the table stays the single source.
 - `install-production.sh`'s environment step changes from "never merge" to "never touch a key you do not manage". It
   manages exactly one key, `MT_BACKUP_ROOTS`. The PM's credentials still survive every run.
-- `env_set_key <file> KEY=value`:
-  - writes a temp file in the same directory and `mv`s it over the target;
-  - takes owner and mode with `--reference`;
-  - replaces an existing `^KEY=` line or appends one;
-  - prints `unchanged` or `set` and never prints the value.
+- `env_set_key <file> <owner> KEY=value` lives in `deploy/lib/env_add_keys.sh` beside `env_add_keys`. The tail of
+  `env_add_keys` moves into a private helper both functions call: create the 0600 temp file in the same directory, chown
+  it, `mv` it over the target. `env_set_key` differs only in the content it writes: it replaces an existing `^KEY=` line
+  or appends one. It prints `unchanged` or `set` and never prints the value. `env_add_keys`'s behaviour and its existing
+  tests are unchanged.
 
   Install step 4 then re-asserts `root:manta-trading 0640`, as it already does.
+- **Failure behaviour.** `install-production.sh` runs under `set -euo pipefail`, and the new work happens inside step 4,
+  before the units are copied (step 5) and systemd is reloaded (step 6):
+  - an unreadable or malformed cluster table: `die` naming the table's error. The environment file is not opened.
+  - a failed `env_set_key` (temp file, chown or `mv`): `die "could not set MT_BACKUP_ROOTS in /etc/manta-trading.env"`.
+    The `mv` is the only write, so the old file is whole.
+
+  In both cases the script stops before steps 5 and 6. The new venv is built, but the old units are still the ones
+  loaded. Recovery is the script's existing rule: fix the cause and re-run. If the key was never written, the health
+  check fails `backup … MT_BACKUP_ROOTS is not set` (D5) rather than passing.
 - Considered and rejected: having the service read `deploy/backup-clusters.conf` directly. `/opt/manta-trading` is a full
   checkout, so the file is present. However, that couples the installed package to a deploy-tree path, which is a
   surprise for any non-`/opt` run (the dev checkout, tests). An explicit setting is consistent with every other path the
@@ -234,7 +244,8 @@ Status: decided
 - `parse_backup_roots` does the parsing:
   - it splits on `,` (`BACKUP_ROOTS_SEPARATOR`);
   - it strips whitespace and drops empty segments;
-  - it requires each entry to be an absolute path with no `..` segment, the same rule the table applies;
+  - it requires each entry to be an absolute path with no `..` segment. This is looser than the table, which also requires `/data/` and a restricted
+    character set: the setting is only read here, never rendered into a root cron line;
   - it drops duplicates.
 
   It returns either the roots or an error string.
@@ -305,7 +316,7 @@ None.
 
 - Backup state in the health verdict. This means it also appears in `mt data overview`'s recorded health detail
   (slice 922 reads `verdict_line`), and in `pass_runs`.
-- `env_set_key`, for any later managed key in the service environment file.
+- `env_set_key` (in `env_add_keys.sh`), for any later managed key in the service environment file.
 
 ### Consumes from Other Slices
 
@@ -347,7 +358,8 @@ None.
 - A test that runs `backup_health_cron.sh` with stubbed checkers into a temp root, then reads that root with `read_root`.
   This proves the reader consumes the writer's real output, not a hand-written imitation.
 - D7 parity test against the cron template.
-- Shell test for `env_set_key`: replace, append, unchanged, preserve other lines/owner/mode, value never printed.
+- Shell test for `env_set_key` beside the existing `env_add_keys` tests in `test/unit/test_provision_tick_lib.py`: replace, append, unchanged, preserve other
+  lines/owner/mode, value never printed. `env_add_keys`'s existing tests pass unchanged.
   `shellcheck` clean.
 - `health.py` stays under ~330 lines. The new code lives in `health_backup.py`.
 - ruff, mypy (per the kalshi_support invocation note) and the unit tier pass.
@@ -400,7 +412,7 @@ the outage does not exist until this slice ships.
 3. `read_root`, and the writer-to-reader test through `backup_health_cron.sh`.
 4. Wire `gather_backup` into `data_health`, before the connection. Add a test that the rows print on `OperationalError`.
 5. D7 parity test.
-6. `env_set_key.sh` and its test. Add the install step 4 change.
+6. Extract the shared atomic write in `env_add_keys.sh`, add `env_set_key` and its test, then the install step 4 change.
 7. Docs: runbooks 100 and 200, the unit comment, the env examples, CHANGELOG.
 
 This is one task file. Effort: 2/5.
