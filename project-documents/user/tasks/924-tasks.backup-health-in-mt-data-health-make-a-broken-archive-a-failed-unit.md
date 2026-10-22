@@ -19,15 +19,16 @@ projectState: 'Slice design committed and reviewed (PASS, round 1). `mt data hea
 dateCreated: 20261022
 dateUpdated: 20261022
 status: not_started
-turns: 13
-promptTokens: 641905
-cachedTokens: 575943
-cacheWriteTokens: 65940
-completionTokens: 12878
-durationSeconds: 108.7
-costUsd: 0.450472
-usageRounds: 1
-pricedRounds: 1
+turns: 17
+promptTokens: 987423
+cachedTokens: 908019
+cacheWriteTokens: 79374
+completionTokens: 16214
+durationSeconds: 138.9
+costUsd: 0.570792
+usageRounds: 2
+pricedRounds: 2
+revision_number: 1
 ---
 
 # Tasks: Backup Health in `mt data health`
