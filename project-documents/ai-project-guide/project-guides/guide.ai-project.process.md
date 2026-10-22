@@ -35,6 +35,8 @@ Each phase has an approval authority that must sign off before proceeding to the
 
 **Review gates.** When `cf next` or any workflow check reports that a slice, task, or code review is required before proceeding, that is the approval mechanism above in action. The correct response is to stop and report to the Project Manager. Do not start the review yourself: the Project Manager or the orchestrating pipeline (for example squadron) runs reviews. Never edit frontmatter to clear the gate. In particular, `review: none` in a slice-design's frontmatter is a Project Manager declaration that exempts the slice from all slice-scoped reviews; agents must not add it, must not run `cf check --set-review-none`, and must not carry it over from another document used as a template. The one exception is the project's standing fixes slice (see Fixes below), which is `review: none` by definition: an agent creating it sets that field.
 
+**Front-load decisions.** A decision is due at the earliest phase that has the information to make it. Architecture owns any decision that crosses slices or touches process, configuration, or external systems. A phase is not complete while it holds a pending decision: take it to the Project Manager before the phase ends, never pass it down to the implementer. Automated pipelines cannot run work with a decision still embedded in it.
+
 When working on project phases, ensure you have all required information first. If in doubt, request and obtain the required information from the Project Manager before proceeding. Do not guess or make assumptions.
 
 ##### Slices
@@ -50,6 +52,7 @@ Slices are grouped under architectural initiatives, each with its own architectu
    - Include initial tech stack identification and key constraints where known.
    - If the project involves multiple capability areas or components, identify them in the Solution Approach section. These are not yet initiatives — just the named pieces that Phase 1 will formalize.
    - Use `guide.ai-project.000-concept` for detailed guidance.
+   - **Existing codebase with no planning artifacts (brownfield):** use `guide.ai-project.brownfield-adoption` instead of starting from a blank concept. It recovers the concept, architecture, and an existing-state slice plan from what is built.
    - Outcome: _A short doc describing the problem, target users, overall solution approach (including identified capability areas), and initial technology direction._
 
 1. **Phase 1: Initiative Plan**
@@ -192,9 +195,9 @@ Projects use the same phases but differ in scope and entry point:
 
 **Fixes** (any work committed as `fix:`):
 - Follow `rules/fixes.md`. A small fix is made and committed straight to the target branch, with no slice, task file or review. A fix that needs several steps becomes a task group in the project's standing fixes slice.
-- **Creating the standing fixes slice** (once per project, the first time a fix needs tasks): take the next free 9xx slice index `nnn`, then add
-  - `user/slices/nnn-slice.standing-fixes.md`: slice-design frontmatter with `status: in_progress` and `review: none`. Body: it is a permanent container for fixes and is never complete; unrelated fixes belong together; closed items may be reopened.
-  - `user/tasks/nnn-tasks.standing-fixes.md`: tasks frontmatter, then one `## #{issue} {title}` checklist group per fix.
+- **Creating the standing fixes slice** (once per project, the first time a fix needs tasks): use index 990 (reserved for standing slices; see `file-naming-conventions`), then add
+  - `user/slices/990-slice.standing-fixes.md`: slice-design frontmatter with `status: in_progress` and `review: none`. Body: it is a permanent container for fixes and is never complete; unrelated fixes belong together; closed items may be reopened.
+  - `user/tasks/990-tasks.standing-fixes.md`: tasks frontmatter, then one `## #{issue} {title}` checklist group per fix.
   - A line for it in the project's 900 slice plan, if there is one.
 
 ---
@@ -283,6 +286,8 @@ These files, shared by all of our projects, are contained in {project-root}/proj
   roles and project phases.  Always start here.
 * guide.ai-project.000-concept (aka: AI Project Concept Guide): details on creating
   Phase 0 Concept documents.
+* guide.ai-project.brownfield-adoption: adopting an existing codebase that has no
+  planning artifacts; recovers the concept, architecture, and an existing-state slice plan.
 * guide.ai-project.001-initiative-plan: guidance on creating the Phase 1 Initiative
   Plan, which decomposes a concept into named initiatives with index assignments.
 * guide.ai-project.003-slice-planning: guidance on breaking architectural components
@@ -293,8 +298,6 @@ These files, shared by all of our projects, are contained in {project-root}/proj
   into granular task lists.  
 * guide.ai-project.006-task-expansion (aka: AI Task Expansion Guide): specific
   guidance on task expansion for slice-based development.  Optional, rarely needed.
-* guide.ai-project.091-legacy-task-migration: guidance for migrating legacy projects
-  to the slice-based methodology.
 * guide.ui-development.ai (aka: AI Development Guide - UI): specific guidance 
   pertaining to UI/UX tasks.
 * prompt.ai-project.system (aka: AI Project Prompt Templates): parameterized 

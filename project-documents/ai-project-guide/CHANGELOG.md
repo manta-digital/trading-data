@@ -12,6 +12,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.5] - 2026-10-21
+
+### Changed
+- Phase 6 now forbids pushing as well as merging. The task-breakdown guide's "What to Avoid" lists a push step in a task file, the Phase 6 prompt tells the agent to leave merge and push steps unchecked and tell the Project Manager, and the Git rules (and this repo's CLAUDE.md) say not to merge or push at the end of implementation. Pushing happens only when the Project Manager asks.
+
+## [0.22.4] - 2026-10-21
+
+### Added
+- `skills/setup-ci`: a TypeScript skeleton recipe (ESM, Vitest, the guide's ESLint baseline) for projects with no `package.json`. It was previously "no recipe yet". It asks for npm or pnpm. The skill also detects the package manager from the lockfile or `packageManager` field and, for pnpm, adapts the generated `ci.yml` (`pnpm/action-setup`, `pnpm install --frozen-lockfile`, `pnpm run`).
+
+## [0.22.3] - 2026-10-21
+
+### Added
+- Retroactive-slice marker in `guide.ai-project.brownfield-adoption` (Retroactive Slices): a backticked `retroactive` token after the entry title, with the checked/indexed/no-design-or-tasks rules, index ordering, and `provenance: derived` on the derived architecture. The Brownfield Adoption prompt now points to it and sets `provenance: derived`. Specified by Context Forge slice 263, not yet implemented in cf.
+
+## [0.22.2] - 2026-10-20
+
+### Fixed
+- Brownfield Adoption prompt: the squadron path is now gated only on `analysis_skill_installed` being true. `understand_plugin_installed` is checked only when the graph must be built: true runs `graph_build`; false or null asks the PM to install the plugin or take the CF-only path, saying "unknown" when null. Previously the plugin was required even when the graph was current, and a null value blocked the path.
+- Removed dead references to `guide.ai-project.091-legacy-task-migration` (deleted in v0.13.0) from the process guide and `project-guides/readme.md`.
+
+### Removed
+- `scripts/setup-ide` stub. cf 0.19.6+ does this work itself; cf 0.19.5 and older no longer get the "run `cf update`" message and will fail on the missing script.
+
+## [0.22.1] - 2026-10-20
+
+### Changed
+- Brownfield Adoption prompt: the concept step now invokes the `concept` value from the surface's entry in the Adoption Facts (squadron probe `surfaces.<s>.concept`) instead of an unnamed "concept step". It skips the step when a concept exists unless the PM confirms an overwrite.
+
+## [0.22.0] - 2026-10-20
+
+### Added
+- Brownfield adoption for context-forge initiative 260: `guide.ai-project.brownfield-adoption`, a Brownfield Adoption prompt in `prompt.ai-project.system`, and the `brownfield-adoption` context profile (`fileConcept`, `fileArch`, `fileSlicePlan`, `fileComprehension`). The prompt recovers a baseline concept, a reverse-engineered architecture, and an existing-state slice plan from an existing codebase, never fabricates intent, and reads squadron's capability probe from the "Adoption Facts" section that `cf build` appends. The retroactive-slice marker format is not yet specified.
+
+### Changed
+- The concept prompt now opens by asking the Project Manager what they want to build. `guide.ai-project.000-concept` and the process guide point brownfield projects to the adoption guide.
+
+### Removed
+- Stale `analyze-codebase` entry from `context_profiles`.
+
+## [0.21.9] - 2026-10-19
+
+### Added
+- `rules/permissiveness/cautious.md` and `rules/permissiveness/autonomous.md`: fragments context-forge appends to its build output for the `workflow.permissiveness` setting (#46). `standard` is the baseline in `rules/general.md` and has no file. `cautious` states that it overrides the baseline's "invented confirmation gates are invalid" rule. The subdirectory keeps setup-ide from installing them as scoped rules.
+
+## [0.21.8] - 2026-10-19
+
+### Changed
+- `rules/git.md` (and the CLAUDE.md block): syncing the integration branch from `main`, and refreshing a worktree's branch from its parent, are no longer PM-only. They are allowed when the merge is clean; on conflict, abort and ask the PM. Merging upward into the integration branch or `main` stays PM-only.
+
+## [0.21.7] - 2026-10-18
+
+### Changed
+- `rules/general.md`: slice designs and task breakdowns may not wait on Project Manager confirmation, approval, or added caution unless a named rule requires it. When a task truly needs the PM, write a `BLOCKED:` line and reason under it, leave it unchecked, and stop. Unattended pipelines (squadron) parse the marker.
+
+## [0.21.6] - 2026-10-17
+
+### Fixed
+- `agents/task-checker.md` and `skills/setup-ci/SKILL.md`: quoted the `description:` line. Unquoted colons made the frontmatter invalid, so task-checker lost its model and color settings and setup-ci would not load.
+- `rules/fixes.md`: quoted the `description:` line so "Fixes #n" is not read as a YAML comment.
+
+## [0.21.5] - 2026-10-17
+
+### Changed
+- `skills/setup-ci`: with no `pyproject.toml` or `package.json`, offers a minimal uv Python skeleton (TypeScript not yet covered). Offers a standard `.gitignore` when it is missing or weak.
+- `skills/setup-ci`: always asks for the publish target instead of inferring PyPI or npm from the manifest. When `requires-python` has no upper bound, offers the installed interpreters as choices.
+- `lint/python/ruff.toml`: excludes `*.md`, so ruff no longer formats or lints Python examples in markdown.
+
+## [0.21.4] - 2026-10-17
+
+### Changed
+- `file-naming-conventions.md`: 900-999 splits into 900-989 (sequential, numbered in order, never continuing into 990-999) and 990-999 (standing slices, assigned by hand). 990 is the standing fixes slice.
+- Process guide, Fixes: a new standing fixes slice uses index 990.
+
+## [0.21.3] - 2026-10-17
+
+### Changed
+- Process guide, Phase Approval: front-load decisions. A decision is due at the earliest phase that can make it; no phase completes with a pending decision (#44).
+- `templates/slice-design.md`: each Technical Decision gets a `Status:` line (`decided` or `pending-pm`) under its heading; a design with any `pending-pm` cannot move to Phase 5.
+- Task breakdown guide: no task may wait on a PM decision or PM-supplied artifact; resolve it first or record it as a slice precondition.
+
+## [0.21.2] - 2026-10-16
+
+### Changed
+- `skills/setup-ci`: the release skill uses only the root `DEVLOG.md` and skips the devlog step when there is none, instead of falling back to another devlog or asking.
+
+## [0.21.1] - 2026-10-16
+
+### Fixed
+- `skills/setup-ci`: decides each OPTIONAL ci.yml block by probing the project (tests that use `main` enable the fetch; guide projects enable the frontmatter block), reads the Python and Node test versions from the project instead of guessing, skips the changelog and devlog when finding version files, and defines every slot the release template uses.
+- `skills/setup-ci`: the version search skips `project-documents/`, the devlog row says which DEVLOG.md to use when there are several, and the fetch-main probe ignores temporary test repos.
+- CI baselines: the frontmatter block runs `cf init --lite --no-ide` before `cf validate frontmatter`, and the TypeScript baseline now has the block too. The header comment no longer looks like an unfilled slot.
+
+## [0.21.0] - 2026-10-16
+
+### Added
+- `ci/python/ci.yml` and `ci/typescript/ci.yml`: CI baselines (lint, typecheck, tests, tag-triggered publish) with slots to fill.
+- `skills/setup-ci`: detects the stack, writes the project's `ci.yml` from the baseline and generates its own `release` skill (patch by default, done only when the registry shows the version, integration branch read at release time).
+
 ## [0.20.12] - 2026-10-14
 
 ### Changed
