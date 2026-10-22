@@ -30,6 +30,7 @@ from typing import Any
 
 import pandas as pd
 import psycopg
+from psycopg.rows import tuple_row
 
 from manta_trading.constants import (
     MINUTE_OHLCV_TABLE,
@@ -101,7 +102,10 @@ class SweepReport:
 
 
 def list_chunks(conn: psycopg.Connection[Any]) -> list[Chunk]:
-    rows = conn.execute(_CHUNKS, (MINUTE_OHLCV_TABLE,)).fetchall()
+    # Positional unpacking below: a caller's dict_row connection (the 172
+    # cutover's) would yield column names, so ask for tuples explicitly.
+    cur = conn.cursor(row_factory=tuple_row)
+    rows = cur.execute(_CHUNKS, (MINUTE_OHLCV_TABLE,)).fetchall()
     return [
         Chunk(name, start, end, bool(compressed))
         for name, start, end, compressed in rows
@@ -109,7 +113,8 @@ def list_chunks(conn: psycopg.Connection[Any]) -> list[Chunk]:
 
 
 def _has_null(conn: psycopg.Connection[Any], chunk: Chunk) -> bool:
-    row = conn.execute(_HAS_NULL, (chunk.start, chunk.end)).fetchone()
+    cur = conn.cursor(row_factory=tuple_row)
+    row = cur.execute(_HAS_NULL, (chunk.start, chunk.end)).fetchone()
     return bool(row and row[0])
 
 

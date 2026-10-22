@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 import psycopg
 import pytest
+from psycopg.rows import dict_row
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
@@ -35,6 +36,7 @@ from manta_trading.market.maintenance.off_tape_sweep import (
     ChecksumMismatch,
     list_chunks,
     run_sweep,
+    unevaluated_chunks,
 )
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "off_tape"
@@ -124,6 +126,17 @@ def _raw(conn: psycopg.Connection) -> str:
     row = conn.execute(_RAW).fetchone()
     assert row is not None
     return str(row[0])
+
+
+def test_unevaluated_chunks_on_a_dict_row_connection(history: str) -> None:
+    """The 172 cutover opens its connection with dict rows; unpacking one
+    yields column names, which reached the database as timestamps."""
+    with psycopg.connect(history, autocommit=True, row_factory=dict_row) as conn:
+        assert len(unevaluated_chunks(conn)) == 6
+    with _conn(history) as conn:
+        run_sweep(conn)
+    with psycopg.connect(history, autocommit=True, row_factory=dict_row) as conn:
+        assert unevaluated_chunks(conn) == []
 
 
 def test_sweep_marks_everything_and_keeps_raw(history: str) -> None:
