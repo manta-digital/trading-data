@@ -17,8 +17,11 @@
 #
 # Lock: `flock -n` on --lock; if held, prints `skipped: previous run active`
 # and exits 0 (the cron case). --lock-wait <min> waits instead (the weekly
-# job's case). The whole rclone call runs under `timeout --timeout` minutes so
-# a hung endpoint can never queue waiting processes.
+# job's case). With --timeout <minutes> the whole rclone call runs under
+# `timeout`; without it there is no wall-clock cap (the hourly cron push: a
+# kill discards the scan of the whole archive, so a long catch-up could never
+# finish — the lock skips overlapping runs, and rclone's own idle timeout
+# ends a hung connection).
 #
 # --min-age <rclone duration> overrides the default MIN_AGE for one call: the
 # weekly job passes the time elapsed since its catch-up push began (plus the
@@ -27,7 +30,7 @@
 #
 # Usage:
 #   sync_wal_offsite.sh --wal-dir <dir> --remote <rclone-path> --stamp <file> \
-#       --timeout <minutes> --lock <file> [--lock-wait <minutes>] \
+#       [--timeout <minutes>] --lock <file> [--lock-wait <minutes>] \
 #       [--min-age <duration>] [--verify | --sync-max-delete <n>]
 set -euo pipefail
 
@@ -37,7 +40,7 @@ LOGGER_TAG=manta-backup
 SKIP_MESSAGE="skipped: previous run active"
 
 usage() {
-  echo "usage: $0 --wal-dir <dir> --remote <rclone-path> --stamp <file> --timeout <minutes> --lock <file> [--lock-wait <minutes>] [--min-age <duration>] [--verify | --sync-max-delete <n>]" >&2
+  echo "usage: $0 --wal-dir <dir> --remote <rclone-path> --stamp <file> [--timeout <minutes>] --lock <file> [--lock-wait <minutes>] [--min-age <duration>] [--verify | --sync-max-delete <n>]" >&2
 }
 die() { echo "error: $*" >&2; exit "${2:-1}"; }
 
@@ -56,10 +59,10 @@ while [ $# -gt 0 ]; do
     *) usage; die "unknown argument: $1" 2 ;;
   esac
 done
-for pair in "--wal-dir:$WAL_DIR" "--remote:$REMOTE" "--stamp:$STAMP" "--timeout:$TIMEOUT_MIN" "--lock:$LOCK"; do
+for pair in "--wal-dir:$WAL_DIR" "--remote:$REMOTE" "--stamp:$STAMP" "--lock:$LOCK"; do
   [ -n "${pair#*:}" ] || { usage; die "${pair%%:*} is required" 2; }
 done
-for num in "--timeout:$TIMEOUT_MIN" "--lock-wait:${LOCK_WAIT_MIN:-0}" "--sync-max-delete:${MAX_DELETE:-0}"; do
+for num in "--timeout:${TIMEOUT_MIN:-0}" "--lock-wait:${LOCK_WAIT_MIN:-0}" "--sync-max-delete:${MAX_DELETE:-0}"; do
   case "${num#*:}" in ''|*[!0-9]*) usage; die "${num%%:*} must be a whole number: ${num#*:}" 2 ;; esac
 done
 [ "$MODE" != sync ] || [ -n "$MAX_DELETE" ] || { usage; die "--sync-max-delete needs a number" 2; }
@@ -83,7 +86,11 @@ esac
 
 echo "wal offsite $MODE: $WAL_DIR -> $REMOTE ($(date -Is))"
 rc=0
-timeout "${TIMEOUT_MIN}m" "${RCLONE[@]}" || rc=$?
+if [ -n "$TIMEOUT_MIN" ]; then
+  timeout "${TIMEOUT_MIN}m" "${RCLONE[@]}" || rc=$?
+else
+  "${RCLONE[@]}" || rc=$?
+fi
 if [ "$rc" -ne 0 ]; then
   msg="wal offsite $MODE FAILED (rclone exit $rc) $WAL_DIR -> $REMOTE"
   echo "$msg" >&2

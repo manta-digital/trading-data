@@ -6,8 +6,8 @@
 # Do not edit here: change the template or the script's constants and re-run
 # `sudo deploy/setup-backup.sh`. `--check` reports DRIFT if this file differs
 # from a fresh render. Every at-sign-delimited token is substituted by the script; the
-# push schedule, --stale-after (3 x interval), and --timeout (interval - 1)
-# are all derived from one constant, WAL_OFFSITE_INTERVAL_MIN.
+# push schedule and --stale-after (3 x interval) are both derived from one
+# constant, WAL_OFFSITE_INTERVAL_MIN.
 #
 # No mail transport on this host: every job redirects its output to a log
 # under the backup root, and the health check turns failures into flag files.

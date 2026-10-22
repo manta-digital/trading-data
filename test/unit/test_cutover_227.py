@@ -19,7 +19,15 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
-FIXTURE = Path(__file__).parent / "fixtures" / "cron_main_pre227.txt"
+_FIXTURE_FILE = Path(__file__).parent / "fixtures" / "cron_main_pre227.txt"
+
+
+def _fixture() -> str:
+    """The pre-227 production cron file, minus the push --timeout that was
+    later removed on purpose (a kill restarts the archive scan)."""
+    return _FIXTURE_FILE.read_text().replace(" --timeout 59", "")
+
+
 CHECKOUT = "/home/manta/source/repos/manta/trading-data"
 BUCKET = "b2:manta.trading.data"
 MAIN_KEY = "MT_TIMESCALE_MAINTENANCE_URL"
@@ -122,15 +130,13 @@ def test_missing_block_or_job_fails(helpers: ModuleType, rendered: str) -> None:
 
 
 def test_production_lines_of_the_pre227_file(helpers: ModuleType) -> None:
-    assert helpers.production_lines(FIXTURE.read_text()) == (
-        FIXTURE.read_text().splitlines()
-    )
+    assert helpers.production_lines(_fixture()) == (_fixture().splitlines())
 
 
 def test_strip_and_compare_accepts_the_expected_change(
     helpers: ModuleType, rendered: str
 ) -> None:
-    old = FIXTURE.read_text()
+    old = _fixture()
     assert helpers.production_changes(old, rendered, _new_args(helpers)) == []
 
 
@@ -145,7 +151,7 @@ def test_new_args_follow_the_table(helpers: ModuleType, rendered: str) -> None:
     """Review F003: a different replication host in the table is stripped too."""
     other = rendered.replace("--replication-host 127.0.0.1", "--replication-host ::1")
     args = helpers.NewArgs(MAIN_KEY, "::1", BUCKET)
-    assert helpers.production_changes(FIXTURE.read_text(), other, args) == []
+    assert helpers.production_changes(_fixture(), other, args) == []
 
 
 @pytest.mark.parametrize(
@@ -161,7 +167,7 @@ def test_strip_and_compare_refuses_any_other_change(
 ) -> None:
     changed = rendered.replace(before, after, 1)
     assert changed != rendered
-    old = FIXTURE.read_text()
+    old = _fixture()
     changes = helpers.production_changes(old, changed, _new_args(helpers))
     assert changes and after.strip() in changes[0]
 

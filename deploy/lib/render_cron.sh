@@ -7,8 +7,9 @@
 # per row of the cluster table, in table order. Lines of the cluster template
 # starting `##` are template comments and are dropped.
 #
-# Derives the three interval-dependent values from one number: the push
-# schedule, the health check's --stale-after, and the push's --timeout.
+# Derives the interval-dependent values from one number: the push
+# schedule and the health check's --stale-after. The push has no --timeout:
+# a kill restarts the archive scan, so catch-up could never finish.
 # Refuses an unfilled placeholder or an unescaped `%` (cron turns `%` into a
 # newline) so a bad render can never reach /etc/cron.d.
 #
@@ -30,8 +31,6 @@ LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Three missed pushes before offsite_wal_stale fires (D5).
 STALE_AFTER_MULTIPLIER=3
-# The push must finish before the next one is due.
-PUSH_TIMEOUT_SLACK_MIN=1
 MAX_INTERVAL_MIN=60
 CLUSTER_BLOCKS_MARKER=@CLUSTER_BLOCKS@
 # Every ${x//pat/rep} below quotes rep: bash 5.2+ turns an unquoted & in it into
@@ -92,7 +91,6 @@ else
   die "--interval must be between 1 and $MAX_INTERVAL_MIN minutes: $INTERVAL" 2
 fi
 STALE_AFTER=$((INTERVAL * STALE_AFTER_MULTIPLIER))
-PUSH_TIMEOUT=$((INTERVAL - PUSH_TIMEOUT_SLACK_MIN))
 
 # One block per table row.
 CLUSTER_TEXT=$(grep -v '^##' "$CLUSTER_TEMPLATE")
@@ -127,7 +125,6 @@ CONTENT=${CONTENT//@KEEP_DAYS@/"$KEEP_DAYS"}
 CONTENT=${CONTENT//@RESTIC_PREFIX@/"$RESTIC_PREFIX"}
 CONTENT=${CONTENT//@PUSH_SCHEDULE@/"$PUSH_SCHEDULE"}
 CONTENT=${CONTENT//@STALE_AFTER@/"$STALE_AFTER"}
-CONTENT=${CONTENT//@PUSH_TIMEOUT@/"$PUSH_TIMEOUT"}
 
 if LEFT=$(grep -o '@[A-Z_]*@' <<< "$CONTENT" | sort -u | paste -sd ' ') && [ -n "$LEFT" ]; then
   die "unfilled placeholder(s) in $TEMPLATE or $CLUSTER_TEMPLATE: $LEFT"

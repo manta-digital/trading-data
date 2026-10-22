@@ -448,7 +448,7 @@ connections arrive from). Both health jobs read the host's
 
 The push interval appears in exactly one place in the repository
 (`WAL_OFFSITE_INTERVAL_MIN` in `setup-backup.sh`); it renders the schedule,
-the health check's `--stale-after` (3 ×) and the push's `--timeout` (−1 min).
+and the health check's `--stale-after` (3 ×). The push has no `--timeout`; the lock skips an overlapping run.
 `cat /etc/cron.d/manta-trading-backup` is the literal, argument-complete
 form of every job — copy a line from there to run a job by hand.
 

@@ -807,7 +807,7 @@ class TestRenderCron:
         assert [j.split()[5] for j in jobs] == ["manta"] * 8 + ["root"] * 2
         push = [j for j in jobs if "sync_wal_offsite.sh" in j][0]
         assert push.startswith("0 * * * * manta ")
-        assert "--timeout 59 " in push
+        assert "--timeout" not in push
         health = [j for j in jobs if "backup_health_cron.sh" in j][0]
         assert "--stale-after 180 " in health
         assert "@" not in text
@@ -826,9 +826,12 @@ class TestRenderCron:
         lines; the result is the installed pre-227 file, line for line."""
         text = _render("60").stdout
         rendered = _block(text, "17/main") + _host_block(text)
-        assert [_strip_new_args(x) for x in rendered] == (
-            _PRE227.read_text().splitlines()
-        )
+        # The push's --timeout 59 was removed afterwards on purpose (a kill
+        # restarts the archive scan); drop it from the historical fixture.
+        pre227 = [
+            x.replace(" --timeout 59", "") for x in _PRE227.read_text().splitlines()
+        ]
+        assert [_strip_new_args(x) for x in rendered] == pre227
 
     def test_production_blocks_never_name_tick(self) -> None:
         text = _render("60").stdout
@@ -878,7 +881,7 @@ class TestRenderCron:
         assert result.returncode == 0, result.stderr
         push = [j for j in _jobs(result.stdout) if "sync_wal_offsite.sh" in j][0]
         assert push.startswith("*/15 * * * * manta ")
-        assert "--timeout 14 " in push
+        assert "--timeout" not in push
         health = [j for j in _jobs(result.stdout) if "backup_health_cron.sh" in j][0]
         assert "--stale-after 45 " in health
 

@@ -103,9 +103,7 @@ def _push(p: dict[str, Path], *extra: str) -> subprocess.CompletedProcess[str]:
 
 
 class TestPushArguments:
-    @pytest.mark.parametrize(
-        "missing", ["--wal-dir", "--remote", "--stamp", "--timeout", "--lock"]
-    )
+    @pytest.mark.parametrize("missing", ["--wal-dir", "--remote", "--stamp", "--lock"])
     def test_each_required_argument_named(
         self, push: dict[str, Path], missing: str
     ) -> None:
@@ -113,13 +111,23 @@ class TestPushArguments:
             "--wal-dir": str(push["wal"]),
             "--remote": "b2:x/wal",
             "--stamp": str(push["stamp"]),
-            "--timeout": "5",
             "--lock": str(push["lock"]),
         }
         args = [a for k, v in values.items() if k != missing for a in (k, v)]
         result = _run([str(_PUSH), *args], push["bin"])
         assert result.returncode == 2
         assert missing in result.stderr
+
+    def test_timeout_is_optional(self, push: dict[str, Path]) -> None:
+        values = {
+            "--wal-dir": str(push["wal"]),
+            "--remote": "b2:x/wal",
+            "--stamp": str(push["stamp"]),
+            "--lock": str(push["lock"]),
+        }
+        args = [a for kv in values.items() for a in kv]
+        result = _run([str(_PUSH), *args], push["bin"])
+        assert result.returncode == 0, result.stderr
 
     def test_non_numeric_timeout_refused(self, push: dict[str, Path]) -> None:
         result = _push(push, "--timeout", "soon")

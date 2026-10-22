@@ -49,7 +49,7 @@ LIB_DIR="$SCRIPT_DIR/lib"
 . "$LIB_DIR/backup_clusters.sh"
 
 # --- Constants: the one definition of every number, name, and path -----------
-WAL_OFFSITE_INTERVAL_MIN=60   # renders the push schedule, --stale-after (3x), --timeout (-1)
+WAL_OFFSITE_INTERVAL_MIN=60   # renders the push schedule, --stale-after (3x)
 KEEP_DAYS=7                   # D4a: local == offsite retention
 CRON_USER=manta
 ARCHIVE_MODE=on
