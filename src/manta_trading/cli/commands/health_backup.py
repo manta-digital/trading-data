@@ -18,6 +18,7 @@ import stat
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from manta_trading.cli.commands.health import HealthCheck, _ago
 from manta_trading.constants import (
@@ -25,6 +26,7 @@ from manta_trading.constants import (
     BACKUP_HEALTH_LOG,
     BACKUP_ROOTS_SEPARATOR,
     BACKUP_STALE_FLAG,
+    HEALTH_BACKUP_CHECKER_QUIET_AFTER,
 )
 
 #: Name of the single check reported when the setting itself is unusable.
@@ -203,3 +205,26 @@ def read_root(root: str) -> RootObservation:
         # (cannot read <path>: <reason>), so it is reported, not lost.
         return RootObservation(root, read_error=_cannot_read(current, exc))
     return RootObservation(root, None, archive, stale, mtime)
+
+
+def gather_backup(settings: Any, *, now: datetime) -> list[HealthCheck]:
+    """One verdict per root in ``MT_BACKUP_ROOTS``; no database access."""
+    roots = parse_backup_roots(settings.backup_roots)
+    if isinstance(roots, str):
+        return [HealthCheck(SETTING_CHECK, False, roots)]
+    return [
+        check_backup_root(read_root(root), now, HEALTH_BACKUP_CHECKER_QUIET_AFTER)
+        for root in roots
+    ]
+
+
+def gather_before_connect(settings: Any, *, now: datetime) -> list[HealthCheck]:
+    """The rows read before the primary connection opens (234 TD6, 924 D6).
+
+    Neither the tick rows nor the backup rows touch the primary database, so
+    they print even when it is down — during an outage the archive is exactly
+    what the operator needs to see.
+    """
+    from manta_trading.cli.commands.health_tick import gather_tick
+
+    return [*gather_tick(settings, now=now), *gather_backup(settings, now=now)]

@@ -261,7 +261,7 @@ def data_health(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
     """Check data freshness, cagg lag, minute session mass, Kalshi phase recency,
-    and the tick database and retention.
+    the tick database and retention, and each backup root's flags and checker.
 
     Exit 0 when every check passes, 1 when any fails, 2 when the checks could
     not run (no database URL, unreachable database or provider).
@@ -279,11 +279,11 @@ def data_health(
     # Slice 922: the health run records itself so `mt data overview` can show
     # the verdict and when it was reached. Decision 2 puts the verdict in the
     # detail, not the outcome: a run that answered "UNHEALTHY" did its job.
-    # Slice 234 TD6: the tick rows are read first, on their own connection, so
-    # they print even when the primary is down. They never change the exit.
-    from manta_trading.cli.commands.health_tick import gather_tick
+    # Slice 234 TD6 / 924 D6: the tick and backup rows are read first, off the
+    # primary, so they print even when it is down.
+    from manta_trading.cli.commands.health_backup import gather_before_connect
 
-    tick_checks = gather_tick(settings, now=datetime.now(UTC))
+    early_checks = gather_before_connect(settings, now=datetime.now(UTC))
     with pass_run_recorder(settings) as recorder:
         run_id = recorder.open(PassKind.HEALTH) if recorder is not None else None
         try:
@@ -291,7 +291,7 @@ def data_health(
                 str(settings.timescale_db_url),
                 connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
             ) as conn:
-                checks = [*gather(conn, settings), *tick_checks]
+                checks = [*gather(conn, settings), *early_checks]
         except (psycopg.OperationalError, psycopg.errors.QueryCanceled) as exc:
             # QueryCanceled is the session-mass statement timeout: exit 2
             # (could not run) rather than reporting a mass we did not measure.
@@ -303,7 +303,7 @@ def data_health(
                     detail=str(exc),
                 )
             if not json_output:
-                print_result("\n".join(render_lines(tick_checks)), json_mode=False)
+                print_result("\n".join(render_lines(early_checks)), json_mode=False)
             print_error(f"health check could not run: {exc}", json_mode=json_output)
             raise typer.Exit(EXIT_UNAVAILABLE) from exc
 

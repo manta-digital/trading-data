@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
@@ -19,6 +22,8 @@ from manta_trading.cli.commands.minute_session_mass import (
     select_judged_session,
 )
 from manta_trading.constants import (
+    BACKUP_ARCHIVE_FLAG,
+    BACKUP_HEALTH_LOG,
     HEALTH_MINUTE_SESSION_CALENDAR,
     HEALTH_MINUTE_SESSION_MIN_BARS_PER_MINUTE,
     HEALTH_MINUTE_SESSION_MIN_SYMBOLS,
@@ -175,6 +180,82 @@ class TestCommand:
         assert payload["healthy"] is False
         # 234: the tick database row follows the primary checks.
         assert [c["name"] for c in payload["checks"]] == ["a", "b", "tick database"]
+
+
+# ---------------------------------------------------------------------------
+# Slice 924 — backup rows, gathered before the primary connection
+# ---------------------------------------------------------------------------
+
+
+class TestBackupRows:
+    @pytest.fixture
+    def no_backup_rows(self) -> None:
+        """Override the shared fixture: these tests judge the real rows."""
+
+    @staticmethod
+    def _root(tmp_path: Path, name: str) -> Path:
+        root = tmp_path / name
+        root.mkdir()
+        (root / BACKUP_HEALTH_LOG).write_text("ran\n")
+        return root
+
+    @staticmethod
+    def _run(roots: str | None, *args: str, connect: Any = None) -> Any:
+        with (
+            patch(
+                "manta_trading.cli.app.Settings",
+                return_value=_settings(backup_roots=roots),
+            ),
+            patch("manta_trading.cli.app.setup_logging"),
+            patch(
+                "manta_trading.cli.commands.health.psycopg.connect",
+                connect if connect is not None else MagicMock(),
+            ),
+            patch(
+                "manta_trading.cli.commands.health.gather",
+                return_value=[HealthCheck("minute data", True, "fresh")],
+            ),
+        ):
+            return runner.invoke(app, ["data", "health", *args])
+
+    def test_healthy_roots_print_one_ok_row_each(self, tmp_path: Path) -> None:
+        a, b = self._root(tmp_path, "a"), self._root(tmp_path, "b")
+        result = self._run(f"{a},{b}")
+        assert result.exit_code == EXIT_HEALTHY, result.output
+        assert f"OK   backup {a} " in result.output
+        assert f"OK   backup {b} " in result.output
+
+    def test_a_flag_fails_the_row_and_the_run(self, tmp_path: Path) -> None:
+        import json
+
+        root = self._root(tmp_path, "a")
+        (root / BACKUP_ARCHIVE_FLAG).write_text("t\ndetected: T\nFAIL x: y\n")
+        assert f"FAIL backup {root} " in self._run(str(root)).output
+        result = self._run(str(root), "--json")
+        assert result.exit_code == EXIT_UNHEALTHY
+        (row,) = [
+            c for c in json.loads(result.output)["checks"]
+            if c["name"] == f"backup {root}"
+        ]  # fmt: skip
+        assert row["ok"] is False
+        assert row["severity"] == "verdict"
+
+    def test_unset_roots_fail_one_backup_row(self) -> None:
+        result = self._run(None)
+        assert result.exit_code == EXIT_UNHEALTHY
+        assert "FAIL backup " in result.output
+        assert "MT_BACKUP_ROOTS is not set" in result.output
+
+    def test_rows_print_before_the_primary_outage_error(self, tmp_path: Path) -> None:
+        import psycopg
+
+        root = self._root(tmp_path, "a")
+        down = MagicMock(side_effect=psycopg.OperationalError("primary down"))
+        result = self._run(str(root), connect=down)
+        assert result.exit_code == EXIT_UNAVAILABLE
+        assert f"OK   backup {root} " in result.output
+        error = result.output.index("health check could not run: primary down")
+        assert result.output.index(f"OK   backup {root} ") < error
 
 
 # ---------------------------------------------------------------------------
