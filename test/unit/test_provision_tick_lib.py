@@ -8,6 +8,7 @@ credential appears here: every password is a generated stand-in.
 from __future__ import annotations
 
 import getpass
+import grp
 import os
 import re
 import secrets
@@ -105,6 +106,163 @@ def test_the_written_env_passes_the_tick_preflight(
     pairs = [f"{key}=postgresql://u:p@h:5433/db" for key in _script_url_keys()]
     assert _add(env, ME, *pairs).returncode == 0
     check_env_keys(env)
+
+
+# -- env_set_key (slice 924 D4) -----------------------------------------------------
+
+
+def _set(env: Path, owner: str, pair: str) -> subprocess.CompletedProcess[str]:
+    return _bash("env_add_keys.sh", "env_set_key", str(env), owner, pair)
+
+
+def test_set_key_replaces_a_changed_value_in_place(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("A=1\nK=old\nB=2\n")
+    result = _set(env, ME, "K=new")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "set\n"
+    assert env.read_text() == "A=1\nK=new\nB=2\n"
+
+
+def test_set_key_appends_when_absent(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("A=1\n")
+    assert _set(env, ME, "K=v").stdout == "set\n"
+    assert env.read_text() == "A=1\nK=v\n"
+
+
+def test_set_key_identical_value_is_unchanged_and_byte_identical(
+    tmp_path: Path,
+) -> None:
+    env = tmp_path / ".env"
+    body = b"A=1\nK=v\n# note\n"
+    env.write_bytes(body)
+    assert _set(env, ME, "K=v").stdout == "unchanged\n"
+    assert env.read_bytes() == body
+
+
+def test_set_key_keeps_every_other_line_byte_identical(tmp_path: Path) -> None:
+    password = secrets.token_urlsafe(16)
+    env = tmp_path / ".env"
+    lines = [
+        f'MT_TIMESCALE_DB_URL="postgresql://app:{password}@h/db"',
+        "",
+        "# comment with K=old in it",
+        "  INDENTED=1",
+        "K=old",
+        "Z=last",
+    ]
+    env.write_text("\n".join(lines) + "\n")
+    _set(env, ME, "K=new")
+    after = env.read_text().splitlines()
+    assert after == [*lines[:4], "K=new", "Z=last"]
+
+
+def test_set_key_original_without_trailing_newline(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("A=1\nK=old")
+    _set(env, ME, "K=new")
+    assert env.read_text() == "A=1\nK=new\n"
+    env.write_text("A=1")
+    _set(env, ME, "K=v")
+    assert env.read_text() == "A=1\nK=v\n"
+
+
+def test_set_key_value_with_special_characters(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("K=old\n")
+    value = r"a&b\c/d|e$f*g"
+    _set(env, ME, f"K={value}")
+    assert env.read_text() == f"K={value}\n"
+
+
+def test_set_key_unwritable_directory_leaves_the_file_whole(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("K=old\n")
+    tmp_path.chmod(0o555)
+    try:
+        result = _set(env, ME, "K=new")
+    finally:
+        tmp_path.chmod(0o755)
+    assert result.returncode != 0
+    assert env.read_text() == "K=old\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]
+
+
+def test_set_key_failed_chown_leaves_no_temp_file(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("K=old\n")
+    assert _set(env, "no-such-user-924", "K=new").returncode != 0
+    assert env.read_text() == "K=old\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]
+
+
+def test_set_key_never_prints_the_value(tmp_path: Path) -> None:
+    secret = secrets.token_urlsafe(16)
+    env = tmp_path / ".env"
+    for owner in (ME, "no-such-user-924"):
+        result = _set(env, owner, f"K={secret}")
+        assert secret not in result.stdout + result.stderr
+
+
+# -- backup_roots_env_set (slice 924 D4, success criterion 8) -----------------------
+
+_CLUSTERS = ROOT / "deploy" / "backup-clusters.conf"
+_GROUP = grp.getgrgid(os.getgid()).gr_name
+
+
+def _roots(env: Path, conf: Path = _CLUSTERS) -> subprocess.CompletedProcess[str]:
+    return _bash(
+        "env_add_keys.sh", "backup_roots_env_set", str(env), ME, _GROUP, str(conf)
+    )
+
+
+def _mode_and_owner(path: Path) -> tuple[int, int, int]:
+    st = path.stat()
+    return stat.S_IMODE(st.st_mode), st.st_uid, st.st_gid
+
+
+def test_backup_roots_from_the_real_table(tmp_path: Path) -> None:
+    env = tmp_path / "manta-trading.env"
+    others = ["MT_TIMESCALE_DB_URL=postgresql://x", "MT_LOG_LEVEL=INFO"]
+    env.write_text("\n".join(others) + "\n")
+    first = _roots(env)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == "set\n"
+    assert env.read_text().splitlines() == [
+        *others,
+        "MT_BACKUP_ROOTS=/data/backup,/data/backup/17-tick",
+    ]
+    assert _mode_and_owner(env) == (0o640, os.getuid(), os.getgid())
+    again = _roots(env)
+    assert again.stdout == "unchanged\n"
+    assert _mode_and_owner(env) == (0o640, os.getuid(), os.getgid())
+
+
+def test_backup_roots_malformed_table_leaves_the_env_untouched(
+    tmp_path: Path,
+) -> None:
+    conf = tmp_path / "clusters.conf"
+    conf.write_text(_CLUSTERS.read_text() + "17/bad MT_X relative/root\n")
+    env = tmp_path / "manta-trading.env"
+    body = b"A=1\n"
+    env.write_bytes(body)
+    env.chmod(0o600)
+    result = _roots(env, conf)
+    assert result.returncode == 2  # table error, distinct from a write failure
+    assert "backup-clusters:" in result.stderr
+    assert env.read_bytes() == body
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+
+
+def test_backup_roots_value_parses_through_the_python_reader(tmp_path: Path) -> None:
+    from manta_trading.cli.commands.health_backup import parse_backup_roots
+
+    env = tmp_path / "manta-trading.env"
+    _roots(env)
+    (line,) = env.read_text().splitlines()
+    value = line.removeprefix("MT_BACKUP_ROOTS=")
+    assert parse_backup_roots(value) == ["/data/backup", "/data/backup/17-tick"]
 
 
 # -- log_scrub ----------------------------------------------------------------------
