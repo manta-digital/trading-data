@@ -3,9 +3,10 @@
 #
 # Creates the manta-trading service account, clones/updates the pinned
 # checkout at /opt/manta-trading, builds its venv, installs the environment
-# file skeleton, the systemd units, and the journald drop-in, then reloads
-# systemd. ENABLES NOTHING — cutover is a separate, explicit
-# `systemctl enable --now` (Group F of the slice tasks).
+# file skeleton (and sets the one key it manages, MT_BACKUP_ROOTS), the
+# systemd units, and the journald drop-in, then reloads systemd. ENABLES
+# NOTHING — cutover is a separate, explicit `systemctl enable --now` (Group F
+# of the slice tasks).
 #
 # Idempotent: every step is check-then-act. Recovery for any failure is
 # "fix the cause, re-run the whole script."
@@ -157,13 +158,26 @@ echo "venv OK: $("${INSTALL_DIR}/.venv/bin/mt" --version)"
 # --- Step 4: environment file -----------------------------------------------
 step "Step 4/6: environment file ${ENV_FILE}"
 if [[ -e "${ENV_FILE}" ]]; then
-  # Never overwrite, never merge — the PM's filled-in credentials must
-  # survive every re-run.
-  echo "exists — leaving contents untouched (sha256: $(sha256sum "${ENV_FILE}" | cut -d' ' -f1))"
+  # Never touch a key you do not manage — the PM's filled-in credentials must
+  # survive every re-run. This script manages exactly MT_BACKUP_ROOTS (below).
+  echo "exists — keeping every other key (sha256 before: $(sha256sum "${ENV_FILE}" | cut -d' ' -f1))"
 else
   install -m 0640 -o root -g "${SERVICE_USER}" "${ENV_EXAMPLE}" "${ENV_FILE}"
   echo "installed skeleton from ${ENV_EXAMPLE} — fill it before running a pass"
 fi
+# Slice 924 D4: the backup roots `mt data health` judges, derived from the
+# pinned checkout's cluster table so the table stays their single source.
+# Fails before step 5, so a bad table never reaches the loaded units.
+# shellcheck source=SCRIPTDIR/lib/env_add_keys.sh
+. "${INSTALL_DIR}/deploy/lib/env_add_keys.sh"
+rc=0
+roots_status="$(backup_roots_env_set "${ENV_FILE}" root "${SERVICE_USER}" \
+  "${INSTALL_DIR}/deploy/backup-clusters.conf")" || rc=$?
+case "${rc}" in
+  0) echo "MT_BACKUP_ROOTS ${roots_status}" ;;
+  2) die "cannot derive MT_BACKUP_ROOTS: ${INSTALL_DIR}/deploy/backup-clusters.conf is unreadable or malformed (error above)" ;;
+  *) die "could not set MT_BACKUP_ROOTS in ${ENV_FILE}" ;;
+esac
 # Re-assert ownership and mode every run, in case they drifted.
 chown "root:${SERVICE_USER}" "${ENV_FILE}"
 chmod 0640 "${ENV_FILE}"

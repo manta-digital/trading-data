@@ -1,0 +1,8 @@
+A BACKUP TIER IS STALE — see the backup-and-restore runbook
+detected: 2026-10-18T06:00:01-06:00
+FAIL archiver_failing: the most recent archive attempt failed (see pg_stat_archiver.last_failed_wal)
+FAIL unarchived_backlog: 24454157880 bytes of WAL awaiting archive (threshold 4294967296)
+FAIL archive_tmp_leftover: older than 10 min in /data/backup/wal: 00000001000013A2000000C7.zst.tmp
+FAIL offsite_wal_stale: push stamp /data/backup/wal-offsite.stamp is 2564 min old (limit 180 min)
+FAILED archive=archiver_failing,unarchived_backlog,archive_tmp_leftover stale=offsite_wal_stale
+FLAGS archive=3 stale=1

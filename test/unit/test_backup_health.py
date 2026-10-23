@@ -10,7 +10,6 @@ and the two success stamps.
 from __future__ import annotations
 
 import os
-import stat
 import subprocess
 import time
 from dataclasses import dataclass
@@ -18,11 +17,11 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from backup_support.glue import GLUE, INNER_PASS, GlueLayout, make_glue, write_stub
 
 _REPO_ROOT = Path(__file__).parents[2]
 _SCRIPT = _REPO_ROOT / "scripts" / "check_backup_health.sh"
 
-_INNER_PASS = "PASS archive healthy (mode=on, unarchived_bytes=0)"
 _LAST_ARCHIVED = "000000010000121700000083"
 _NEXT_SEGMENT = "000000010000121700000084"
 _WHOLE_SEGMENT = 16 * 1024 * 1024
@@ -43,16 +42,6 @@ def _age(path: Path, minutes: float) -> None:
     os.utime(path, (then, then))
 
 
-def _write_stub(bin_dir: Path, name: str, stdout_lines: list[str], rc: int) -> None:
-    body = "#!/usr/bin/env bash\n"
-    for line in stdout_lines:
-        body += f"echo {line!r}\n"
-    body += f"exit {rc}\n"
-    stub = bin_dir / name
-    stub.write_text(body)
-    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
-
-
 @dataclass
 class Layout:
     root: Path
@@ -63,10 +52,10 @@ class Layout:
     system_stamp: Path
 
     def stub_inner(self, lines: list[str], rc: int) -> None:
-        _write_stub(self.bin, "check_archive_health.sh", lines, rc)
+        write_stub(self.bin, "check_archive_health.sh", lines, rc)
 
     def stub_psql(self, failing: str, last_archived: str, last_failed: str) -> None:
-        _write_stub(self.bin, "psql", [f"{failing}|{last_archived}|{last_failed}"], 0)
+        write_stub(self.bin, "psql", [f"{failing}|{last_archived}|{last_failed}"], 0)
 
     def run(self, *overrides: str) -> subprocess.CompletedProcess[str]:
         args = [
@@ -101,7 +90,7 @@ def healthy(tmp_path: Path) -> Layout:
     (layout.base / date.today().strftime("%Y%m%d")).mkdir()
     layout.stamp.touch()
     layout.system_stamp.touch()
-    layout.stub_inner([_INNER_PASS], 0)
+    layout.stub_inner([INNER_PASS], 0)
     layout.stub_psql("f", _LAST_ARCHIVED, "")
     return layout
 
@@ -149,7 +138,7 @@ class TestInnerPassThrough:
     def test_healthy_is_inner_pass_plus_zero_flags(self, healthy: Layout) -> None:
         result = healthy.run()
         assert result.returncode == 0, result.stdout + result.stderr
-        assert result.stdout.splitlines() == [_INNER_PASS, "FLAGS archive=0 stale=0"]
+        assert result.stdout.splitlines() == [INNER_PASS, "FLAGS archive=0 stale=0"]
 
     def test_inner_failures_are_passed_through_and_classed_archive(
         self, healthy: Layout
@@ -362,7 +351,6 @@ class TestSummaryLine:
 
 # --- backup_health_cron.sh: the two-flag glue (Task 1.8) -----------------------
 
-_GLUE = _REPO_ROOT / "scripts" / "backup_health_cron.sh"
 _GLUE_REQUIRED = (
     "--env-file",
     "--url-key",
@@ -378,69 +366,15 @@ _GLUE_REQUIRED = (
 )
 
 
-@dataclass
-class GlueLayout:
-    root: Path
-    bin: Path
-    env_file: Path
-    flag: Path
-    stale_flag: Path
-    log: Path
-    journal: Path
-
-    def stub_checker(self, lines: list[str], rc: int) -> None:
-        _write_stub(self.bin, "check_backup_health.sh", lines, rc)
-
-    def run(self, *extra: str) -> subprocess.CompletedProcess[str]:
-        args = [
-            "--env-file", str(self.env_file),
-            "--url-key", "MT_TIMESCALE_MAINTENANCE_URL",
-            "--pgdata", str(self.root / "pgdata"),
-            "--wal-dir", str(self.root / "wal"),
-            "--stamp", str(self.root / "stamp"),
-            "--stale-after", "180",
-            "--system-stamp", str(self.root / "system-stamp"),
-            "--base-dir", str(self.root / "base"),
-            "--flag", str(self.flag),
-            "--stale-flag", str(self.stale_flag),
-            "--log", str(self.log),
-            *extra,  # last, so a test's own --url-key wins
-        ]  # fmt: skip
-        env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}")
-        return subprocess.run(
-            [str(_GLUE), *args], capture_output=True, text=True, timeout=60, env=env
-        )
-
-    def journal_lines(self) -> list[str]:
-        if not self.journal.exists():
-            return []
-        return self.journal.read_text().splitlines()
-
-
 @pytest.fixture
 def glue(tmp_path: Path) -> GlueLayout:
     """Glue with the checker and ``logger`` stubbed; the env file holds a URL."""
-    layout = GlueLayout(
-        root=tmp_path,
-        bin=tmp_path / "bin",
-        env_file=tmp_path / "env",
-        flag=tmp_path / "ARCHIVE-BROKEN",
-        stale_flag=tmp_path / "BACKUP-STALE",
-        log=tmp_path / "health.log",
-        journal=tmp_path / "journal",
+    return make_glue(
+        tmp_path / "root",
+        flag="ARCHIVE-BROKEN",
+        stale_flag="BACKUP-STALE",
+        log="health.log",
     )
-    layout.bin.mkdir()
-    layout.env_file.write_text(
-        'MT_TIMESCALE_MAINTENANCE_URL="postgresql://stub/none"\n'
-    )
-    # logger(1) stub: append its message to a file so transitions can be counted.
-    stub = layout.bin / "logger"
-    stub.write_text(
-        '#!/usr/bin/env bash\nshift 2\necho "$*" >> ' + repr(str(layout.journal)) + "\n"
-    )
-    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
-    layout.stub_checker([_INNER_PASS, "FLAGS archive=0 stale=0"], 0)
-    return layout
 
 
 class TestGlueArguments:
@@ -451,14 +385,14 @@ class TestGlueArguments:
             if name != missing:
                 args += [name, "x"]
         result = subprocess.run(
-            [str(_GLUE), *args], capture_output=True, text=True, timeout=30
+            [str(GLUE), *args], capture_output=True, text=True, timeout=30
         )
         assert result.returncode == 2
         assert missing in result.stderr
 
     def test_unknown_argument_refused(self) -> None:
         result = subprocess.run(
-            [str(_GLUE), "--frobnicate"], capture_output=True, text=True, timeout=30
+            [str(GLUE), "--frobnicate"], capture_output=True, text=True, timeout=30
         )
         assert result.returncode == 2
         assert "unknown argument" in result.stderr
@@ -478,7 +412,7 @@ class TestGlueFlags:
     ) -> None:
         glue.stub_checker(
             [
-                _INNER_PASS,
+                INNER_PASS,
                 "FAIL offsite_wal_stale: stamp is 200 min old",
                 "FAILED archive= stale=offsite_wal_stale",
                 "FLAGS archive=0 stale=1",

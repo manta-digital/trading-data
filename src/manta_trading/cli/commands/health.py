@@ -102,7 +102,7 @@ class HealthCheck:
         return self.severity is CheckSeverity.VERDICT
 
 
-def _ago(now: datetime, then: datetime) -> str:
+def ago(now: datetime, then: datetime) -> str:
     delta = now - then
     hours = delta.total_seconds() / 3600
     return f"{hours / 24:.1f} d ago" if hours >= 48 else f"{hours:.1f} h ago"
@@ -127,7 +127,7 @@ def check_raw_freshness(
         # local time under a "UTC" suffix, which is a wrong label, not a
         # cosmetic one.
         f"newest bar {newest.astimezone(UTC):%Y-%m-%d %H:%M} UTC "
-        f"({_ago(now, newest)}); "
+        f"({ago(now, newest)}); "
         f"limit {threshold.days} d",
     )
 
@@ -146,7 +146,7 @@ def check_phase_recency(
     ok = now - last_at <= threshold
     hours = threshold.total_seconds() / 3600
     return HealthCheck(
-        name, ok, f"last completed {_ago(now, last_at)}; limit {hours:.0f} h"
+        name, ok, f"last completed {ago(now, last_at)}; limit {hours:.0f} h"
     )
 
 
@@ -263,7 +263,7 @@ def data_health(
     record: bool = typer.Option(False, "--record", help="Record the verdict."),
 ) -> None:
     """Check data freshness, cagg lag, minute session mass, Kalshi phase recency,
-    and the tick database and retention.
+    the tick database and retention, and each backup root's flags and checker.
 
     Exit 0 when every check passes, 1 when any fails, 2 when the checks could
     not run (no database URL, unreachable database or provider).
@@ -281,11 +281,11 @@ def data_health(
     # Slice 922: the health run records itself so `mt data overview` can show
     # the verdict and when it was reached. Decision 2 puts the verdict in the
     # detail, not the outcome: a run that answered "UNHEALTHY" did its job.
-    # Slice 234 TD6: the tick rows are read first, on their own connection, so
-    # they print even when the primary is down. They never change the exit.
-    from manta_trading.cli.commands.health_tick import gather_tick
+    # Slice 234 TD6 / 924 D6: the tick and backup rows are read first, off the
+    # primary, so they print even when it is down.
+    from manta_trading.cli.commands.health_backup import gather_before_connect
 
-    tick_checks = gather_tick(settings, now=datetime.now(UTC))
+    early_checks = gather_before_connect(settings, now=datetime.now(UTC))
     # #55: only mt-health.service passes --record — the overview shows the last
     # recorded verdict, and a dev-checkout run judges with the dev .env.
     with pass_run_recorder(settings) if record else nullcontext() as recorder:
@@ -295,7 +295,7 @@ def data_health(
                 str(settings.timescale_db_url),
                 connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
             ) as conn:
-                checks = [*gather(conn, settings), *tick_checks]
+                checks = [*gather(conn, settings), *early_checks]
         except (psycopg.OperationalError, psycopg.errors.QueryCanceled) as exc:
             # QueryCanceled is the session-mass statement timeout: exit 2
             # (could not run) rather than reporting a mass we did not measure.
@@ -307,7 +307,7 @@ def data_health(
                     detail=str(exc),
                 )
             if not json_output:
-                print_result("\n".join(render_lines(tick_checks)), json_mode=False)
+                print_result("\n".join(render_lines(early_checks)), json_mode=False)
             print_error(f"health check could not run: {exc}", json_mode=json_output)
             raise typer.Exit(EXIT_UNAVAILABLE) from exc
 

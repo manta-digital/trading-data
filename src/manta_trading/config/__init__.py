@@ -149,6 +149,11 @@ class Settings(BaseSettings):
     # created implicitly; the run-context preflight refuses it unset, missing
     # or not writable.
     tick_archive_dir: Path | None = None
+    # Backup cluster roots judged by `mt data health` (slice 924, D5):
+    # MT_BACKUP_ROOTS, comma-separated absolute paths. Raw string with no
+    # validator on purpose: a bad value fails one health check, not every `mt`
+    # command. install-production.sh writes it from deploy/backup-clusters.conf.
+    backup_roots: str | None = None
     # Kalshi collection rule (slice 264, Decision 2; renamed from
     # MT_KALSHI_CANDLE_* in slice 265, Decision 3, because one rule now governs
     # candles and trades). Defaults are the PM's rule C; every value is

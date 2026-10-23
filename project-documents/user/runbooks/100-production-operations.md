@@ -185,6 +185,12 @@ configuration source for the units — no `.env` file exists in
   re-asserts mode 0640 `root:manta-trading`. The ceilings are the dev
   `.env`'s: both sides buy against one account and one manifest, so the
   rolling 30-day cap is one sum
+- `MT_BACKUP_ROOTS` (slice 924) — the backup cluster roots the health check
+  judges, comma-separated. **Managed by the install script:** every
+  `install-production.sh` run sets it from the pinned checkout's
+  `deploy/backup-clusters.conf` (printing `MT_BACKUP_ROOTS set` or
+  `unchanged`); it is the one key the script writes. Do not edit it by hand —
+  change the cluster table and re-run the install
 
 **Where the Kalshi private key goes.** The pass units set `ProtectHome=true`,
 so a PEM anywhere under `/home` is invisible to the service. Put it beside the
@@ -199,7 +205,8 @@ action from an interactive shell.
 
 Edit with `sudoedit /etc/manta-trading.env`; the skeleton comes from
 `deploy/manta-trading.env.example` and is installed only when the file does not
-exist — the install script never overwrites it. The dev checkout keeps its own
+exist — the install script never overwrites it, and changes no key but
+`MT_BACKUP_ROOTS`. The dev checkout keeps its own
 `.env` in its working directory; the file itself is never copied to `/etc`.
 
 ---
@@ -344,6 +351,15 @@ production's.
   `sudo mt-run tick`** — the pass downloads, verifies and ingests what is in
   flight. A deadline that passes first expires and reopens the unit, and the
   next pass buys that day again — a second purchase.
+
+**The backup rows (slice 924).** One verdict row per backup cluster root,
+`backup <root>` (`/data/backup`, `/data/backup/17-tick`), also gathered before
+the primary connection. It fails on an `ARCHIVE-BROKEN` or `BACKUP-STALE` flag
+under the root (the detail is the flag's own `FAIL` lines), on a quiet checker
+(`backup-health.log` older than 2 h or missing), or on a root it cannot read.
+`MT_BACKUP_ROOTS` unset or malformed is one failing `backup` row. What each
+flag means and how to clear it: the backup-and-restore runbook (200), flag
+section.
 
 ### `minute session mass` (slice 921)
 

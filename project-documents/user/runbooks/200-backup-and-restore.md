@@ -240,7 +240,27 @@ journalctl -t manta-backup --since '-7 days'                    # one line per f
   it does **not** gate the weekly base backup (blocking a healthy local tier
   because a remote tier is degraded would trade a backup for an alarm).
 
-Both clear on the next healthy check. The ten named failures:
+Both clear on the next healthy check.
+
+**`mt data health` reads both flags (slice 924).** Each root in
+`MT_BACKUP_ROOTS` (written into `/etc/manta-trading.env` by
+`install-production.sh` from `deploy/backup-clusters.conf`) gets one verdict
+row, `backup <root>`. The row fails, and so `mt-health.service` fails, when:
+
+- `ARCHIVE-BROKEN` or `BACKUP-STALE` is present — the detail is
+  `<FLAG> since <detected>: <check>: <text>; …`, the flag's own `FAIL` lines
+  for its class;
+- the checker is quiet — `backup-health.log` is missing or older than
+  `HEALTH_BACKUP_CHECKER_QUIET_AFTER` (2 h, four missed `*/30` runs);
+- the root cannot be read (`cannot read <path>: <reason>`).
+
+`MT_BACKUP_ROOTS` unset, empty or holding a relative or `..` path is one
+failing `backup` row. These rows are gathered before the database connection,
+so they still print when the primary is down. To clear a row: fix the cause
+named in the detail; the cron removes the flag within 30 minutes; the next
+hourly health run (:50) goes green.
+
+The ten named failures:
 
 | Name | Class → flag | Cause | Fix |
 |---|---|---|---|

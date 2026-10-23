@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A broken backup now fails the hourly health check** (slice 924). `mt data health` prints one `backup <root>` row per backup cluster. It fails, and `mt-health.service` with it, when `ARCHIVE-BROKEN` or `BACKUP-STALE` sits under the root (the detail names the failing checks and their numbers), when the backup checker has not run for 2 hours, or when the root cannot be read. The rows still print when the database is down. `install-production.sh` writes the roots into `/etc/manta-trading.env` as `MT_BACKUP_ROOTS` from the cluster table; it is the one key the script manages.
+
 ### Fixed
 - **`mt data overview` shows only the hourly health check's verdict** (#55). A health run from the dev checkout used to record its own verdict, judged with the dev `.env`'s settings, and the overview showed it as production's until the next hourly run. Now only `mt-health.service` records (`mt data health --record`); any other run prints its report and exit code and writes nothing. Takes effect when the release is installed (`install-production.sh` copies the updated unit).
 
