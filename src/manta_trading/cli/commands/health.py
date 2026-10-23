@@ -101,7 +101,7 @@ class HealthCheck:
         return self.severity is CheckSeverity.VERDICT
 
 
-def _ago(now: datetime, then: datetime) -> str:
+def ago(now: datetime, then: datetime) -> str:
     delta = now - then
     hours = delta.total_seconds() / 3600
     return f"{hours / 24:.1f} d ago" if hours >= 48 else f"{hours:.1f} h ago"
@@ -126,7 +126,7 @@ def check_raw_freshness(
         # local time under a "UTC" suffix, which is a wrong label, not a
         # cosmetic one.
         f"newest bar {newest.astimezone(UTC):%Y-%m-%d %H:%M} UTC "
-        f"({_ago(now, newest)}); "
+        f"({ago(now, newest)}); "
         f"limit {threshold.days} d",
     )
 
@@ -145,7 +145,7 @@ def check_phase_recency(
     ok = now - last_at <= threshold
     hours = threshold.total_seconds() / 3600
     return HealthCheck(
-        name, ok, f"last completed {_ago(now, last_at)}; limit {hours:.0f} h"
+        name, ok, f"last completed {ago(now, last_at)}; limit {hours:.0f} h"
     )
 
 

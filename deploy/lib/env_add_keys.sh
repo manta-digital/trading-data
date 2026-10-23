@@ -8,8 +8,8 @@
 #     absent keys are appended. Prints the number of keys added.
 #   env_set_key <file> <owner> KEY=value
 #     Replaces every `^KEY=` line with KEY=value in place, or appends it if
-#     absent. Prints `unchanged` when the file already held exactly that
-#     value, else `set`.
+#     absent. Prints `unchanged` when the key already held exactly that value
+#     (the rewrite may still add a missing final newline), else `set`.
 #   backup_roots_env_set <env-file> <owner> <group> <clusters.conf>
 #     Sets MT_BACKUP_ROOTS to the cluster table's backup roots, then leaves
 #     the file <owner>:<group> mode 0640. Prints `set` or `unchanged`.

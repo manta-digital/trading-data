@@ -122,10 +122,15 @@ class TestSummariseFlag:
         )
 
 
-def _obs(**kwargs: object) -> RootObservation:
-    fields: dict[str, object] = {"root": "/r", "log_mtime": NOW - timedelta(minutes=18)}
-    fields.update(kwargs)
-    return RootObservation(**fields)  # type: ignore[arg-type]
+def _obs(
+    *,
+    root: str = "/r",
+    read_error: str | None = None,
+    archive_flag: str | None = None,
+    stale_flag: str | None = None,
+    log_mtime: datetime | None = NOW - timedelta(minutes=18),
+) -> RootObservation:
+    return RootObservation(root, read_error, archive_flag, stale_flag, log_mtime)
 
 
 class TestCheckBackupRoot:

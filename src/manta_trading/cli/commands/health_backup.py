@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from manta_trading.cli.commands.health import HealthCheck, _ago
+from manta_trading.cli.commands.health import HealthCheck, ago
 from manta_trading.constants import (
     BACKUP_ARCHIVE_FLAG,
     BACKUP_HEALTH_LOG,
@@ -151,7 +151,7 @@ def check_backup_root(
             f"no {BACKUP_HEALTH_LOG} — backup_health_cron.sh has never run here"
         )
         return HealthCheck(name, False, PROBLEM_SEPARATOR.join(problems))
-    ran = _ago(now, obs.log_mtime)
+    ran = ago(now, obs.log_mtime)
     if now - obs.log_mtime > threshold:
         problems.append(
             f"checker last ran {ran}; limit {limit} "
