@@ -10,8 +10,9 @@ User=manta-trading
 Group=manta-trading
 WorkingDirectory=/opt/manta-trading
 EnvironmentFile=/etc/manta-trading.env
-# Read-only: raw-data freshness, cagg materialization lag, EODHD quota
-# headroom, Kalshi phase recency. Exits non-zero on any breach, so a failing
+# Read-only: raw-data freshness, cagg materialization lag, minute session
+# mass, Kalshi phase recency, tick retention, and each backup root's flags and
+# checker liveness (slice 924). Exits non-zero on any breach, so a failing
 # check is a failed unit — visible in `mt-run status` and `systemctl --failed`.
 ExecStart=/opt/manta-trading/.venv/bin/mt data health
 TimeoutStartSec=600
