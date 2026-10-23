@@ -1,0 +1,9 @@
+WAL ARCHIVING IS BROKEN OR UNCHECKABLE — see the backup-and-restore runbook
+detected: 2026-09-06T13:30:01-06:00
+PASS archive healthy (mode=on, unarchived_bytes=0)
+FAIL archive_wedged: /data/backup/wal/0000000100001244000000FA is 1000 bytes (a whole segment is 16777216) and has no .zst sibling — the archiver cannot overwrite it (see runbook)
+FAIL archive_tmp_leftover: older than 10 min in /data/backup/wal: drill.zst.tmp
+FAIL offsite_wal_stale: push stamp /data/backup/wal-offsite.stamp does not exist — the hourly WAL push has never succeeded here
+FAIL system_backup_stale: restic stamp /data/backup/system-backup.stamp does not exist — the system backup has never succeeded here
+FAILED archive=archive_wedged,archive_tmp_leftover stale=offsite_wal_stale,system_backup_stale
+FLAGS archive=2 stale=2
