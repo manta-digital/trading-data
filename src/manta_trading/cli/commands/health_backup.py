@@ -150,13 +150,13 @@ def check_backup_root(
         problems.append(
             f"no {BACKUP_HEALTH_LOG} — backup_health_cron.sh has never run here"
         )
-    else:
-        ran = _ago(now, obs.log_mtime)
-        if now - obs.log_mtime > threshold:
-            problems.append(
-                f"checker last ran {ran}; limit {limit} "
-                "— backup_health_cron.sh is not running"
-            )
+        return HealthCheck(name, False, PROBLEM_SEPARATOR.join(problems))
+    ran = _ago(now, obs.log_mtime)
+    if now - obs.log_mtime > threshold:
+        problems.append(
+            f"checker last ran {ran}; limit {limit} "
+            "— backup_health_cron.sh is not running"
+        )
     if problems:
         return HealthCheck(name, False, PROBLEM_SEPARATOR.join(problems))
     return HealthCheck(name, True, f"no flags; checker ran {ran}; limit {limit}")

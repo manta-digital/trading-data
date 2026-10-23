@@ -176,6 +176,7 @@ def test_set_key_value_with_special_characters(tmp_path: Path) -> None:
     assert env.read_text() == f"K={value}\n"
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes into a mode-555 dir")
 def test_set_key_unwritable_directory_leaves_the_file_whole(tmp_path: Path) -> None:
     env = tmp_path / ".env"
     env.write_text("K=old\n")

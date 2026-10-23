@@ -4,8 +4,9 @@
 # Creates the manta-trading service account, clones/updates the pinned
 # checkout at /opt/manta-trading, builds its venv, installs the environment
 # file skeleton (and sets the one key it manages, MT_BACKUP_ROOTS), the
-# systemd units, and the journald drop-in, then reloads systemd. ENABLES NOTHING — cutover is a separate, explicit
-# `systemctl enable --now` (Group F of the slice tasks).
+# systemd units, and the journald drop-in, then reloads systemd. ENABLES
+# NOTHING — cutover is a separate, explicit `systemctl enable --now` (Group F
+# of the slice tasks).
 #
 # Idempotent: every step is check-then-act. Recovery for any failure is
 # "fix the cause, re-run the whole script."
