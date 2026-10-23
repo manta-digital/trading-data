@@ -8,7 +8,7 @@ rulesSource: project
 conventionsSource: AGENTS.md
 projectRules: [python.md, shell.md, sql.md, testing.md]
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 verdictSource: stated
 sourceDocument: project-documents/user/slices/924-slice.backup-health-in-mt-data-health-make-a-broken-archive-a-failed-unit.md
 aiModel: claude-haiku-5-5
@@ -16,131 +16,113 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261023
 dateUpdated: 20261023
-reviewedSha: d3ceb9fc7fb1a6930b193469bc7e4d25496db441
+reviewedSha: 2107c2dc05b1f41fd9c095c5352f90430d36e21a
 toolsGiven: [read_file, list_files, grep]
 toolCallsMade: 2
 diffTruncated: false
 turns: 3
-promptTokens: 160196
-cachedTokens: 17590
-cacheWriteTokens: 142602
-completionTokens: 9247
-durationSeconds: 45.5
-costUsd: 0.11599
+promptTokens: 159133
+cachedTokens: 28716
+cacheWriteTokens: 130413
+completionTokens: 11280
+durationSeconds: 55.7
+costUsd: 0.115802
 costBasis: provider
 squadronVersion: 0.23.8
 findings:
   - id: F001
-    severity: fail
-    category: correctness
-    summary: "`ran` is possibly unbound in `check_backup_root`"
-    location: "src/manta_trading/cli/commands/health_backup.py:162"
+    severity: concern
+    category: type-safety
+    summary: "Settings parameter typed as `Any` in backup health gatherers"
+    location: "src/manta_trading/cli/commands/health_backup.py#gather_backup"
   - id: F002
     severity: concern
-    category: typing
-    summary: "`gather_backup` and `gather_before_connect` take `settings: Any`"
-    location: "src/manta_trading/cli/commands/health_backup.py:210"
+    category: type-safety
+    summary: "Test helper relies on `# type: ignore` to pass strict pyright"
+    location: "test/unit/cli/commands/... (test_health_backup.py, `_obs`)"
   - id: F003
     severity: concern
     category: design
     summary: "`parse_backup_roots` returns either a list or an error string"
-    location: "src/manta_trading/cli/commands/health_backup.py:unverified (function `parse_backup_roots`, roughly lines 66–90)"
+    location: "src/manta_trading/cli/commands/health_backup.py#parse_backup_roots"
   - id: F004
     severity: concern
-    category: test-reliability
-    summary: "Root-permission test lacks the skip guard its neighbour has"
-    location: "test/unit/test_provision_tick_lib.py:unverified (`test_set_key_unwritable_directory_leaves_the_file_whole`)"
+    category: design
+    summary: "Private helper imported across modules"
+    location: "src/manta_trading/cli/commands/health_backup.py#check_backup_root"
   - id: F005
-    severity: concern
-    category: shell-correctness
-    summary: "`_env_commit` lets a trap-based cleanup depend on the editor's exit status"
-    location: "deploy/lib/env_add_keys.sh:38-43"
-  - id: F006
-    severity: note
-    category: style
-    summary: "`read_root` raises an exception only to catch it in the same function"
-    location: "src/manta_trading/cli/commands/health_backup.py:195-196"
-  - id: F007
     severity: note
     category: correctness
-    summary: "`summarise_flag` falls back to all failures when none match the flag's class"
-    location: "src/manta_trading/cli/commands/health_backup.py:unverified (function `summarise_flag`, the `own` filter)"
+    summary: "`unchanged` can be reported when the file's bytes change"
+    location: "deploy/lib/env_add_keys.sh#_env_replace_key"
+  - id: F006
+    severity: note
+    category: lint
+    summary: "Shellcheck source directive uses a literal `SCRIPTDIR` path"
+    location: "deploy/install-production.sh#Step 4"
+  - id: F007
+    severity: note
+    category: style
+    summary: "Inline imports inside test functions"
+    location: "test/unit/cli/commands/test_data_health.py#TestBackupRows"
   - id: F008
     severity: note
-    category: shell-style
-    summary: "Shell library defines global variables without a namespace"
-    location: "deploy/lib/env_add_keys.sh:unverified (the `ENV_BACKUP_ROOTS_SEPARATOR` and `ENV_BACKUP_ROOTS_KEY` assignments near the top of the file)"
+    category: correctness
+    summary: "Clock skew produces a negative \"ago\""
+    location: "src/manta_trading/cli/commands/health_backup.py#check_backup_root"
   - id: F009
     severity: note
-    category: docs
-    summary: "Install script header comment is over-long and wrapped unevenly"
-    location: "deploy/install-production.sh:6-9"
-  - id: F010
-    severity: pass
-    category: test-coverage
-    summary: "Writer, reader, and env setter are checked against each other"
-    location: "test/unit/test_health_backup.py:unverified (`TestCronTemplateParity` and `TestWriterToReader`)"
-  - id: F011
-    severity: pass
-    category: error-handling
-    summary: "Exception handling follows the project pattern"
-    location: "src/manta_trading/cli/commands/health_backup.py:203"
+    category: design
+    summary: "Manual edits to `MT_BACKUP_ROOTS` are overwritten on every install run"
+    location: "deploy/install-production.sh#Step 4"
 ---
 
 # Review: code — slice 924
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS
 **Model:** claude-haiku-5-5
 
 ## Findings
 
-### [FAIL] `ran` is possibly unbound in `check_backup_root`
+### [CONCERN] Settings parameter typed as `Any` in backup health gatherers
 
-`ran` is assigned only in the `else` branch at line 154. Line 162 reads it after the `if problems:` return. The code is correct at runtime, because a `None` log mtime always adds a problem and returns early. Pyright cannot see that correlation, so strict mode will likely report `"ran" is possibly unbound`. Project rules make zero pyright errors a merge blocker. Fix by computing `ran` once before the branch, for example `ran = _ago(now, obs.log_mtime)` guarded by the `None` check, or by returning the healthy verdict from inside the `else`.
+`gather_backup` and `gather_before_connect` take `settings: Any`. Under the required `typeCheckingMode = "strict"`, this removes the check that `settings.backup_roots` exists and is a `str | None`. A typo in the attribute name would pass pyright silently. Annotate with the `Settings` class from `manta_trading.config` (a `TYPE_CHECKING` import is enough to avoid cycles if needed).
 
-### [CONCERN] `gather_backup` and `gather_before_connect` take `settings: Any`
+### [CONCERN] Test helper relies on `# type: ignore` to pass strict pyright
 
-Both functions accept `Any`, which removes type checking on `settings.backup_roots`. The project rules require type-hinted signatures. Type the parameter with the `Settings` class from `manta_trading.config`. Tests can still pass a mock or a real `Settings` instance.
+`_obs(**kwargs: object)` builds `RootObservation(**fields)` and suppresses the mismatch with `# type: ignore[arg-type]`. The project treats zero pyright errors in `tests/` as a merge blocker, and a suppression hides real mismatches from future edits. Replace it with explicit keyword parameters with defaults (`archive_flag: str | None = None`, and so on), which needs no ignore and reads more clearly.
 
 ### [CONCERN] `parse_backup_roots` returns either a list or an error string
 
-The return type `list[str] | str` uses the string as an error channel, and callers discriminate with `isinstance(roots, str)` in `gather_backup`. A mistyped caller that forgets the check would iterate over characters of the message. Use a small result type, or raise a `ValueError` and let `gather_backup` convert it into the one `SETTING_CHECK` row. Either keeps the sentinel out of the value domain.
+The return type `list[str] | str` mixes data and error text, and callers branch with `isinstance(roots, str)`. Any future caller that forgets the check will iterate over the characters of an error message. A small result type (a dataclass with `roots` and `error`), or raising a `ValueError` that `gather_backup` catches and turns into the `SETTING_CHECK` row, would make the contract explicit.
 
-### [CONCERN] Root-permission test lacks the skip guard its neighbour has
+### [CONCERN] Private helper imported across modules
 
-The test relies on `chmod 0555` blocking writes, which root ignores. Under root, `result.returncode != 0` fails. The sibling test `test_unreadable_flag` in `test_health_backup.py` has `@pytest.mark.skipif(os.geteuid() == 0, ...)`. Add the same marker here so the two tests behave consistently.
+`health_backup` imports `_ago` from `health.py`. Importing an underscore-prefixed name across a module boundary couples the two modules through a name that is not part of the contract. Either make `_ago` public (for example `ago`) in `health.py`, or move it to a shared helper. The lazy import in `health.py` to avoid a cycle is correct, so only the naming needs fixing.
 
-### [CONCERN] `_env_commit` lets a trap-based cleanup depend on the editor's exit status
+### [NOTE] `unchanged` can be reported when the file's bytes change
 
-The RETURN trap removes `$tmp` on every return from `_env_commit`, including after a successful `mv`. The comment says it is a no-op after the `mv`, which holds only because `mv` removes the source. This works, but it is subtle. Add a short note that the trap relies on `mv` consuming `$tmp`, or unset the trap after a successful `mv`. This is a clarity fix, not a bug.
+`_env_replace_key` rewrites every line with `printf '%s\n'`, so a last line without a trailing newline gains one. The function still prints `unchanged` when the value matched. The status word is then accurate about the key but not about the file. This is harmless for the install flow, but the header comment ("the file already held exactly that value") could be read as byte-identical. Either say "key value unchanged" in the comment, or add a test for the no-trailing-newline case that asserts the status.
 
-### [NOTE] `read_root` raises an exception only to catch it in the same function
+### [NOTE] Shellcheck source directive uses a literal `SCRIPTDIR` path
 
-The `NotADirectoryError` is constructed and caught within `read_root`. Returning `RootObservation(root, read_error=f"cannot read {base}: Not a directory")` directly is clearer and avoids the `errno` and `os.strerror` imports.
+The directives `# shellcheck source=SCRIPTDIR/lib/env_add_keys.sh` and `# shellcheck source=SCRIPTDIR/backup_clusters.sh` in `env_add_keys.sh` use `SCRIPTDIR` as a literal path prefix. shellcheck documents `SCRIPTDIR` as a special value for `source-path=`, not for `source=`. I could not run shellcheck here to confirm whether it warns. Run it on both files and, if it complains, switch to `# shellcheck source-path=SCRIPTDIR` plus a plain relative `source=` path.
 
-### [NOTE] `summarise_flag` falls back to all failures when none match the flag's class
+### [NOTE] Inline imports inside test functions
 
-`fails = [...] or fails` shows the other class's failures in a flag file when the `FAILED` line names classes but none match this flag. The intent is probably to avoid an empty detail, but it can attribute a stale failure to the archive flag. The existing test covers only the matching path. Either document the fallback or add a test for the mismatch case.
+`test_a_flag_fails_the_row_and_the_run` imports `json` inside the function, and `test_rows_print_before_the_primary_outage_error` imports `psycopg` the same way. Move both to the module top, matching the file's existing imports.
 
-### [NOTE] Shell library defines global variables without a namespace
+### [NOTE] Clock skew produces a negative "ago"
 
-These assignments run whenever the file is sourced, so they leak into `install-production.sh`. Declaring them `readonly` or making them `local` would reduce surprise. Tolerable here, since the install script does not reuse the names.
+If `backup-health.log` has an mtime in the future (clock step, NFS skew), `now - obs.log_mtime` is negative, the staleness check passes, and `_ago` renders a negative duration. The check fails safe (it does not report stale), but the detail text is wrong. Consider clamping to zero or treating a future mtime as a failing row.
 
-### [NOTE] Install script header comment is over-long and wrapped unevenly
+### [NOTE] Manual edits to `MT_BACKUP_ROOTS` are overwritten on every install run
 
-The reflowed line "...sets the one key it manages, MT_BACKUP_ROOTS), the" runs past 88 columns, and the following line is reflowed differently. Rewrap the comment block to match the surrounding lines.
-
-### [PASS] Writer, reader, and env setter are checked against each other
-
-The cron template is held to the shared flag constants, the writer's real output is parsed by `read_root`, and the Python and shell separator are checked by round-tripping through `parse_backup_roots`. The health command's exit-code and print-before-outage behaviour are covered as well.
-
-### [PASS] Exception handling follows the project pattern
-
-The `OSError` catch in `read_root` and the `FileNotFoundError` catches in `_read_flag` and `_log_mtime` each carry a comment justifying why swallowing is correct, and the error is reported as the root's failing verdict. No bare `except` or `except Exception` is introduced.
+This is the intended D4 behaviour, and the comments in `manta-trading.env.example` and the install script say so. An operator who hand-sets the key in `/etc/manta-trading.env` will see it replaced on the next run without warning beyond the `set` status line. Consider printing the old value's hash in the status line, as the script already does for the whole file, so the overwrite is visible in the log.
 
 ### Run Digest
 
-- Response length: 5783 chars
+- Response length: 5223 chars
 - Response is newline-free: no
 - Tool calls made: 2
 - Tool calls failed: 0
@@ -151,12 +133,12 @@ The `OSError` catch in `read_root` and the `FileNotFoundError` catches in `_read
 - Reasoning characters: 0
 - Effort: backend default
 - Turns: 3
-- Tokens — prompt / cached / cache write / completion / reasoning: 160196 / 17590 / 142602 / 9247 / not computed
-- Duration: 45.5 s
+- Tokens — prompt / cached / cache write / completion / reasoning: 159133 / 28716 / 130413 / 11280 / not computed
+- Duration: 55.7 s
 - Cost: $0.12 (provider)
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 11
+- Finding-shaped matches — whole response: 9
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 11
-- Finding-shaped matches — surviving validation: 11
+- Finding-shaped matches — in findings section: 9
+- Finding-shaped matches — surviving validation: 9
