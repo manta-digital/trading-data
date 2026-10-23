@@ -94,8 +94,10 @@ def _run_health(
     *,
     gather_raises: BaseException | None = None,
     json_output: bool = False,
+    record: bool = True,
 ) -> tuple[Any, FakeRecorder]:
     args = ["data", "health"] + (["--json"] if json_output else [])
+    args += ["--record"] if record else []
     with _recorder_patched("health") as recorder:
         with (
             patch("manta_trading.cli.app.Settings", return_value=settings),
@@ -127,6 +129,17 @@ class TestVerdictLine:
 
 
 class TestHealthWriter:
+    def test_without_record_nothing_is_recorded(self) -> None:
+        """#55: only the mt-health.service run is the verdict of record. A
+        manual or dev-checkout run reports and exits the same, writing no row."""
+        result, rec = _run_health(
+            _settings(), [HealthCheck("cagg x", False, "lag")], record=False
+        )
+        assert result.exit_code == EXIT_UNHEALTHY
+        assert "UNHEALTHY" in result.output
+        assert rec.opened == []
+        assert rec.closed == []
+
     def test_a_healthy_run_records_complete_with_the_verdict(self) -> None:
         result, rec = _run_health(
             _settings(), [HealthCheck("minute data", True, "fresh")]

@@ -195,7 +195,7 @@ HEALTH_TIMER = "mt-health.timer"
 class TestHealthUnits:
     def test_service_runs_the_health_command_as_a_oneshot(self):
         text = (_REPO_ROOT / "deploy" / "systemd" / HEALTH_SERVICE).read_text()
-        assert "ExecStart=/opt/manta-trading/.venv/bin/mt data health" in text
+        assert "ExecStart=/opt/manta-trading/.venv/bin/mt data health --record" in text
         assert "Type=oneshot" in text
         assert "EnvironmentFile=/etc/manta-trading.env" in text
         lines = text.splitlines()

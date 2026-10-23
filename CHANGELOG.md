@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`mt data overview` shows only the hourly health check's verdict** (#55). A health run from the dev checkout used to record its own verdict, judged with the dev `.env`'s settings, and the overview showed it as production's until the next hourly run. Now only `mt-health.service` records (`mt data health --record`); any other run prints its report and exit code and writes nothing. Takes effect when the release is installed (`install-production.sh` copies the updated unit).
+
 ## [0.24.2] - 2026-10-22
 
 ### Fixed

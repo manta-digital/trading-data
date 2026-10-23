@@ -13,7 +13,7 @@ EnvironmentFile=/etc/manta-trading.env
 # Read-only: raw-data freshness, cagg materialization lag, EODHD quota
 # headroom, Kalshi phase recency. Exits non-zero on any breach, so a failing
 # check is a failed unit — visible in `mt-run status` and `systemctl --failed`.
-ExecStart=/opt/manta-trading/.venv/bin/mt data health
+ExecStart=/opt/manta-trading/.venv/bin/mt data health --record
 TimeoutStartSec=600
 StandardOutput=journal
 StandardError=journal

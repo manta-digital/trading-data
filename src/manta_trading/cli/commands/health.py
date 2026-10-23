@@ -27,6 +27,7 @@ unit-tested without a database; ``gather`` is the only I/O.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -259,6 +260,7 @@ def render(checks: list[HealthCheck]) -> str:
 def data_health(
     ctx: typer.Context,
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
+    record: bool = typer.Option(False, "--record", help="Record the verdict."),
 ) -> None:
     """Check data freshness, cagg lag, minute session mass, Kalshi phase recency,
     and the tick database and retention.
@@ -284,7 +286,9 @@ def data_health(
     from manta_trading.cli.commands.health_tick import gather_tick
 
     tick_checks = gather_tick(settings, now=datetime.now(UTC))
-    with pass_run_recorder(settings) as recorder:
+    # #55: only mt-health.service passes --record — the overview shows the last
+    # recorded verdict, and a dev-checkout run judges with the dev .env.
+    with pass_run_recorder(settings) if record else nullcontext() as recorder:
         run_id = recorder.open(PassKind.HEALTH) if recorder is not None else None
         try:
             with psycopg.connect(

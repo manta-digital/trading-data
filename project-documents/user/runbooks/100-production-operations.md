@@ -325,6 +325,12 @@ mt-run data health                 # run it now, same output
 `OK` means nothing needs a human. `FAILING` names exactly one measured value
 and its limit per failing check; fix the cause, and the next firing clears it.
 
+Only the unit's run (`mt data health --record`) records its verdict in
+`pass_runs`, which is what `mt data overview` shows. A manual run, from
+`mt-run` or the dev checkout, prints the same report and exit code but records
+nothing (#55): the dev `.env` differs from production's, so its verdict is not
+production's.
+
 **The tick rows (slice 234).** Two lines follow the primary checks:
 
 - `tick database` is **informational**: it prints `OK`, or `INFO` with the
