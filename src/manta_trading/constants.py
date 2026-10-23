@@ -96,6 +96,29 @@ HEALTH_KALSHI_PHASE_STALE_AFTER: timedelta = timedelta(hours=3)
 than this fails the check — the pass fires hourly and a drain pass runs ~15
 minutes, so three hours means two missed firings."""
 
+# --- mt data health: backup roots (slice 924) -----------------------------
+# The files backup_health_cron.sh writes under each cluster root. The cron
+# template (deploy/cron.d/manta-trading-backup.cluster) renders the same names;
+# a parity test holds the two together.
+
+BACKUP_ARCHIVE_FLAG: str = "ARCHIVE-BROKEN"
+"""Present while WAL archiving is broken or uncheckable for the cluster."""
+
+BACKUP_STALE_FLAG: str = "BACKUP-STALE"
+"""Present while a backup tier (offsite push, system backup) is stale."""
+
+BACKUP_HEALTH_LOG: str = "backup-health.log"
+"""One line appended per checker run; its mtime is the last run's time."""
+
+HEALTH_BACKUP_CHECKER_QUIET_AFTER: timedelta = timedelta(hours=2)
+"""A ``backup-health.log`` older than this fails the root: the checker has
+stopped. The cron runs ``*/30`` (deploy/cron.d/manta-trading-backup.cluster),
+so two hours is four missed runs."""
+
+BACKUP_ROOTS_SEPARATOR: str = ","
+"""Separator between roots in ``MT_BACKUP_ROOTS``. deploy/lib/env_add_keys.sh
+joins the cluster table's roots with the same character."""
+
 # --- mt data health: minute session mass (slice 921) ----------------------
 # The 2026-09-07 failure was invisible because the check judged the newest
 # bar's AGE, not how much data the session holds: the universe was collecting

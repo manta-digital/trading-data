@@ -294,3 +294,16 @@ class TestTickArchiveDir:
         monkeypatch.setenv(TICK_ARCHIVE_DIR_ENV, str(missing))
         assert Settings(_env_file=None).tick_archive_dir == missing
         assert not missing.exists()
+
+
+class TestBackupRoots:
+    """Slice 924 D5: a raw string; a bad value never stops Settings loading."""
+
+    def test_unset_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MT_BACKUP_ROOTS", raising=False)
+        assert Settings(_env_file=None).backup_roots is None
+
+    @pytest.mark.parametrize("value", ["/a,/b", "relative/path", " , "])
+    def test_loads_raw(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        monkeypatch.setenv("MT_BACKUP_ROOTS", value)
+        assert Settings(_env_file=None).backup_roots == value
