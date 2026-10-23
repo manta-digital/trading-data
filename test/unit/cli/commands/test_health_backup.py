@@ -7,20 +7,25 @@ as ``backup_health_cron.sh`` writes them: title, ``detected:``, then the whole
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from backup_support.glue import INNER_PASS, REPO_ROOT, make_glue
 
+from manta_trading.cli.commands.health import HealthCheck
 from manta_trading.cli.commands.health_backup import (
     NOT_SET,
     RootObservation,
     check_backup_root,
     parse_backup_roots,
+    read_root,
     summarise_flag,
 )
 from manta_trading.constants import (
     BACKUP_ARCHIVE_FLAG,
+    BACKUP_HEALTH_LOG,
     BACKUP_STALE_FLAG,
     HEALTH_BACKUP_CHECKER_QUIET_AFTER,
 )
@@ -207,3 +212,117 @@ class TestCheckBackupRoot:
         assert not check.ok
         assert check.detail.startswith("ARCHIVE-BROKEN since 2026-10-18T06:00")
         assert " | BACKUP-STALE since" in check.detail
+
+
+class TestReadRoot:
+    def test_empty_root(self, tmp_path: Path) -> None:
+        obs = read_root(str(tmp_path))
+        assert obs == RootObservation(str(tmp_path))
+
+    def test_each_flag(self, tmp_path: Path) -> None:
+        (tmp_path / BACKUP_ARCHIVE_FLAG).write_text("a body")
+        assert read_root(str(tmp_path)).archive_flag == "a body"
+        (tmp_path / BACKUP_ARCHIVE_FLAG).unlink()
+        (tmp_path / BACKUP_STALE_FLAG).write_text("s body")
+        obs = read_root(str(tmp_path))
+        assert (obs.archive_flag, obs.stale_flag) == (None, "s body")
+
+    def test_both_flags_and_log(self, tmp_path: Path) -> None:
+        (tmp_path / BACKUP_ARCHIVE_FLAG).write_text("a")
+        (tmp_path / BACKUP_STALE_FLAG).write_text("s")
+        log = tmp_path / BACKUP_HEALTH_LOG
+        log.write_text("line\n")
+        os.utime(log, (1_760_000_000, 1_760_000_000))
+        obs = read_root(str(tmp_path))
+        assert obs.read_error is None
+        assert (obs.archive_flag, obs.stale_flag) == ("a", "s")
+        assert obs.log_mtime == datetime.fromtimestamp(1_760_000_000, tz=UTC)
+
+    def test_missing_root(self, tmp_path: Path) -> None:
+        missing = tmp_path / "gone"
+        obs = read_root(str(missing))
+        assert obs.read_error == f"cannot read {missing}: No such file or directory"
+
+    def test_root_is_a_file(self, tmp_path: Path) -> None:
+        afile = tmp_path / "f"
+        afile.write_text("")
+        expected = f"cannot read {afile}: Not a directory"
+        assert read_root(str(afile)).read_error == expected
+
+    @pytest.mark.skipif(os.geteuid() == 0, reason="root reads mode-000 files")
+    def test_unreadable_flag(self, tmp_path: Path) -> None:
+        flag = tmp_path / BACKUP_ARCHIVE_FLAG
+        flag.write_text("x")
+        flag.chmod(0)
+        try:
+            obs = read_root(str(tmp_path))
+        finally:
+            flag.chmod(0o644)
+        assert obs.read_error == f"cannot read {flag}: Permission denied"
+
+    def test_flag_is_a_directory(self, tmp_path: Path) -> None:
+        flag = tmp_path / BACKUP_STALE_FLAG
+        flag.mkdir()
+        assert read_root(str(tmp_path)).read_error == (
+            f"cannot read {flag}: Is a directory"
+        )
+
+
+class TestWriterToReader:
+    """The real ``backup_health_cron.sh`` writes the root; ``read_root`` reads it."""
+
+    def _judge(self, tmp_path: Path, lines: list[str], rc: int) -> HealthCheck:
+        glue = make_glue(
+            tmp_path / "root",
+            flag=BACKUP_ARCHIVE_FLAG,
+            stale_flag=BACKUP_STALE_FLAG,
+            log=BACKUP_HEALTH_LOG,
+        )
+        glue.stub_checker(lines, rc)
+        glue.run()
+        now = datetime.now(UTC)
+        return check_backup_root(read_root(str(glue.root)), now, LIMIT)
+
+    def test_all_pass(self, tmp_path: Path) -> None:
+        check = self._judge(tmp_path, [INNER_PASS, "FLAGS archive=0 stale=0"], 0)
+        assert check.ok, check.detail
+        assert check.detail.startswith("no flags; checker ran 0.0 h ago")
+
+    def test_archive_failure(self, tmp_path: Path) -> None:
+        lines = [
+            "FAIL archive_wedged: short segment",
+            "FAILED archive=archive_wedged stale=",
+            "FLAGS archive=1 stale=0",
+        ]
+        check = self._judge(tmp_path, lines, 1)
+        assert not check.ok
+        assert check.detail.startswith("ARCHIVE-BROKEN since ")
+        assert "archive_wedged: short segment" in check.detail
+        assert "BACKUP-STALE" not in check.detail
+
+    def test_stale_failure(self, tmp_path: Path) -> None:
+        lines = [
+            INNER_PASS,
+            "FAIL offsite_wal_stale: stamp is 200 min old",
+            "FAILED archive= stale=offsite_wal_stale",
+            "FLAGS archive=0 stale=1",
+        ]
+        check = self._judge(tmp_path, lines, 1)
+        assert not check.ok
+        assert check.detail.startswith("BACKUP-STALE since ")
+        assert "offsite_wal_stale: stamp is 200 min old" in check.detail
+        assert "ARCHIVE-BROKEN" not in check.detail
+
+
+class TestCronTemplateParity:
+    """D7: the names read here are the names the cron template renders."""
+
+    def test_backup_health_cron_line_uses_the_constants(self) -> None:
+        template = REPO_ROOT / "deploy" / "cron.d" / "manta-trading-backup.cluster"
+        (line,) = [
+            ln for ln in template.read_text().splitlines()
+            if "backup_health_cron.sh" in ln and not ln.startswith("#")
+        ]  # fmt: skip
+        assert f"--flag @CLUSTER_ROOT@/{BACKUP_ARCHIVE_FLAG} " in line
+        assert f"--stale-flag @CLUSTER_ROOT@/{BACKUP_STALE_FLAG} " in line
+        assert f"--log @CLUSTER_ROOT@/{BACKUP_HEALTH_LOG} " in line

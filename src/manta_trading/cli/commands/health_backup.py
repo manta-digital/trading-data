@@ -12,9 +12,12 @@ The parsing and judging functions are pure; ``read_root`` is the only I/O.
 
 from __future__ import annotations
 
+import errno
+import os
+import stat
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from pathlib import PurePosixPath
+from datetime import UTC, datetime, timedelta
+from pathlib import Path, PurePosixPath
 
 from manta_trading.cli.commands.health import HealthCheck, _ago
 from manta_trading.constants import (
@@ -155,3 +158,48 @@ def check_backup_root(
     if problems:
         return HealthCheck(name, False, PROBLEM_SEPARATOR.join(problems))
     return HealthCheck(name, True, f"no flags; checker ran {ran}; limit {limit}")
+
+
+# ---------------------------------------------------------------------------
+# I/O
+# ---------------------------------------------------------------------------
+
+
+def _cannot_read(path: Path, exc: OSError) -> str:
+    return f"cannot read {path}: {exc.strerror or exc}"
+
+
+def _read_flag(path: Path) -> str | None:
+    try:
+        return path.read_text(errors="replace")
+    except FileNotFoundError:
+        # Absent is the healthy state: the cron removes a flag when it clears.
+        return None
+
+
+def _log_mtime(path: Path) -> datetime | None:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    except FileNotFoundError:
+        # Absent is judged by check_backup_root: the checker never ran here.
+        return None
+
+
+def read_root(root: str) -> RootObservation:
+    """Two flag reads and one stat under ``root``. Never raises ``OSError``."""
+    base = Path(root)
+    current = base
+    try:
+        if not stat.S_ISDIR(base.stat().st_mode):
+            raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR))
+        current = base / BACKUP_ARCHIVE_FLAG
+        archive = _read_flag(current)
+        current = base / BACKUP_STALE_FLAG
+        stale = _read_flag(current)
+        current = base / BACKUP_HEALTH_LOG
+        mtime = _log_mtime(current)
+    except OSError as exc:
+        # Swallowing is correct: the error becomes this root's failing verdict
+        # (cannot read <path>: <reason>), so it is reported, not lost.
+        return RootObservation(root, read_error=_cannot_read(current, exc))
+    return RootObservation(root, None, archive, stale, mtime)
