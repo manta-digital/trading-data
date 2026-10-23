@@ -10,7 +10,7 @@ dependencies:
 interfaces: []
 dateCreated: 20261022
 dateUpdated: 20261022
-status: not_started
+status: complete
 turns: 32
 promptTokens: 2471030
 cachedTokens: 2364393
@@ -402,6 +402,41 @@ the outage does not exist until this slice ships.
    `checker last ran 3.0 h ago; limit 2 h`.
 5. Missing setting: `MT_BACKUP_ROOTS= uv run mt data health` gives `FAIL backup  MT_BACKUP_ROOTS is not set …`, exit 1.
 6. Clean up: `rm -r "$R"`.
+
+**Caveats found in implementation:**
+
+- From the dev checkout, `mt data health` records a `pass_runs` row in whatever database `MT_TIMESCALE_DB_URL`
+  names. That is production on manta9000, so a dev-checkout run writes a health verdict that `mt data overview` shows until the
+  next hourly run. To exercise only the backup rows, point the database URL at a dead port. The backup rows still print
+  (D6), and the run exits 2 instead of 1:
+  ```bash
+  export MT_TIMESCALE_DB_URL=postgresql://nobody@127.0.0.1:1/none MT_TICK_DB_URL=
+  ```
+- Each flag's detail lists only its own class's failures. Both flag files hold the whole checker output, so the
+  `ARCHIVE-BROKEN` file also carries `offsite_wal_stale`. `summarise_flag` narrows each flag to its class using the
+  checker's `FAILED archive=… stale=…` line, so the 2026-10-18 example above reads as designed. With no `FAILED` line
+  (`cannot_check`), it shows every `FAIL` line.
+- `detected:` is the time of the cron run that last wrote the flag (the writer rewrites the file every 30 minutes
+  while it stays raised), not when the flag first appeared. So "since" names the latest confirmation.
+
+**Run on manta9000, 2026-10-22, from the slice branch (steps 3–6, with the dead-port database URL above):**
+
+```
+# step 3 (stale flag)
+FAIL backup /tmp/bk924.7oLp  BACKUP-STALE since 2026-10-22T19:38:56-06:00: offsite_wal_stale: push stamp X is 999 min old (limit 180 min) …
+Error: health check could not run: connection failed: …        # exit 2 (dead database URL)
+# step 4 (dead checker)
+FAIL backup /tmp/bk924.7oLp  checker last ran 3.0 h ago; limit 2 h — backup_health_cron.sh is not running
+# touch the log again (healthy)
+OK   backup /tmp/bk924.7oLp  no flags; checker ran 0.0 h ago; limit 2 h
+# step 5 (MT_BACKUP_ROOTS=)
+FAIL backup         MT_BACKUP_ROOTS is not set — no backup cluster is judged
+# real roots, read-only: MT_BACKUP_ROOTS=/data/backup,/data/backup/17-tick
+OK   backup /data/backup          no flags; checker ran 0.1 h ago; limit 2 h
+OK   backup /data/backup/17-tick  no flags; checker ran 0.1 h ago; limit 2 h
+```
+
+Steps 1–2 need the released tag installed by `install-production.sh`. They are tracked in issue #54.
 
 ## Implementation Notes
 
