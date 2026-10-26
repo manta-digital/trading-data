@@ -15,7 +15,12 @@ import pandas as pd
 import psycopg
 import pytest
 
-from manta_trading.constants import OFF_TAPE_DAY_TZ, OffTape, PrintMode
+from manta_trading.constants import (
+    OFF_TAPE_DAY_TZ,
+    PRINTS_ALL_1M_ONLY_MESSAGE,
+    OffTape,
+    PrintMode,
+)
 from manta_trading.data.quality.off_tape import eligible_bar, mark_day
 from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
 
@@ -118,6 +123,7 @@ def test_known_values_absent_from_eligible(
         assert hits == present, f"{prints}: {value} at {minutes}"
 
 
-def test_eligible_rejects_aggregation(db: TimescaleMinuteDataDB) -> None:
-    with pytest.raises(ValueError, match="1m only"):
-        db.get_minute_data("SPY", *WINDOW, "5m", prints=PrintMode.ELIGIBLE)
+def test_all_rejects_aggregation(db: TimescaleMinuteDataDB) -> None:
+    """The rollups hold eligible values only (slice 173)."""
+    with pytest.raises(ValueError, match=PRINTS_ALL_1M_ONLY_MESSAGE):
+        db.get_minute_data("SPY", *WINDOW, "5m", prints=PrintMode.ALL)
