@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
@@ -58,8 +59,8 @@ def test_aggregation_views_no_old_keys() -> None:
         assert key not in TimescaleMinuteDataDB.AGGREGATION_VIEWS
 
 
-_START = datetime(2020, 8, 28, 9, 30, tzinfo=timezone.utc)
-_END = datetime(2020, 8, 28, 16, 0, tzinfo=timezone.utc)
+_START = datetime(2020, 8, 28, 9, 30, tzinfo=UTC)
+_END = datetime(2020, 8, 28, 16, 0, tzinfo=UTC)
 
 
 def test_rollup_read_drops_buckets_with_no_eligible_price() -> None:
@@ -67,7 +68,8 @@ def test_rollup_read_drops_buckets_with_no_eligible_price() -> None:
     db = _make_db()
     _mock_pool_returning_rows(db, [])
     db.get_minute_data("AAPL", _START, _END, Granularity.M5, adjusted=False)
-    cur = db._pool.connection.return_value.cursor.return_value
+    pool: Any = db._pool
+    cur = pool.connection.return_value.cursor.return_value
     query = cur.execute.call_args.args[0]
     assert "AND open IS NOT NULL" in query
     assert "minute_5min_ohlcv" in query

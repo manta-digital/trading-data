@@ -47,7 +47,7 @@ _EDGE_T0 = datetime(2026, 9, 8, 14, 0, tzinfo=UTC)  # a 5m bucket start
 
 def _edge_rows() -> list[tuple[object, ...]]:
     """Bucket 1 clean, bucket 2 only all-marked minutes, bucket 3 clean."""
-    rows = []
+    rows: list[tuple[object, ...]] = []
     for offset in range(15):
         mark = int(OffTape.ALL) if 5 <= offset < 10 else 0
         high = "500" if mark else "101"

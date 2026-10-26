@@ -34,8 +34,8 @@ from manta_trading.api_server.serialization import (
 from manta_trading.constants import (
     BARS_PER_TRADING_DAY,
     CAGG_BASE_GRANULARITY,
-    GRANULARITY_SOURCE,
     DEFAULT_PRINT_MODE,
+    GRANULARITY_SOURCE,
     PRINTS_ALL_1M_ONLY_MESSAGE,
     TRADING_DAYS_PER_CALENDAR_DAY,
     Granularity,
