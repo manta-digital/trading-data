@@ -93,7 +93,14 @@ Two behaviors are probed on the test cluster (TimescaleDB 2.29.1) before 064 is 
 - renaming a cagg inside a transaction;
 - renaming a cagg that has a hierarchical cagg on top of it (`minute_coverage` sits on the 4h rollup).
 
-If TimescaleDB refuses either, 064 falls back to guarded autocommit statements, and the read gap becomes the time between the first and last rename. The drops always run in their own statements after the commit. Every step is guarded (`IF EXISTS`; a rename only if the source exists and the target name is free), so a rerun completes a partly applied 064.
+If TimescaleDB refuses either, 064 falls back to guarded autocommit statements, and the read gap becomes the time between the first and last rename. The drops always run in their own statements after the commit.
+
+**Probe results (2026-10-26, test cluster, TimescaleDB 2.29.1, throwaway database):**
+
+- Renaming a cagg inside a transaction works: four `ALTER MATERIALIZED VIEW ... RENAME TO` statements (4h rollup and coverage, current → `_prev`, then `_next` → current) and a `CREATE OR REPLACE VIEW` over the new coverage committed as one transaction.
+- Renaming a cagg with a hierarchical cagg on top works: the upper cagg binds to its parent by OID, so the renamed `_next` coverage reads from the renamed `_next` 4h rollup (its definition shows the new parent name).
+- After the renames the upper cagg refreshes and reads, the policy jobs follow their caggs (`timescaledb_information.jobs` shows the new names, and `run_job` succeeds on both), and dropping coverage `_prev` then the 4h `_prev` leaves only the current caggs' jobs.
+- **Path chosen: transactional renames.** The autocommit fallback is not built. Every step is guarded (`IF EXISTS`; a rename only if the source exists and the target name is free), so a rerun completes a partly applied 064.
 
 **Cold start.** On a fresh database 063 and 064 run back to back on empty objects, so a cold start ends in the same state.
 
