@@ -36,6 +36,15 @@ def _load(name: str) -> Any:
 
 @pytest.fixture(scope="module")
 def cutover() -> Any:
+    # test_cutover_172 reloads cutover_172_build on its own, which would leave
+    # two BuildRefused classes; drop the cached script modules so the 173
+    # script and the 172 steps it reuses load one consistent set.
+    for name in (
+        "cutover_172_build",
+        "cutover_172_eligible_rollups",
+        "cutover_173_checks",
+    ):
+        sys.modules.pop(name, None)
     return _load("cutover_173_eligible_rollup_swap")
 
 
