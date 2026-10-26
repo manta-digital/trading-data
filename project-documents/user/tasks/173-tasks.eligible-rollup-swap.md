@@ -184,7 +184,7 @@ status: complete
         guard follow the same constant and rule, so the CLI and API agree.
   - [x] Success: `uv run mt data get --help` shows the new default.
 
-- [ ] **3.4 Read-path tests**
+- [x] **3.4 Read-path tests**
   - [x] Update `test/integration/api_server/test_bars_prints.py`,
         `test/unit/api_server/test_bars.py` and
         `test/unit/cli/commands/test_data_get.py` for the new default and
@@ -196,7 +196,7 @@ status: complete
   - [x] Criterion 1: for the SPY, AVGO and MSFT cases in slice 171's success
         criteria, assert the off-tape values are absent from the 5m **and**
         the 1h bars, one assertion per granularity.
-  - [ ] Success: unit tier and `test/integration/api_server` pass, run
+  - [x] Success: unit tier and `test/integration/api_server` pass, run
         separately.
 
 - [x] **3.5 Commit:** `feat: default bars to prints=eligible at every granularity`
@@ -237,124 +237,124 @@ status: complete
 
 ## Section 5 — Cutover script (effort 4/5)
 
-- [ ] **5.1 Write `scripts/cutover_173_eligible_rollup_swap.py`**
-  - [ ] First read `scripts/cutover_172_eligible_rollups.py`,
+- [x] **5.1 Write `scripts/cutover_173_eligible_rollup_swap.py`**
+  - [x] First read `scripts/cutover_172_eligible_rollups.py`,
         `cutover_172_build.py` and `cutover_common.py` (hold/release timers,
         install, `migrate`, `verify_migrate_target`,
         `restart_serve_if_active`). Reuse them; do not copy logic.
-  - [ ] One command, `<ref>` argument, check-then-act steps in this order:
+  - [x] One command, `<ref>` argument, check-then-act steps in this order:
         precheck → hold timers → install → apply 064 → verify → restart
         mt-serve → release timers → report. Keep the file near 300 lines; put
         reusable pieces in a `cutover_173_checks.py` sibling like 172 did.
-  - [ ] Precheck: every `_next` object exists and `caggs verify --target next`
+  - [x] Precheck: every `_next` object exists and `caggs verify --target next`
         and `rebuild-coverage --verify --target next` pass. On failure exit
         non-zero naming the view; nothing is changed and timers are not held.
-  - [ ] Swap-state detection: a rerun detects which of the current, `_next`
+  - [x] Swap-state detection: a rerun detects which of the current, `_next`
         and `_prev` objects exist and skips completed steps. A rerun after the
         swap committed does not re-run the precheck against `_next` (it no
         longer exists).
-  - [ ] Failure handling exactly as the design's failure table: a
+  - [x] Failure handling exactly as the design's failure table: a
         rolled-back rename transaction releases the timers and exits
         non-zero; any later failure (autocommit fallback, a `_prev` drop,
         post-swap `verify`, coverage freshness) leaves the timers **held**
         and exits non-zero naming the step.
-  - [ ] Post-swap checks: `caggs verify` on all four rollups, coverage
+  - [x] Post-swap checks: `caggs verify` on all four rollups, coverage
         freshness, the value-parity check (4.2), and that no `_next` or
         `_prev` object remains (query the catalog for the derived names).
-  - [ ] Report to `project-documents/user/notes/<date>-173-cutover.md`: each
+  - [x] Report to `project-documents/user/notes/<date>-173-cutover.md`: each
         step's outcome, row counts per rollup, and the verify output. Exit 0
         only when every step passed.
-  - [ ] Success: `uv run python scripts/cutover_173_eligible_rollup_swap.py --help`
+  - [x] Success: `uv run python scripts/cutover_173_eligible_rollup_swap.py --help`
         runs; `ruff` and `mypy` clean.
 
-- [ ] **5.2 Cutover failure-table tests**
-  - [ ] Unit tests in `test/unit/test_cutover_173.py` (follow how the 172 script's tests
+- [x] **5.2 Cutover failure-table tests**
+  - [x] Unit tests in `test/unit/test_cutover_173.py` (follow how the 172 script's tests
         stub the host commands): one case per row of the design's failure
         table asserting exit code, whether timers end held or released, and
         the step named in the message; plus a kill-and-rerun case that
         completes the swap.
-  - [ ] Success: unit tier passes. Tests never run real `systemctl`.
+  - [x] Success: unit tier passes. Tests never run real `systemctl`.
 
-- [ ] **5.3 Commit:** `feat: add cutover script for the eligible rollup swap`
+- [x] **5.3 Commit:** `feat: add cutover script for the eligible rollup swap`
 
 ## Section 6 — 5m bars load case (effort 2/5)
 
-- [ ] **6.1 Add the 5m case to the bars tier**
-  - [ ] In `test/load/test_187_api_nfr.py`, add one test beside
+- [x] **6.1 Add the 5m case to the bars tier**
+  - [x] In `test/load/test_187_api_nfr.py`, add one test beside
         `test_bars_request_latency_at_the_admission_ceiling`: a 5m request at
         the 5m admission ceiling (derive the window from the admission
         check's constant as the 1m test does), default `prints`, asserted
         under `_BARS_BOUND_S` and returning 200.
-  - [ ] The fixture database needs eligible `_next`-style rollup values under
+  - [x] The fixture database needs eligible `_next`-style rollup values under
         the current names; apply 064 in the fixture via the migration chain
         (it already does once 064 is in `MINUTE_MIGRATIONS`).
-  - [ ] Do not add 15m, 1h or 4h cases.
-  - [ ] Success: the new test passes at the load tier (this file only; the
+  - [x] Do not add 15m, 1h or 4h cases.
+  - [x] Success: the new test passes at the load tier (this file only; the
         full tier takes about 77 minutes and is run in Section 8).
 
-- [ ] **6.2 Commit:** `test: add 5m bars case to the 187 API NFR tier`
+- [x] **6.2 Commit:** `test: add 5m bars case to the 187 API NFR tier`
 
 ## Section 7 — Documentation (effort 2/5)
 
-- [ ] **7.1 Architecture amendment**
-  - [ ] In `user/architecture/140-slices.data-quality-operations.md` record
+- [x] **7.1 Architecture amendment**
+  - [x] In `user/architecture/140-slices.data-quality-operations.md` record
         the three changes: the four minute caggs project tape-eligible
         values; `get_minute_data` and `/api/v1/bars` default to eligible;
         `verify` stays the count-parity detector with the value-parity
         health check guarding the definition.
-  - [ ] Success: a reader of 140 alone learns the caggs are eligible.
+  - [x] Success: a reader of 140 alone learns the caggs are eligible.
 
-- [ ] **7.2 API references**
-  - [ ] Update `docs/api/reference.md` and `docs/api/agents.md`: new `prints`
+- [x] **7.2 API references**
+  - [x] Update `docs/api/reference.md` and `docs/api/agents.md`: new `prints`
         default, `all` valid at 1m only, the 422 message, NULL-bucket
         behavior, flagged as a client-visible change. Regenerate
         `docs/api/openapi.json` the way slice 190 documents, then run
         `uv run python scripts/check_api_docs.py`.
-  - [ ] Success: `check_api_docs.py` exits 0.
+  - [x] Success: `check_api_docs.py` exits 0.
 
-- [ ] **7.3 CHANGELOG and runbook**
-  - [ ] `CHANGELOG.md`: a `Changed` entry for the default (client-visible,
+- [x] **7.3 CHANGELOG and runbook**
+  - [x] `CHANGELOG.md`: a `Changed` entry for the default (client-visible,
         raw still at 1m with `prints=all`) and the swap.
-  - [ ] Runbook `100-production-operations.md`: add a section for
+  - [x] Runbook `100-production-operations.md`: add a section for
         `cutover_173_eligible_rollup_swap.py` in the 172 section's format
         (steps, failure table summary, rerun rule, report path); update the
         line that says `prints=all` is the default (near the existing
         "unaffected" note).
-  - [ ] Success: `grep -rn "prints=all (the default)" docs project-documents/user/runbooks`
+  - [x] Success: `grep -rn "prints=all (the default)" docs project-documents/user/runbooks`
         returns nothing.
 
-- [ ] **7.4 Commit:** `docs: document the eligible rollup swap and default change`
+- [x] **7.4 Commit:** `docs: document the eligible rollup swap and default change`
 
 ## Section 8 — Final validation and NFR re-runs (effort 3/5)
 
-- [ ] **8.1 Static and tier checks**
-  - [ ] `ruff check` on touched files; mypy in the single wide invocation;
+- [x] **8.1 Static and tier checks**
+  - [x] `ruff check` on touched files; mypy in the single wide invocation;
         unit tier, then integration tier, each run separately and in full.
-  - [ ] Success: all clean except the failures already known on the base
+  - [x] Success: all clean except the failures already known on the base
         (see conventions); list any that are new and investigate them with
         the actual error text first.
 
-- [ ] **8.2 NFR re-runs, recorded**
-  - [ ] Run `test/load/test_167_data_status_nfr.py`,
+- [x] **8.2 NFR re-runs, recorded**
+  - [x] Run `test/load/test_167_data_status_nfr.py`,
         `test_169_coverage_freshness_probe_nfr.py` and `test_187_api_nfr.py`
         (the load tier's known pre-existing failures are in project memory;
         never cap the run under 90 minutes). The load tier is a manual gate;
         wiring it into CI belongs to slice 907 (see slice 187, D9), so no
         wiring task is added here.
-  - [ ] Record each result against its pass number from the design's NFR
+  - [x] Record each result against its pass number from the design's NFR
         table, plus the `COVERAGE_BUCKET_LAG_BUDGET` check, in a new
         `project-documents/user/notes/173-nfr-results.md` with front matter.
-  - [ ] Success: each target meets its pass number, or the file states the
+  - [x] Success: each target meets its pass number, or the file states the
         miss and the figure and the Project Manager is told.
 
-- [ ] **8.3 Design walkthrough and traceability**
-  - [ ] Walk the design's Success Criteria 1-5, Technical Requirements and
+- [x] **8.3 Design walkthrough and traceability**
+  - [x] Walk the design's Success Criteria 1-5, Technical Requirements and
         Integration Requirements one by one against tests and notes; list any not covered by an automated
         test in the notes file (mt-ui's 5m-and-up charts showing no spikes is
         one: it is checked in the Phase 7 walkthrough), with how it is verified in Phase 7
         (production cutover).
-  - [ ] Set the design's and this file's `status` per the process guide.
-  - [ ] Success: every criterion maps to a test, a note, or a named Phase 7
+  - [x] Set the design's and this file's `status` per the process guide.
+  - [x] Success: every criterion maps to a test, a note, or a named Phase 7
         check.
 
-- [ ] **8.4 Commit:** `docs: record 173 validation and NFR results`
+- [x] **8.4 Commit:** `docs: record 173 validation and NFR results`
