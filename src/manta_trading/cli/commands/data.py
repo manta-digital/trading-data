@@ -20,7 +20,8 @@ import typer
 from manta_trading.cli.commands._pass_run import make_pass_run_recorder
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.constants import (
-    PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
+    DEFAULT_PRINT_MODE,
+    PRINTS_ALL_1M_ONLY_MESSAGE,
     CaggTarget,
     PrintMode,
     RepairOrder,
@@ -2177,9 +2178,9 @@ def data_get(
     end: str | None = typer.Option(None, "--end", help="End date (YYYY-MM-DD)."),
     raw: bool = typer.Option(False, "--raw", help="Return unadjusted bars."),
     prints: PrintMode = typer.Option(
-        PrintMode.ALL,
+        DEFAULT_PRINT_MODE,
         "--prints",
-        help="all (raw) or eligible (tape-eligible; 1m only until slice 172).",
+        help="eligible (tape-eligible) or all (raw prints; 1m only).",
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
     csv_output: bool = typer.Option(False, "--csv", help="Emit CSV."),
@@ -2212,8 +2213,8 @@ def data_get(
         )
         raise typer.Exit(1)
 
-    if prints is PrintMode.ELIGIBLE and gran != Granularity.M1:
-        print_error(PRINTS_ELIGIBLE_1M_ONLY_MESSAGE, json_mode=json_output)
+    if prints is PrintMode.ALL and gran != Granularity.M1:
+        print_error(PRINTS_ALL_1M_ONLY_MESSAGE, json_mode=json_output)
         raise typer.Exit(1)
 
     settings = ctx.obj["settings"]

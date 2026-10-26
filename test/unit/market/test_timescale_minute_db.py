@@ -9,7 +9,11 @@ from unittest.mock import MagicMock, call, patch
 import pandas as pd
 import pytest
 
-from manta_trading.constants import Granularity
+from manta_trading.constants import (
+    PRINTS_ALL_1M_ONLY_MESSAGE,
+    Granularity,
+    PrintMode,
+)
 from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
 
 
@@ -36,9 +40,15 @@ def _mock_pool_returning_rows(db: TimescaleMinuteDataDB, rows: list) -> None:  #
 # Unit tests — no DB required
 # ---------------------------------------------------------------------------
 
+
 def test_aggregation_views_canonical_keys() -> None:
     """AGGREGATION_VIEWS must use canonical Granularity string values."""
-    expected_keys = {Granularity.M5.value, Granularity.M15.value, Granularity.H1.value, Granularity.H4.value}
+    expected_keys = {
+        Granularity.M5.value,
+        Granularity.M15.value,
+        Granularity.H1.value,
+        Granularity.H4.value,
+    }
     assert set(TimescaleMinuteDataDB.AGGREGATION_VIEWS.keys()) == expected_keys
 
 
@@ -46,6 +56,33 @@ def test_aggregation_views_no_old_keys() -> None:
     old_keys = {"5min", "15min", "1hour", "4hour"}
     for key in old_keys:
         assert key not in TimescaleMinuteDataDB.AGGREGATION_VIEWS
+
+
+_START = datetime(2020, 8, 28, 9, 30, tzinfo=timezone.utc)
+_END = datetime(2020, 8, 28, 16, 0, tzinfo=timezone.utc)
+
+
+def test_rollup_read_drops_buckets_with_no_eligible_price() -> None:
+    """A bucket of only all-marked minutes has NULL prices (slice 173)."""
+    db = _make_db()
+    _mock_pool_returning_rows(db, [])
+    db.get_minute_data("AAPL", _START, _END, Granularity.M5, adjusted=False)
+    cur = db._pool.connection.return_value.cursor.return_value
+    query = cur.execute.call_args.args[0]
+    assert "AND open IS NOT NULL" in query
+    assert "minute_5min_ohlcv" in query
+
+
+def test_rollup_read_defaults_to_eligible() -> None:
+    db = _make_db()
+    _mock_pool_returning_rows(db, [])
+    assert db.get_minute_data("AAPL", _START, _END, Granularity.H1).empty
+
+
+def test_all_with_an_aggregation_raises() -> None:
+    db = _make_db()
+    with pytest.raises(ValueError, match=PRINTS_ALL_1M_ONLY_MESSAGE):
+        db.get_minute_data("AAPL", _START, _END, Granularity.M5, prints=PrintMode.ALL)
 
 
 def test_adjusted_false_skips_adjusted_fn() -> None:
@@ -121,7 +158,7 @@ def test_aapl_minute_split_adjusted() -> None:
     db = TimescaleMinuteDataDB(_DB_URL)  # type: ignore[arg-type]
     try:
         start = datetime(2020, 8, 28, 9, 30, tzinfo=timezone.utc)
-        end   = datetime(2020, 8, 28, 16, 0, tzinfo=timezone.utc)
+        end = datetime(2020, 8, 28, 16, 0, tzinfo=timezone.utc)
 
         raw_m = db.get_minute_data("AAPL", start, end, adjusted=False)
         adj_m = db.get_minute_data("AAPL", start, end, adjusted=True)
