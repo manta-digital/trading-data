@@ -129,6 +129,10 @@ def test_content_edge_probe_stays_well_inside_its_budget(
         "Per D3b, raising the timeout is not the fix — it is a bound on reader "
         "latency, and widening it trades a refusal for a stall."
     )
+    print(
+        f"\n{view_name} content-edge probe: median {median_s:.3f} s "
+        f"of {ceiling_s:.1f} s"
+    )
 
 
 @pytest.mark.parametrize("view_name", _COVERAGE_VIEWS)
@@ -151,6 +155,7 @@ def test_raw_source_probe_stays_well_inside_its_budget(
         f"raw edge probe on {source} median = {median_s:.3f}s "
         f"(ceiling {ceiling_s:.1f}s of a {_PROBE_BUDGET_S:.0f}s budget)"
     )
+    print(f"\n{source} raw-edge probe: median {median_s:.3f} s of {ceiling_s:.1f} s")
 
 
 @pytest.mark.parametrize(

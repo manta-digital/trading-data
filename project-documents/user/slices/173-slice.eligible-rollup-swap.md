@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [172, 168, 169]
 interfaces: [182, 186, 190]
 dateCreated: 20261016
-dateUpdated: 20261016
-status: not_started
+dateUpdated: 20261026
+status: complete
 ---
 
 # Slice Design: Eligible Rollup Swap
@@ -216,24 +216,32 @@ The timers are held and released through the existing NOPASSWD unit commands (`c
 
 ### Verification Walkthrough
 
-1. Production (Phase 7):
+Steps 1 and 2 run in production in Phase 7, after the release is tagged and pushed. Step 3 ran in Phase 6 (results in `user/notes/173-nfr-results.md`).
+
+1. Production (Phase 7), as `manta` from the dev checkout at the release ref:
    ```bash
-   uv run python scripts/cutover_173_eligible_rollup_swap.py vX.Y.Z      # precheck, hold, install, 064, verify, restart, release, report
-   uv run mt data caggs verify                                             # exit 0
-   uv run mt data health                                                   # includes the value-parity check → PASS
+   cd ~/source/repos/manta/trading-data && git fetch && git checkout vX.Y.Z
+   uv run python scripts/cutover_173_eligible_rollup_swap.py vX.Y.Z
+   # last line: "report written to project-documents/user/notes/<date>-173-cutover.md — PASS", exit 0
+   uv run mt data caggs verify --granularity all          # exit 0, all four rollups in parity
+   sudo -n /usr/local/bin/mt-run data health              # "value parity" PASS (no --record: only the timer records)
+   psql "$MT_TIMESCALE_DB_URL" -Atc "SELECT count(*) FROM pg_class WHERE relname ~ '^minute_.*_(next|prev)$'"   # 0
    ```
-2. Charts:
+   The health check reads production's settings through `mt-run`; a dev-checkout `mt data health` lacks `MT_MINUTE_FIRING_DAYS` and shows false minute FAILs. Rehearsed read-only on 2026-10-26 against production's `minute_5min_ohlcv_next` (the object 064 swaps in): the check sampled META on 2026-10-23 (29 marked minutes) and all 192 5m buckets equalled the eligible recompute, in 0.1 s.
+2. Charts, against mt-serve (port 8100, `mt serve`'s default; listening there on manta9000 2026-10-26):
    ```bash
-   B="localhost:8100/api/v1/bars/MSFT?start=2026-06-01&end=2026-06-02"
-   curl -s "$B&granularity=5m" | jq '.prints, [.bars[]|select(.timestamp>="2026-06-01T20:40")|.high]|max'
-   # "eligible"; after-hours highs near 460, not 487
+   B="localhost:8100/api/v1/bars/MSFT?start=2026-06-01&end=2026-06-02&adjusted=false"
+   curl -s "$B&granularity=5m" | jq '.prints, ([.bars[]|select(.timestamp>="2026-06-01T20:40")|.high]|max)'
+   # "eligible"; the after-hours high is the eligible one, below the raw 1m high for the same span
    curl -s -o /dev/null -w "%{http_code}\n" "$B&granularity=5m&prints=all"   # 422
+   curl -s "$B&granularity=1m&prints=all" | jq .prints                       # "all": raw prints still served at 1m
    ```
-3. NFR re-runs:
+   Then open mt-ui's 5m-and-up charts for SPY 2026-09-08 and MSFT 2026-06-01: no after-hours spikes, no client change.
+3. NFR re-runs (Phase 6, test cluster, `MT_RUN_LOAD_TESTS=1` and `MT_TIMESCALE_TEST_URL` exported):
    ```bash
-   uv run pytest test/load/test_167_data_status_nfr.py test/load/test_169_coverage_freshness_probe_nfr.py test/load/test_187_api_nfr.py -v
+   uv run pytest -s test/load/test_167_data_status_nfr.py test/load/test_169_coverage_freshness_probe_nfr.py test/load/test_187_api_nfr.py -v
    ```
-   Record each result against its pass number.
+   Each passing test prints its measured median; record it against its pass number. The `minute_coverage` bucket lag is read from production's `mt data health` after the cutover (`cagg minute_coverage` row, threshold 8 days 4:00:00).
 
 ## Risk Assessment
 

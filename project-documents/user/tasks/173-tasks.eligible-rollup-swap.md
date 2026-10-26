@@ -15,8 +15,8 @@ projectState: >
   /api/v1/bars and get_minute_data default to prints=all (prints=eligible is
   1m only, via PRINTS_ELIGIBLE_1M_ONLY_MESSAGE).
 dateCreated: 20261017
-dateUpdated: 20261017
-status: not_started
+dateUpdated: 20261026
+status: complete
 ---
 
 # Tasks: Eligible Rollup Swap
