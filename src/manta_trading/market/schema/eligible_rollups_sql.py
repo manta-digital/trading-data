@@ -85,18 +85,29 @@ def minute_coverage_sql(view: str, parent: str) -> str:
                 """
 
 
-def eligible_rollup_sql(granularity: Granularity) -> str:
-    """``CREATE MATERIALIZED VIEW`` for one eligible ``_next`` minute rollup.
+ROLLUP_COLUMNS: tuple[str, ...] = (
+    "time_bucket",
+    "symbol",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "minute_count",
+)
+"""An eligible rollup's columns, in order (migration 033's)."""
 
-    Column names and order match migration 033's current rollups.
+
+def eligible_rollup_select(granularity: Granularity) -> str:
+    """The ``SELECT`` list of an eligible rollup over ``minute_ohlcv``.
+
+    The rollup definitions are rendered from it, and so is the value-parity
+    health check's recompute (slice 173), so a later change here shows up as
+    a difference against the materialized rows.
     """
-    view = next_rollup_view(granularity)
     width = interval_seconds_sql(MINUTE_CAGG_BUCKET_WIDTH[granularity])
     eligible = f"FILTER (WHERE {has_eligible_price()})"
     return f"""
-        CREATE MATERIALIZED VIEW IF NOT EXISTS {view}
-        WITH (timescaledb.continuous) AS
-        SELECT
             time_bucket({width}, time) AS time_bucket,
             symbol,
             FIRST({eligible_value("open")}, time) {eligible} AS open,
@@ -104,7 +115,19 @@ def eligible_rollup_sql(granularity: Granularity) -> str:
             MIN({eligible_value("low")}) {eligible} AS low,
             LAST({eligible_value("close")}, time) {eligible} AS close,
             SUM(volume) {eligible} AS volume,
-            COUNT(*) AS minute_count
+            COUNT(*) AS minute_count"""
+
+
+def eligible_rollup_sql(granularity: Granularity) -> str:
+    """``CREATE MATERIALIZED VIEW`` for one eligible ``_next`` minute rollup.
+
+    Column names and order match migration 033's current rollups.
+    """
+    view = next_rollup_view(granularity)
+    return f"""
+        CREATE MATERIALIZED VIEW IF NOT EXISTS {view}
+        WITH (timescaledb.continuous) AS
+        SELECT{eligible_rollup_select(granularity)}
         FROM {MINUTE_OHLCV_TABLE}
         GROUP BY time_bucket, symbol
         WITH NO DATA
