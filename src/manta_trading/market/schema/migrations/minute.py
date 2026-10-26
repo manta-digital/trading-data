@@ -50,6 +50,10 @@ from manta_trading.market.schema.eligible_rollups_sql import (
 from manta_trading.market.schema.eligible_rollups_sql import (
     interval_seconds_sql as _interval_seconds_sql,
 )
+from manta_trading.market.schema.eligible_swap_sql import (
+    swap_drop_statements,
+    swap_rename_statements,
+)
 from manta_trading.market.schema.seed_calendar import (
     NASDAQ_CALENDAR,
     NYSE_CALENDAR,
@@ -993,11 +997,41 @@ def _setup_cagg_columnstore(conn: Any, views: tuple[str, ...], migration_id: str
         _log.info("columnstore policy installed on %s (%s)", view, compress_after)
 
 
+# Migration 056's data_status: re-issued by 064 so the view binds to the
+# swapped-in minute_coverage. Branches on to_regclass exactly as 048 does.
+_DATA_STATUS_REISSUE_SQL = f"""
+            DO $$ BEGIN
+                IF to_regclass('public.daily_ohlcv') IS NOT NULL THEN
+                    EXECUTE '{_DATA_STATUS_VIEW_WITH_DAILY_COVERAGE}';
+                ELSE
+                    EXECUTE '{_DATA_STATUS_VIEW_WITHOUT_DAILY_COVERAGE}';
+                END IF;
+
+                EXECUTE 'COMMENT ON VIEW data_status IS '
+                     || quote_literal('{_data_status_doc_comment()}');
+            END $$;
+        """
+
+
 def _create_eligible_rollups_next(conn: Any) -> None:
     """Migration 063: the ``_next`` caggs and policies, then columnstore."""
     for sql in eligible_rollups_next_statements():
         conn.execute(sql)
     _setup_cagg_columnstore(conn, NEXT_ROLLUP_VIEWS, "063_minute_eligible_rollups_next")
+
+
+def _swap_eligible_rollups(conn: Any) -> None:
+    """Migration 064: the renames and the ``data_status`` re-issue in one
+    transaction, so a reader sees the old set or the new one; then the drops."""
+    with conn.transaction():
+        # A data_status reader locks the view before minute_coverage; lock in
+        # that order too, or a live reader and the renames can deadlock.
+        conn.execute("LOCK TABLE data_status IN ACCESS EXCLUSIVE MODE")
+        for sql in swap_rename_statements():
+            conn.execute(sql)
+        conn.execute(_DATA_STATUS_REISSUE_SQL)
+    for sql in swap_drop_statements():
+        conn.execute(sql)
 
 
 MINUTE_MIGRATIONS: list[dict[str, Any]] = [
@@ -2630,18 +2664,7 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "retyped, so the D2 column contract holds and no dependent object "
             "needs dropping. Branches on to_regclass exactly as 048 does."
         ),
-        "sql": f"""
-            DO $$ BEGIN
-                IF to_regclass('public.daily_ohlcv') IS NOT NULL THEN
-                    EXECUTE '{_DATA_STATUS_VIEW_WITH_DAILY_COVERAGE}';
-                ELSE
-                    EXECUTE '{_DATA_STATUS_VIEW_WITHOUT_DAILY_COVERAGE}';
-                END IF;
-
-                EXECUTE 'COMMENT ON VIEW data_status IS '
-                     || quote_literal('{_data_status_doc_comment()}');
-            END $$;
-        """,
+        "sql": _DATA_STATUS_REISSUE_SQL,
     },
     {
         "id": "057_calendar_holidays_seeded_through",
@@ -2734,5 +2757,20 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         # One cagg DDL per execute(), outside a transaction (as 033/051).
         "requires_autocommit": True,
         "python_fn": _create_eligible_rollups_next,
+    },
+    {
+        "id": "064_minute_eligible_rollup_swap",
+        "description": (
+            "Swap the eligible minute rollups in (slice 173): in one "
+            "transaction minute_{5min,15min,hourly,4hour}_ohlcv and "
+            "minute_coverage are renamed to _prev, their _next twins take the "
+            "current names, and data_status is re-issued over the new "
+            "coverage. The old rollups are then dropped. Applied in production "
+            "by scripts/cutover_173_eligible_rollup_swap.py. Every step is "
+            "guarded, so a rerun finishes a partial apply."
+        ),
+        # The drops run after the rename transaction commits.
+        "requires_autocommit": True,
+        "python_fn": _swap_eligible_rollups,
     },
 ]

@@ -39,6 +39,8 @@ from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
 
 _ID = "063_minute_eligible_rollups_next"
 _INDEX = next(i for i, m in enumerate(MINUTE_MIGRATIONS) if m["id"] == _ID)
+# 064 swaps the _next objects in, so these tests stop the chain at 063.
+THROUGH_063 = MINUTE_MIGRATIONS[: _INDEX + 1]
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "off_tape"
 PRICES = ["open", "high", "low", "close"]
 CURRENT_VIEWS = (
@@ -124,8 +126,8 @@ def _write_fixtures(url: str, names: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_cold_start_creates_five_empty_next_objects(migrated_db: str) -> None:
-    with psycopg.connect(migrated_db) as conn:
+def test_cold_start_creates_five_empty_next_objects(pre_swap_db: str) -> None:
+    with psycopg.connect(pre_swap_db) as conn:
         for view in NEXT_VIEWS:
             assert _count(conn, view) == 0, view
         for view in NEXT_ROLLUP_VIEWS:
@@ -140,14 +142,14 @@ def test_cold_start_creates_five_empty_next_objects(migrated_db: str) -> None:
         )
 
 
-def test_policies_match_the_current_twins(migrated_db: str) -> None:
+def test_policies_match_the_current_twins(pre_swap_db: str) -> None:
     sql = (
         "SELECT schedule_interval,"
         " config - 'mat_hypertable_id' - 'hypertable_id' AS config"
         " FROM timescaledb_information.jobs"
         " WHERE hypertable_name = %s AND proc_name = %s"
     )
-    with psycopg.connect(migrated_db) as conn:
+    with psycopg.connect(pre_swap_db) as conn:
         for current, nxt in zip(CURRENT_VIEWS, NEXT_VIEWS, strict=True):
             for proc in _jobs(conn, current):
                 assert conn.execute(sql, (current, proc)).fetchall() == (
@@ -169,20 +171,20 @@ def test_populated_database_keeps_current_objects(populated_pre_063: str) -> Non
     with psycopg.connect(url) as conn:
         before = {v: (_count(conn, v), _definition(conn, v)) for v in CURRENT_VIEWS}
         assert all(count > 0 for count, _ in before.values())
-    _apply(url, MINUTE_MIGRATIONS)
+    _apply(url, THROUGH_063)
     with psycopg.connect(url) as conn:
         after = {v: (_count(conn, v), _definition(conn, v)) for v in CURRENT_VIEWS}
         assert after == before
         assert all(_count(conn, v) == 0 for v in NEXT_VIEWS)
 
 
-def test_rerun_after_partial_apply_converges(migrated_db: str) -> None:
-    with psycopg.connect(migrated_db, autocommit=True) as conn:
+def test_rerun_after_partial_apply_converges(pre_swap_db: str) -> None:
+    with psycopg.connect(pre_swap_db, autocommit=True) as conn:
         conn.execute(f"DROP MATERIALIZED VIEW {NEXT_COVERAGE_VIEW}")
         conn.execute(f"DROP MATERIALIZED VIEW {NEXT_5M}")
         conn.execute("DELETE FROM schema_migrations WHERE migration_id = %s", (_ID,))
-    _apply(migrated_db, MINUTE_MIGRATIONS)
-    with psycopg.connect(migrated_db) as conn:
+    _apply(pre_swap_db, THROUGH_063)
+    with psycopg.connect(pre_swap_db) as conn:
         for view in NEXT_ROLLUP_VIEWS:
             assert _jobs(conn, view) == [_COLUMNSTORE, _REFRESH], view
             assert _chunk_interval(conn, view) == MINUTE_CAGG_CHUNK_INTERVAL, view
@@ -210,7 +212,7 @@ def _minute(offset: int, high: str, low: str, mark: int | None) -> tuple:
 
 
 @pytest.fixture()
-def edge_db(migrated_db: str) -> str:
+def edge_db(pre_swap_db: str) -> str:
     rows = [
         # Bucket 1: one all-marked minute among four clean ones.
         *(_minute(i, "101", "99", 0) for i in range(4)),
@@ -221,15 +223,15 @@ def edge_db(migrated_db: str) -> str:
         _minute(10, "900", "99", int(OffTape.HIGH)),
         *(_minute(11 + i, "101", "99", 0) for i in range(4)),
     ]
-    with psycopg.connect(migrated_db) as conn:
+    with psycopg.connect(pre_swap_db) as conn:
         with conn.cursor() as cur:
             cur.executemany(
                 "INSERT INTO minute_ohlcv (time, symbol, open, high, low, close,"
                 " volume, off_tape) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 rows,
             )
-    _refresh(migrated_db, (NEXT_5M,))
-    return migrated_db
+    _refresh(pre_swap_db, (NEXT_5M,))
+    return pre_swap_db
 
 
 def _bucket(url: str, offset: int) -> tuple:
@@ -276,12 +278,12 @@ FIXTURE_DAYS = sorted({name for name, *_ in KNOWN} | {"MSFT_2026-06-01"})
 
 
 @pytest.fixture(scope="module")
-def fixture_db(module_migrated_db: str) -> str:
+def fixture_db(module_pre_swap_db: str) -> str:
     """Every fixture day written and the _next 5m/1h refreshed, once per file;
     the tests below only read."""
-    _write_fixtures(module_migrated_db, FIXTURE_DAYS)
-    _refresh(module_migrated_db, (NEXT_5M, NEXT_1H))
-    return module_migrated_db
+    _write_fixtures(module_pre_swap_db, FIXTURE_DAYS)
+    _refresh(module_pre_swap_db, (NEXT_5M, NEXT_1H))
+    return module_pre_swap_db
 
 
 def _rollup(url: str, view: str, symbol: str) -> pd.DataFrame:

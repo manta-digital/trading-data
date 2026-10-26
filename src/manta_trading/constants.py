@@ -1271,6 +1271,10 @@ CAGG_NEXT_SUFFIX: Final[str] = "_next"
 """Suffix of the eligible replacement minute caggs built beside the current
 ones (slice 172). Never spell a ``_next`` name out; use ``target_view_name``."""
 
+CAGG_PREV_SUFFIX: Final[str] = "_prev"
+"""Suffix the replaced minute caggs carry between migration 064's renames and
+its drops (slice 173)."""
+
 
 class CaggTarget(StrEnum):
     """Which set of minute caggs a maintenance command acts on (slice 172)."""
