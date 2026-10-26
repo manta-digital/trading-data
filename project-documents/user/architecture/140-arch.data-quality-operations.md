@@ -800,6 +800,26 @@ check. **Standing rule:** after any raw chunk restructuring, run `verify`;
 if parity fails, run `repair`. See slice 163 design for mechanism and
 pre-flight discipline.
 
+*(Architecture amendment, 2026-10-26 — slices 172 and 173.)* Three changes:
+
+- **The four minute caggs project tape-eligible values, not raw OHLCV.**
+  `minute_{5min,15min,hourly,4hour}_ohlcv` aggregate each minute's off-tape
+  prices clamped into its eligible range (`eligible_sql`, slice 171); prices
+  and volume leave out minutes whose four prices are all marked, and
+  `minute_count` still counts every minute, so coverage, accounting and
+  `verify` keep their meaning. A bucket of only marked minutes keeps a row
+  with NULL prices and volume. Slice 172 built them beside the old ones as
+  `_next`; migration 064 (slice 173) renamed them in and dropped the raw set.
+  `minute_coverage` sits on the eligible 4h rollup.
+- **`get_minute_data` and `/api/v1/bars` default to `prints=eligible`** at
+  every granularity. Raw prints (`prints=all`) are served at 1m only; the
+  rollup read leaves out NULL-price buckets.
+- **`verify` stays the count-parity detector.** It cannot see a rollup whose
+  definition drifts from the eligible 1m path, so `mt data health` has a
+  `value parity` check: over the judged session's ET day, every 5m rollup row
+  of the symbol with the most marked minutes equals the 1m bars rolled up
+  again from the same rendered expressions, every column compared.
+
 ### Gap function (the core invariant)
 
 The gap state in `data_gaps` is maintained by two pure functions plus
