@@ -227,7 +227,7 @@ Status: decided
 
 A request that straddles the boundary counts in full at its estimate. The planner already cuts requests at month boundaries, so the most this overcounts is one month of one tier. That is conservative and needs no planner change. Splitting at the boundary is left until a measured overcount matters.
 
-The exact boundary Databento applies to "last 12 months" has not been measured. A short window is the safe side while it is unknown: an overcount only refuses, never overspends.
+The exact boundary Databento applies to "last 12 months" has not been measured. A window shorter than Databento's is the safe side: the guard overcounts and only refuses. 365 days is shorter than any calendar reading of 12 months, but it is not proven shorter than Databento's actual window (for example, if Databento anchors the window to a billing date). If Databento's window is narrower than 365 days, a claim of inclusion could hide a charge. The Risk Assessment records the check against the first in-plan invoice.
 
 ### D8 — The guard counts marginal spend
 Status: decided
