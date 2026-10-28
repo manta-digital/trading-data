@@ -237,6 +237,7 @@ Steps 1 and 2 run in production in Phase 7, after the release is tagged and push
    curl -s "$B&granularity=1m&prints=all" | jq .prints                       # "all": raw prints still served at 1m
    ```
    Then open mt-ui's 5m-and-up charts for SPY 2026-09-08 and MSFT 2026-06-01: no after-hours spikes, no client change.
+   **Ran 2026-10-27 after the v0.24.3 cutover (report `user/notes/2026-10-27-173-cutover.md`, PASS):** the 5m response says `eligible`, with an after-hours high of 461.6978; the raw 1m high for the same span is 487.6942. `prints=all` at 5m returned 422. SPY 2026-09-08's 770.3516 is in neither its 5m nor its 1h bars.
 3. NFR re-runs (Phase 6, test cluster, `MT_RUN_LOAD_TESTS=1` and `MT_TIMESCALE_TEST_URL` exported):
    ```bash
    uv run pytest -s test/load/test_167_data_status_nfr.py test/load/test_169_coverage_freshness_probe_nfr.py test/load/test_187_api_nfr.py -v
