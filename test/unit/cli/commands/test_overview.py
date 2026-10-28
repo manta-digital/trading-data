@@ -22,7 +22,7 @@ network.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, cast
 
 import pytest
@@ -435,6 +435,30 @@ class TestSources:
         )
         text = render_overview(build_overview(facts))
         assert "20 h ago" in text
+
+
+class TestLabelledTimesAreUtc:
+    """Times from the database arrive in the session zone; labels say UTC (#58)."""
+
+    MDT = timezone(timedelta(hours=-6))
+
+    def test_health_time_is_rendered_in_utc(self) -> None:
+        ended = datetime(2026, 9, 12, 10, 50, tzinfo=self.MDT)  # 16:50 UTC
+        run = _ended_run(PassKind.HEALTH, detail="healthy", ended_at=ended)
+        facts = _facts(latest_ended={PassKind.HEALTH: run})
+        text = render_overview(build_overview(facts))
+        assert "health (16:50 UTC)" in text
+
+    def test_source_time_is_rendered_in_utc(self) -> None:
+        newest = datetime(2026, 9, 12, 9, 21, tzinfo=self.MDT)  # 15:21 UTC
+        facts = _facts(sources=[SourceFreshness("minute bars", newest)])
+        assert "2026-09-12 15:21 UTC" in render_overview(build_overview(facts))
+
+    def test_pass_run_times_are_rendered_in_utc(self) -> None:
+        start = datetime(2026, 9, 12, 8, 0, tzinfo=self.MDT)  # 14:00 UTC
+        run = _ended_run(started_at=start, ended_at=start + timedelta(minutes=36))
+        facts = _facts(latest_ended={PassKind.MINUTE: run})
+        assert "14:00–14:36" in render_overview(build_overview(facts))
 
 
 class TestScreenShape:

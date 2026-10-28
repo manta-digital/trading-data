@@ -15,7 +15,7 @@ command layer (922 review F008).
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 
 from manta_trading.cli.overview_types import (
     NEVER_RUN,
@@ -62,9 +62,21 @@ def outcome_text(outcome: PassRunOutcome) -> str:
     return _OUTCOME_TEXT[outcome]
 
 
+def _utc(at: datetime) -> datetime:
+    """``at`` in UTC, for every time the screen labels or compares as UTC.
+
+    Database timestamps arrive in the session zone, so formatting them directly
+    prints local wall-clock under a UTC label (#58). A naive value has no zone
+    to convert from; refuse it rather than guess.
+    """
+    if at.tzinfo is None:
+        raise ValueError(f"naive datetime cannot be shown as UTC: {at!r}")
+    return at.astimezone(UTC)
+
+
 def _stamp(at: datetime) -> str:
     """A weekday-and-time stamp: enough to place a run without a full date."""
-    return f"{at:%a %m-%d %H:%M}"
+    return f"{_utc(at):%a %m-%d %H:%M}"
 
 
 def _age(now: datetime, then: datetime) -> str:
@@ -107,11 +119,11 @@ def render_last(last: LastRun | None, *, now: datetime | None = None) -> str:
     if last is None:
         return NEVER_RUN
     started = (
-        f"{last.started_at:%H:%M}"
-        if now is not None and last.started_at.date() == now.date()
+        f"{_utc(last.started_at):%H:%M}"
+        if now is not None and _utc(last.started_at).date() == _utc(now).date()
         else _stamp(last.started_at)
     )
-    text = f"{started}–{last.ended_at:%H:%M}  {outcome_text(last.outcome)}"
+    text = f"{started}–{_utc(last.ended_at):%H:%M}  {outcome_text(last.outcome)}"
     if last.exit_code:
         text += f"  exit {last.exit_code}"
     return text
@@ -147,7 +159,8 @@ def render_pass_line(line: PassLine, now: datetime) -> list[str]:
 
 def _next_stamp(at: datetime, now: datetime) -> str:
     """A firing later today needs only its time; a later one needs its day."""
-    return f"{at:%H:%M}" if at.date() == now.date() else _stamp(at)
+    same_day = _utc(at).date() == _utc(now).date()
+    return f"{_utc(at):%H:%M}" if same_day else _stamp(at)
 
 
 #: What the ``next`` line shows for a pass with no timer (slice 234 TD1).
@@ -196,7 +209,7 @@ def render_source_lines(
             newest = "none"
         else:
             age = _age(now, source.newest)
-            newest = f"{source.newest:%Y-%m-%d %H:%M} UTC ({age})"
+            newest = f"{_utc(source.newest):%Y-%m-%d %H:%M} UTC ({age})"
         lines.append(f"{source.name:<{_SOURCE_WIDTH}} {newest}")
     return lines
 
@@ -214,7 +227,7 @@ def render_sources(overview: Overview) -> list[str]:
     header = f"{'SOURCES':<{_SOURCE_WIDTH}} newest"
     if overview.health_verdict is not None and overview.health_at is not None:
         header += (
-            f"{'':>22}health ({overview.health_at:%H:%M} UTC): "
+            f"{'':>22}health ({_utc(overview.health_at):%H:%M} UTC): "
             f"{overview.health_verdict}"
         )
     return [header, *render_source_lines(overview.sources, overview.now)]
@@ -225,7 +238,7 @@ def render_universe(overview: Overview) -> list[str]:
     if overview.universe is None:
         return [f"{MINUTE_UNIVERSE_LABEL:<{_SOURCE_WIDTH}} {NO_ACCOUNTING}"]
     stamp = (
-        f"(accounting {overview.universe_at:%m-%d %H:%M} UTC) "
+        f"(accounting {_utc(overview.universe_at):%m-%d %H:%M} UTC) "
         if overview.universe_at is not None
         else ""
     )
@@ -258,7 +271,7 @@ def _wrapped(label: str, body: str, *, width: int = _SCREEN_WIDTH) -> list[str]:
 def render_overview(overview: Overview) -> str:
     """The whole screen."""
     title = "manta-trading overview"
-    stamp = f"{overview.now:%Y-%m-%d %H:%M} UTC"
+    stamp = f"{_utc(overview.now):%Y-%m-%d %H:%M} UTC"
     lines = [
         f"{title}{stamp:>{_SCREEN_WIDTH - len(title)}}",
         "",
