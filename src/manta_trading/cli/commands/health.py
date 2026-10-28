@@ -205,6 +205,9 @@ def gather(
     from manta_trading.cli.commands.health_off_tape import gather_off_tape
 
     checks.extend(gather_off_tape(conn, judged))
+    from manta_trading.cli.commands.health_value_parity import gather_value_parity
+
+    checks.extend(gather_value_parity(conn, judged))
 
     catalog = read_catalog_status(conn)
     rule = settings.collection_rule()

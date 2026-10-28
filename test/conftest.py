@@ -13,6 +13,7 @@ import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 import psycopg
@@ -312,6 +313,43 @@ def module_migrated_db() -> Iterator[str]:
     with _throwaway_database("mt_test_m") as url:
         with ConnectionPool(url, min_size=1, max_size=2) as pool:
             apply_migrations(pool, MINUTE_MIGRATIONS)
+        yield url
+
+
+PRE_SWAP_MIGRATION_ID = "063_minute_eligible_rollups_next"
+"""The last migration before 064 swaps the ``_next`` caggs in (slice 173)."""
+
+
+def pre_swap_minute_migrations() -> list[dict[str, Any]]:
+    """The minute chain through 063: the state production is in between
+    slice 172's build and slice 173's swap, where the ``_next`` caggs exist."""
+    from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+
+    ids = [m["id"] for m in MINUTE_MIGRATIONS]
+    return MINUTE_MIGRATIONS[: ids.index(PRE_SWAP_MIGRATION_ID) + 1]
+
+
+def _apply_minute_chain(url: str, migrations: list[dict[str, Any]]) -> None:
+    from psycopg_pool import ConnectionPool
+
+    from manta_trading.market.schema.runner import apply_migrations
+
+    with ConnectionPool(url, min_size=1, max_size=2) as pool:
+        apply_migrations(pool, migrations)
+
+
+@pytest.fixture()
+def pre_swap_db(ephemeral_db: str) -> str:
+    """:func:`migrated_db` stopped before 064, so the ``_next`` caggs exist."""
+    _apply_minute_chain(ephemeral_db, pre_swap_minute_migrations())
+    return ephemeral_db
+
+
+@pytest.fixture(scope="module")
+def module_pre_swap_db() -> Iterator[str]:
+    """Module-scoped :func:`pre_swap_db`."""
+    with _throwaway_database("mt_test_p") as url:
+        _apply_minute_chain(url, pre_swap_minute_migrations())
         yield url
 
 

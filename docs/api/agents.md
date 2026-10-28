@@ -114,12 +114,14 @@ construction, not by luck.
 
 **Spikes in minute bars.** The provider's minute bars include off-tape trades
 (late-reported, average-price, prior-reference) that appear as tall isolated
-wicks, mostly outside 09:30–16:00 ET. `prints=eligible` (at `granularity=1m`
-only, for now) clamps them into each bar's eligible range and drops minutes
-whose four prices are all off-tape, volume included. The default `prints=all`
-serves the stored bars unchanged; the response's `prints` says which you got.
-`prints=eligible` at any other grain is a `422` until slice 172 builds
-eligible rollups and makes `eligible` the default everywhere.
+wicks, mostly outside 09:30–16:00 ET. The default, `prints=eligible`, clamps
+them into each bar's eligible range and drops minutes whose four prices are
+all off-tape, volume included; `5m` to `4h` bars are built from those
+minutes, so a bucket of only off-tape minutes is absent too. `1d` and coarser
+are end-of-day bars, served unchanged. **Changed in slice 173:** the default
+was `prints=all`, and `5m`+ bars carried raw highs and lows. `prints=all`
+(raw, stored bars) is served at `1m` only; at any other grain it is a `422`.
+The response's `prints` says which you got.
 
 ### "Does this symbol exist? What range do you have?"
 

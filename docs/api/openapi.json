@@ -3736,13 +3736,13 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, gap status, the Kalshi prediction-market catalog and time series, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.23.2"
+    "version": "0.24.2"
   },
   "openapi": "3.1.0",
   "paths": {
     "/api/v1/bars/{symbol}": {
       "get": {
-        "description": "Return OHLCV bars for ``symbol`` over the requested date range.\n\nFor a cagg-served granularity the response carries ``is_stale``, probed\nagainst the exact view the bars came from (slice 185 D7). ``M1``/``D1`` read\nraw hypertables, so no probe is issued and ``is_stale`` is always ``False``.\n\nWindows are admitted before any database work (186 D4): a reversed range or\none whose estimated bar count exceeds the configured ceiling is a ``422``,\nnot a slow ``500``.\n\n``prints=eligible`` (slice 171) serves tape-eligible bars at ``1m`` only;\nany other granularity is a ``422`` until slice 172 builds eligible rollups.",
+        "description": "Return OHLCV bars for ``symbol`` over the requested date range.\n\nFor a cagg-served granularity the response carries ``is_stale``, probed\nagainst the exact view the bars came from (slice 185 D7). ``M1``/``D1`` read\nraw hypertables, so no probe is issued and ``is_stale`` is always ``False``.\n\nWindows are admitted before any database work (186 D4): a reversed range or\none whose estimated bar count exceeds the configured ceiling is a ``422``,\nnot a slow ``500``.\n\n``prints`` defaults to ``eligible`` (slice 173): tape-eligible bars at every\ngranularity, the rollups holding eligible values and the daily family\nserving its EOD bars. ``prints=all`` (raw prints) is served at ``1m`` only;\nany other granularity is a ``422``.",
         "operationId": "get_bars_api_v1_bars__symbol__get",
         "parameters": [
           {
@@ -3793,12 +3793,14 @@
             }
           },
           {
+            "description": "eligible (the default): tape-eligible bars at every granularity. all: raw prints, served at 1m only.",
             "in": "query",
             "name": "prints",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/PrintMode",
-              "default": "all"
+              "default": "eligible",
+              "description": "eligible (the default): tape-eligible bars at every granularity. all: raw prints, served at 1m only."
             }
           },
           {

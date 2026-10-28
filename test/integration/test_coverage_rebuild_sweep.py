@@ -53,14 +53,19 @@ _SUBWINDOW = COVERAGE_BUCKET_INTERVAL * 3
 _START = datetime(2015, 3, 2, tzinfo=UTC)
 
 
-def _apply_migrations(url: str) -> None:
+def _apply_migrations(url: str, *, through: str | None = None) -> None:
+    """The minute chain, or its prefix ending at migration ``through``."""
     from psycopg_pool import ConnectionPool
 
     from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
     from manta_trading.market.schema.runner import apply_migrations
 
+    migrations = MINUTE_MIGRATIONS
+    if through is not None:
+        ids = [m["id"] for m in MINUTE_MIGRATIONS]
+        migrations = MINUTE_MIGRATIONS[: ids.index(through) + 1]
     with ConnectionPool(url, min_size=1, max_size=2) as pool:
-        apply_migrations(pool, MINUTE_MIGRATIONS)
+        apply_migrations(pool, migrations)
 
 
 def _pause_coverage_jobs(conn: psycopg.Connection[Any], view_name: str) -> None:
@@ -127,14 +132,25 @@ def _seed(url: str) -> None:
             )
 
 
-@pytest.fixture
-def swept_db(ephemeral_db: str) -> str:
-    _apply_migrations(ephemeral_db)
-    _seed(ephemeral_db)
-    with psycopg.connect(ephemeral_db, autocommit=True) as conn:
+def _swept(url: str, *, through: str | None = None) -> str:
+    _apply_migrations(url, through=through)
+    _seed(url)
+    with psycopg.connect(url, autocommit=True) as conn:
         for view in (MINUTE_COVERAGE_VIEW, DAILY_COVERAGE_VIEW):
             _pause_coverage_jobs(conn, view)
-    return ephemeral_db
+    return url
+
+
+@pytest.fixture
+def swept_db(ephemeral_db: str) -> str:
+    return _swept(ephemeral_db)
+
+
+@pytest.fixture
+def swept_pre_swap_db(ephemeral_db: str) -> str:
+    """:func:`swept_db` stopped at 063, before 064 swaps the ``_next`` caggs
+    in (slice 173)."""
+    return _swept(ephemeral_db, through="063_minute_eligible_rollups_next")
 
 
 def _connect(url: str) -> psycopg.Connection[dict[str, object]]:
@@ -334,12 +350,12 @@ class TestNextTarget:
     """``--target next`` rebuilds minute_coverage_next from the eligible 4h
     rollup and leaves the current coverage cagg alone (slice 172)."""
 
-    def test_rebuilds_next_from_the_next_parent(self, swept_db: str) -> None:
+    def test_rebuilds_next_from_the_next_parent(self, swept_pre_swap_db: str) -> None:
         from manta_trading.constants import CaggTarget, target_view_name
 
         parent = target_view_name(GRANULARITY_SOURCE[Granularity.H4], CaggTarget.NEXT)
         view = target_view_name(MINUTE_COVERAGE_VIEW, CaggTarget.NEXT)
-        with _connect(swept_db) as conn:
+        with _connect(swept_pre_swap_db) as conn:
             conn.execute(f"CALL refresh_continuous_aggregate('{parent}', NULL, NULL)")
             _pause_coverage_jobs(conn, view)
             current_before = _rows(conn, MINUTE_COVERAGE_VIEW)

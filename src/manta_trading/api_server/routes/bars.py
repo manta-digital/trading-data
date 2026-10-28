@@ -34,8 +34,9 @@ from manta_trading.api_server.serialization import (
 from manta_trading.constants import (
     BARS_PER_TRADING_DAY,
     CAGG_BASE_GRANULARITY,
+    DEFAULT_PRINT_MODE,
     GRANULARITY_SOURCE,
-    PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
+    PRINTS_ALL_1M_ONLY_MESSAGE,
     TRADING_DAYS_PER_CALENDAR_DAY,
     Granularity,
     PrintMode,
@@ -131,7 +132,15 @@ async def get_bars(
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     max_bars: Annotated[int, Depends(get_max_bars)],
     adjusted: bool = True,
-    prints: PrintMode = PrintMode.ALL,
+    prints: Annotated[
+        PrintMode,
+        Query(
+            description=(
+                "eligible (the default): tape-eligible bars at every granularity. "
+                "all: raw prints, served at 1m only."
+            )
+        ),
+    ] = DEFAULT_PRINT_MODE,
     fmt: Annotated[ResponseFormat, Query(alias="format")] = "json",
 ) -> Response:
     """Return OHLCV bars for ``symbol`` over the requested date range.
@@ -144,13 +153,15 @@ async def get_bars(
     one whose estimated bar count exceeds the configured ceiling is a ``422``,
     not a slow ``500``.
 
-    ``prints=eligible`` (slice 171) serves tape-eligible bars at ``1m`` only;
-    any other granularity is a ``422`` until slice 172 builds eligible rollups.
+    ``prints`` defaults to ``eligible`` (slice 173): tape-eligible bars at every
+    granularity, the rollups holding eligible values and the daily family
+    serving its EOD bars. ``prints=all`` (raw prints) is served at ``1m`` only;
+    any other granularity is a ``422``.
     """
-    if prints is PrintMode.ELIGIBLE and granularity != Granularity.M1:
+    if prints is PrintMode.ALL and granularity != Granularity.M1:
         raise HTTPException(
             status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
+            detail=PRINTS_ALL_1M_ONLY_MESSAGE,
         )
     _admit_range(granularity, start, end, max_bars)
 

@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
-from manta_trading.constants import PRINTS_ELIGIBLE_1M_ONLY_MESSAGE, PrintMode
+from manta_trading.constants import PRINTS_ALL_1M_ONLY_MESSAGE, PrintMode
 
 runner = CliRunner()
 
@@ -42,7 +42,7 @@ def _sample_df() -> pd.DataFrame:
         {
             "open": [150.0, 151.0, 152.0],
             "high": [155.0, 156.0, 157.0],
-            "low":  [148.0, 149.0, 150.0],
+            "low": [148.0, 149.0, 150.0],
             "close": [153.0, 154.0, 155.0],
             "volume": [1_000_000, 1_100_000, 900_000],
         },
@@ -246,9 +246,10 @@ class TestDataGetKeyError:
 
 
 class TestDataGetPrints:
-    """``--prints`` (slice 171) reaches ``get_minute_data``; 1m only."""
+    """``--prints`` reaches ``get_minute_data``; eligible by default, ``all``
+    at 1m only (slices 171, 173)."""
 
-    def test_eligible_reaches_get_minute_data(self):
+    def test_all_reaches_get_minute_data(self):
         s = _settings()
         with _patch_app(s):
             with patch(
@@ -258,12 +259,12 @@ class TestDataGetPrints:
                 instance = MockMinute.return_value
                 instance.get_minute_data.return_value = _sample_df()
                 args = ["data", "get", "AAPL", "1m", "--start", "2024-01-01"]
-                result = runner.invoke(app, [*args, "--prints", "eligible"])
+                result = runner.invoke(app, [*args, "--prints", "all"])
         assert result.exit_code == 0, result.output
         kwargs = instance.get_minute_data.call_args.kwargs
-        assert kwargs["prints"] is PrintMode.ELIGIBLE
+        assert kwargs["prints"] is PrintMode.ALL
 
-    def test_default_is_all(self):
+    def test_default_is_eligible(self):
         s = _settings()
         with _patch_app(s):
             with patch(
@@ -275,13 +276,14 @@ class TestDataGetPrints:
                 runner.invoke(
                     app, ["data", "get", "AAPL", "1m", "--start", "2024-01-01"]
                 )
-        assert instance.get_minute_data.call_args.kwargs["prints"] is PrintMode.ALL
+        kwargs = instance.get_minute_data.call_args.kwargs
+        assert kwargs["prints"] is PrintMode.ELIGIBLE
 
-    def test_eligible_above_1m_exits_with_the_message(self):
+    def test_all_above_1m_exits_with_the_message(self):
         s = _settings()
         with _patch_app(s):
             result = runner.invoke(
-                app, ["data", "get", "AAPL", "5m", "--prints", "eligible"]
+                app, ["data", "get", "AAPL", "5m", "--prints", "all"]
             )
         assert result.exit_code == 1
-        assert PRINTS_ELIGIBLE_1M_ONLY_MESSAGE in " ".join(result.output.split())
+        assert PRINTS_ALL_1M_ONLY_MESSAGE in " ".join(result.output.split())

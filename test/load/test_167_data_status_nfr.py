@@ -156,6 +156,10 @@ def test_full_universe_data_status_under_one_second(prod_shaped_db: str) -> None
         "back a meaningful share of what slice 167 bought; check issues #16 "
         "and #17 before relaxing it further."
     )
+    print(
+        f"\nfull-universe data_status: median {median_s:.3f} s of "
+        f"{_NFR_SECONDS:.1f} s ceiling; samples {[f'{s:.3f}' for s in samples_s]}"
+    )
 
 
 def test_default_summary_path_under_the_same_margin(prod_shaped_db: str) -> None:

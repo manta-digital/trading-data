@@ -462,8 +462,8 @@ of the session `minute session mass` judges.
   0.26%–0.35%). **Zero or near-zero** means the detector stopped running
   while bars still arrived. **A flood** means the provider changed its bars
   or the detector broke. Either way the raw bars are untouched and
-  `prints=all` (the default) is unaffected; only `prints=eligible` readers
-  see the effect. Compare a few marked bars by hand:
+  `prints=all` (1m only) is unaffected; the default `prints=eligible`
+  readers, and every 5m-and-up bar, see the effect. Compare a few marked bars by hand:
   `SELECT time, open, high, low, close, off_tape FROM minute_ohlcv WHERE
   symbol = 'SPY' AND off_tape <> 0 ORDER BY time DESC LIMIT 20;`
 - `no completed session to judge`: same cause as for `minute session mass`.
@@ -570,6 +570,70 @@ and repair and rebuild-coverage skip what is already built.
 - A `_next` view's own refresh is paused while it is repaired. Its newest
   window is built first and its policy looks back 10 days, so a repair that
   runs less than that needs no catch-up refresh.
+
+### Eligible rollup swap: `scripts/cutover_173_eligible_rollup_swap.py` (slice 173)
+
+Releases migration 064, which swaps the eligible `_next` rollups and
+`minute_coverage_next` in under the current names and drops the raw ones. The
+same release makes `prints=eligible` the bars default at every granularity:
+from here on 5m-and-up bars carry no off-tape spikes, and `prints=all` is a
+`422` above 1m.
+
+**When:** after the 172 cutover passed (its report says `every _next rollup
+at parity`). The script re-checks this itself before it changes anything.
+
+**The one command**, as `manta` from the dev checkout at the release ref:
+
+```bash
+cd ~/source/repos/manta/trading-data && git fetch && git checkout vX.Y.Z
+uv run python scripts/cutover_173_eligible_rollup_swap.py vX.Y.Z
+```
+
+Steps, in order:
+
+1. **precheck** — the ref is on origin; the catalog's swap state is read.
+   Before the swap it runs `mt data caggs verify --target next` and
+   `rebuild-coverage --family minute --target next --verify`. After the swap
+   committed (a rerun) there is no `_next` left, so it skips them.
+2. The minute, daily and Kalshi timers are held (a running pass is waited
+   out).
+3. **install** — the ref, skipped when already installed.
+4. **swap** — applies 064: in one transaction the five current caggs become
+   `_prev`, the five `_next` take their names and `data_status` is re-issued
+   over the new coverage; then the `_prev` drops, coverage first.
+5. **verify** — `mt data caggs verify` on all four rollups; no `_next` or
+   `_prev` remains; `mt-run data health --json` passes the four rollups'
+   freshness, `minute_coverage`'s freshness and `value parity`.
+6. **serve** — restarts mt-serve onto the new default.
+7. The timers are released.
+
+**Reading the result:** `project-documents/user/notes/<date>-173-cutover.md`
+(narration in the `.log` beside it): each step as PASS or FAIL with what it
+saw, rows per minute cagg and the verify output. Exit 0 only when every step
+passed.
+
+**Timers after a failure.** Released only when the catalog still shows the
+swap not begun (every current and `_next` cagg present, no `_prev`): a failed
+precheck never holds them, and a failed install or a rolled-back rename
+transaction changed nothing. Any other failure leaves them **held** and says
+so (`timers stay HELD`): `mt data health` fails on cagg freshness and the
+operator overview shows the timers stopped. A state that cannot be read keeps
+them held too.
+
+**After a failure or a kill:** fix the cause the report names and rerun the
+same command. It reads the swap state, skips the `_next` precheck once the
+renames committed, and 064's guarded statements finish whatever is left. A
+leftover `_prev` after a committed rename is harmless to readers.
+
+| Report line | Meaning | Action |
+|---|---|---|
+| `out of parity: <view>_next` (precheck) | 172's build is not complete | rerun the 172 cutover, then this one |
+| `minute_coverage_next --verify exited N` | `minute_coverage_next` is not built | rerun the 172 cutover |
+| `unexpected swap state: …` | Names in a combination 064 cannot produce | stop; inspect the named objects before anything else |
+| `swap state swapped: _prev objects remain` | A drop did not run | rerun |
+| `out of parity: <view>` (verify) | A swapped-in rollup is under-materialized | `mt data caggs repair --granularity <g>`, then rerun |
+| `mt data health: value parity: …` | A rollup row differs from the eligible 1m recompute; the bucket and columns are named | file an issue with the line; do not release the timers by hand |
+| `timers stay HELD` | A failure past the swap's start | rerun after the fix; never start the timers by hand while the swap is partial |
 
 ## Running the acquisition passes
 

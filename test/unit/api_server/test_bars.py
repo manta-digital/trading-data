@@ -23,7 +23,7 @@ from manta_trading.constants import (
     API_SERVING_SESSION,
     BARS_PER_TRADING_DAY,
     GRANULARITY_SOURCE,
-    PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
+    PRINTS_ALL_1M_ONLY_MESSAGE,
     TRADING_DAYS_PER_CALENDAR_DAY,
     Granularity,
     PrintMode,
@@ -396,9 +396,7 @@ def _span_for(granularity: Granularity, ceiling: int) -> int:
     return int(ceiling / per_day)
 
 
-def _request(
-    test_app: FastAPI, granularity: str, start: date, end: date
-) -> Any:
+def _request(test_app: FastAPI, granularity: str, start: date, end: date) -> Any:
     return TestClient(test_app).get(
         f"/api/v1/bars/SPY?granularity={granularity}"
         f"&start={start.isoformat()}&end={end.isoformat()}"
@@ -414,9 +412,7 @@ class TestRangeAdmission:
         assert "75,000" in body["error"]
         assert "113 days" in body["error"]
 
-    def test_rejected_request_checks_out_no_connection(
-        self, test_app: FastAPI
-    ) -> None:
+    def test_rejected_request_checks_out_no_connection(self, test_app: FastAPI) -> None:
         """The point of the decision, not a side effect: a request that cannot
         be served must cost one comparison, not a pooled connection and an
         executor thread."""
@@ -517,7 +513,7 @@ class TestEmptyWindowContract:
         assert body["symbol"] == "SPY"
 
     def test_empty_response_still_carries_is_stale(self, test_app: FastAPI) -> None:
-        """"No bars *and* the cagg is stale" is exactly the case a client needs
+        """ "No bars *and* the cagg is stale" is exactly the case a client needs
         to tell apart from "no bars because the market was closed"."""
         test_app.state.minute_db.get_minute_data.return_value = pd.DataFrame()
         test_app.dependency_overrides[get_db_pool] = lambda: _pool_where_symbol(True)
@@ -637,38 +633,52 @@ class TestEmptyWindowContract:
 
 
 class TestPrints:
-    """``prints`` (slice 171): 1m only, passed through, echoed."""
+    """``prints`` (slices 171, 173): eligible by default at every granularity,
+    ``all`` at 1m only, passed through, echoed."""
 
-    def test_default_is_all_and_echoed(self, test_app: FastAPI) -> None:
+    @pytest.mark.parametrize("granularity", ["1m", "5m"])
+    def test_default_is_eligible_and_echoed(
+        self, test_app: FastAPI, granularity: str
+    ) -> None:
         test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
         response = TestClient(test_app).get(
-            "/api/v1/bars/SPY?granularity=1m&start=2024-01-01&end=2024-01-02"
-        )
-        assert response.json()["prints"] == "all"
-        kwargs = test_app.state.minute_db.get_minute_data.call_args.kwargs
-        assert kwargs["prints"] is PrintMode.ALL
-
-    def test_eligible_is_passed_through_at_1m(self, test_app: FastAPI) -> None:
-        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
-        response = TestClient(test_app).get(
-            "/api/v1/bars/SPY?granularity=1m&start=2024-01-01&end=2024-01-02"
-            "&prints=eligible"
+            f"/api/v1/bars/SPY?granularity={granularity}&start=2024-01-01"
+            "&end=2024-01-02"
         )
         assert response.json()["prints"] == "eligible"
         kwargs = test_app.state.minute_db.get_minute_data.call_args.kwargs
         assert kwargs["prints"] is PrintMode.ELIGIBLE
 
+    def test_default_at_daily_serves_eod_bars_as_eligible(
+        self, test_app: FastAPI
+    ) -> None:
+        test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(2)
+        response = TestClient(test_app).get(
+            "/api/v1/bars/SPY?granularity=1d&start=2024-01-01&end=2024-01-02"
+        )
+        assert response.status_code == 200
+        assert response.json()["prints"] == "eligible"
+
+    def test_all_is_passed_through_at_1m(self, test_app: FastAPI) -> None:
+        test_app.state.minute_db.get_minute_data.return_value = _make_ohlcv_df(2)
+        response = TestClient(test_app).get(
+            "/api/v1/bars/SPY?granularity=1m&start=2024-01-01&end=2024-01-02&prints=all"
+        )
+        assert response.json()["prints"] == "all"
+        kwargs = test_app.state.minute_db.get_minute_data.call_args.kwargs
+        assert kwargs["prints"] is PrintMode.ALL
+
     @pytest.mark.parametrize(
         "granularity", [g.value for g in Granularity if g is not Granularity.M1]
     )
-    def test_eligible_above_1m_is_422_before_any_read(
+    def test_all_above_1m_is_422_before_any_read(
         self, test_app: FastAPI, granularity: str
     ) -> None:
         response = TestClient(test_app).get(
             f"/api/v1/bars/SPY?granularity={granularity}&start=2024-01-01"
-            "&end=2024-01-02&prints=eligible"
+            "&end=2024-01-02&prints=all"
         )
         assert response.status_code == 422
-        assert response.json()["error"] == PRINTS_ELIGIBLE_1M_ONLY_MESSAGE
+        assert response.json()["error"] == PRINTS_ALL_1M_ONLY_MESSAGE
         assert not test_app.state.minute_db.get_minute_data.called
         assert not test_app.state.daily_db.get_daily_data.called

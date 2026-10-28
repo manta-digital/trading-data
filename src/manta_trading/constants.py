@@ -1271,6 +1271,10 @@ CAGG_NEXT_SUFFIX: Final[str] = "_next"
 """Suffix of the eligible replacement minute caggs built beside the current
 ones (slice 172). Never spell a ``_next`` name out; use ``target_view_name``."""
 
+CAGG_PREV_SUFFIX: Final[str] = "_prev"
+"""Suffix the replaced minute caggs carry between migration 064's renames and
+its drops (slice 173)."""
+
 
 class CaggTarget(StrEnum):
     """Which set of minute caggs a maintenance command acts on (slice 172)."""
@@ -1504,7 +1508,11 @@ Twice the highest daily share in the same measurement (0.347%).
 OFF_TAPE_SWEEP_LOCK_TIMEOUT: Final[str] = "30s"
 """lock_timeout for one chunk rewrite in the off-tape sweep (slice 171)."""
 
-PRINTS_ELIGIBLE_1M_ONLY_MESSAGE: Final[str] = (
-    "prints=eligible is served at 1m only until the eligible rollups are built"
+DEFAULT_PRINT_MODE: Final[PrintMode] = PrintMode.ELIGIBLE
+"""What a bars read serves when the caller does not say (slice 173)."""
+
+PRINTS_ALL_1M_ONLY_MESSAGE: Final[str] = (
+    "prints=all is served at 1m only; roll up the 1m bars"
 )
-"""Rejection for prints=eligible above 1m until slice 172 (slice 171)."""
+"""Rejection for prints=all above 1m: the rollups hold eligible values only
+(slice 173)."""

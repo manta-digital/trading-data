@@ -46,6 +46,7 @@ from psycopg_pool import ConnectionPool
 from tick_support.api import no_dev_tick_settings  # noqa: F401  (231 guard)
 
 from manta_trading.api_server.app import create_app
+from manta_trading.api_server.routes.bars import _max_span_days
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
     COVERAGE_BUCKET_INTERVAL,
@@ -206,17 +207,9 @@ real question.
 DENSE_START = datetime(2024, 1, 1, 4, 0, tzinfo=UTC)
 
 
-@pytest.fixture
-def dense_minute_db(ephemeral_db: str) -> str:
-    """One symbol with ~115k dense 1-minute bars, seeded by ``COPY``.
-
-    No cagg refresh: a ``1m`` request reads the raw hypertable, so the minute
-    caggs are irrelevant to what assertion 2 measures and refreshing them would
-    add minutes to the fixture for nothing.
-    """
-    _apply_schema(ephemeral_db)
-
-    with psycopg.connect(ephemeral_db) as conn:
+def _seed_dense(url: str, days: int) -> None:
+    """``DENSE_BARS_PER_DAY`` 1-minute bars a day for ``days`` days, by ``COPY``."""
+    with psycopg.connect(url) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO instruments "
@@ -240,7 +233,7 @@ def dense_minute_db(ephemeral_db: str) -> str:
                 "COPY minute_ohlcv "
                 "(time, symbol, open, high, low, close, volume) FROM STDIN"
             ) as copy:
-                for day in range(DENSE_DAYS):
+                for day in range(days):
                     day_start = DENSE_START + timedelta(days=day)
                     for minute in range(DENSE_BARS_PER_DAY):
                         copy.write_row(
@@ -255,6 +248,31 @@ def dense_minute_db(ephemeral_db: str) -> str:
                             )
                         )
         conn.commit()
+
+
+@pytest.fixture
+def dense_minute_db(ephemeral_db: str) -> str:
+    """One symbol with ~115k dense 1-minute bars, seeded by ``COPY``.
+
+    No cagg refresh: a ``1m`` request reads the raw hypertable, so the minute
+    caggs are irrelevant to what assertion 2 measures and refreshing them would
+    add minutes to the fixture for nothing.
+    """
+    _apply_schema(ephemeral_db)
+    _seed_dense(ephemeral_db, DENSE_DAYS)
+    return ephemeral_db
+
+
+@pytest.fixture
+def dense_5m_db(ephemeral_db: str) -> str:
+    """The dense symbol over the whole ``5m`` admission window, with the 5m
+    rollup refreshed (slice 173): a ``5m`` request at the ceiling then returns
+    a ceiling's worth of rollup rows, as the 1m case does of raw rows."""
+    _apply_schema(ephemeral_db)
+    _seed_dense(ephemeral_db, _max_span_days(Granularity.M5, API_MAX_BARS_PER_REQUEST))
+    with psycopg.connect(ephemeral_db, autocommit=True) as conn:
+        view = GRANULARITY_SOURCE[Granularity.M5]
+        conn.execute(f"CALL refresh_continuous_aggregate('{view}', NULL, NULL)")
     return ephemeral_db
 
 

@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 
 from manta_trading.cli.app import app
 from manta_trading.cli.commands.health_off_tape import OffTapeCounts
+from manta_trading.cli.commands.health_value_parity import ValueParitySample
 from manta_trading.cli.commands.minute_session_mass import (
     SessionMass,
     TradingSessionBounds,
@@ -632,12 +633,18 @@ class TestSessionMassQueries:
                 "manta_trading.cli.commands.health_off_tape.fetch_off_tape_counts",
                 return_value=OffTapeCounts("2026-09-08", 1_900_000, 0, 6_000),
             ),
+            patch(
+                "manta_trading.cli.commands.health_value_parity.fetch_value_parity",
+                return_value=ValueParitySample("2026-09-08", "SPY", 7, ()),
+            ) as value_parity,
         ):
             checks = gather(conn, _settings(), now=lambda: NOW)
         names = [c.name for c in checks]
         assert "minute session mass" in names
         assert "eodhd quota" not in names
         assert {"off-tape unevaluated", "off-tape share"} <= set(names)
+        assert "value parity" in names
+        assert value_parity.call_args.args[1] is self.SESSION
 
 
 class TestEarlyCloseSessionMass:

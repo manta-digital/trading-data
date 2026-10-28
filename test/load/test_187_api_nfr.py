@@ -200,23 +200,21 @@ def test_status_endpoint_latency(prod_shaped_db: str) -> None:
 
     median, samples = asyncio.run(_run())
     print("\n" + _report("status", median, samples, _STATUS_BOUND_S))
-    assert median < _STATUS_BOUND_S, _report(
-        "status", median, samples, _STATUS_BOUND_S
-    )
+    assert median < _STATUS_BOUND_S, _report("status", median, samples, _STATUS_BOUND_S)
 
 
 # --- assertion 2 (D10.2) — the headline -------------------------------------
 
 
-def _ceiling_window() -> tuple[str, str]:
-    """The largest ``1m`` window the admission check accepts.
+def _ceiling_window(granularity: Granularity = Granularity.M1) -> tuple[str, str]:
+    """The largest window the admission check accepts at ``granularity``.
 
     Derived from the route's own ``_max_span_days`` rather than hardcoded, so
     a change to ``API_MAX_BARS_PER_REQUEST`` or to the bars-per-day table moves
     this window with it instead of silently making the test request less than
     the ceiling.
     """
-    span = _max_span_days(Granularity.M1, API_MAX_BARS_PER_REQUEST)
+    span = _max_span_days(granularity, API_MAX_BARS_PER_REQUEST)
     start = DENSE_START.date()
     end = start + timedelta(days=span - 1)
     return start.isoformat(), end.isoformat()
@@ -273,6 +271,39 @@ def test_bars_request_latency_at_the_admission_ceiling(
     assert body["prints"] == prints.value
 
 
+def test_5m_bars_request_latency_at_the_admission_ceiling(dense_5m_db: str) -> None:
+    """A ``5m`` request at its ceiling, default ``prints``, inside the same
+    bound (slice 173). It reads the eligible rollup with the NULL-price
+    filter; 5m is the densest rollup, so 15m, 1h and 4h are not measured."""
+    start, end = _ceiling_window(Granularity.M5)
+
+    async def _run() -> tuple[float, httpx.Response]:
+        async with _client(dense_5m_db) as client:
+            started = time.perf_counter()
+            response = await client.get(
+                f"/api/v1/bars/{DENSE_SYMBOL}",
+                params={
+                    "granularity": Granularity.M5.value,
+                    "start": start,
+                    "end": end,
+                },
+            )
+            return time.perf_counter() - started, response
+
+    elapsed, response = asyncio.run(_run())
+    print(
+        f"\nbars-at-ceiling 5m: elapsed={elapsed:.3f}s bound={_BARS_BOUND_S:.1f}s "
+        f"status={response.status_code} window={start}..{end}"
+    )
+    assert response.status_code == 200, response.text[:300]
+    assert elapsed < _BARS_BOUND_S, (
+        f"5m bars at ceiling took {elapsed:.3f}s (bound {_BARS_BOUND_S:.1f}s)"
+    )
+    body = response.json()
+    assert body["prints"] == PrintMode.ELIGIBLE.value
+    assert body["count"] >= API_MAX_BARS_PER_REQUEST, "the window must be dense"
+
+
 def test_ceiling_request_is_not_bounded_by_statement_timeout(
     dense_minute_db: str,
 ) -> None:
@@ -325,16 +356,12 @@ def test_concurrent_symbol_detail_against_the_pool(prod_shaped_db: str) -> None:
 
             async def _one(index: int) -> float:
                 started = time.perf_counter()
-                response = await client.get(
-                    f"/api/v1/symbols/{symbol_name(index)}"
-                )
+                response = await client.get(f"/api/v1/symbols/{symbol_name(index)}")
                 assert response.status_code == 200, response.status_code
                 return time.perf_counter() - started
 
             wall_start = time.perf_counter()
-            latencies = await asyncio.gather(
-                *(_one(i) for i in range(_CONCURRENCY))
-            )
+            latencies = await asyncio.gather(*(_one(i) for i in range(_CONCURRENCY)))
             return list(latencies), time.perf_counter() - wall_start
 
     latencies, wall = asyncio.run(_run())

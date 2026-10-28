@@ -52,6 +52,8 @@ from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
 
 _ID = "063_minute_eligible_rollups_next"
 _INDEX = next(i for i, m in enumerate(MINUTE_MIGRATIONS) if m["id"] == _ID)
+# 064 swaps the _next objects in, so these tests stop the chain at 063.
+THROUGH_063 = MINUTE_MIGRATIONS[: _INDEX + 1]
 _SYMBOL = "ZZNXT"
 _FIRST_DAY = date(2025, 1, 2)
 _DAYS = 240  # four 70-day windows
@@ -174,11 +176,11 @@ def _snapshot(url: str, views: tuple[str, ...]) -> dict[str, tuple[Any, ...]]:
 
 
 @pytest.fixture(scope="module")
-def seeded_db(module_migrated_db: str) -> str:
+def seeded_db(module_pre_swap_db: str) -> str:
     """Migrated, seeded, current objects refreshed; ``_next`` empty."""
-    _seed(module_migrated_db)
-    _refresh(module_migrated_db, CURRENT_VIEWS)
-    return module_migrated_db
+    _seed(module_pre_swap_db)
+    _refresh(module_pre_swap_db, CURRENT_VIEWS)
+    return module_pre_swap_db
 
 
 def _rebuilt_starts(output: str, view: str) -> list[str]:
@@ -304,7 +306,7 @@ def test_readers_unchanged_by_063_and_a_partial_build(pre_063_db: str) -> None:
     before = _readers(url)
     assert before["bars"][Granularity.M5]["high"], "the fixture must serve bars"
 
-    _apply(url, MINUTE_MIGRATIONS)
+    _apply(url, THROUGH_063)
     view = target_view_name(GRANULARITY_SOURCE[Granularity.H4], CaggTarget.NEXT)
     with psycopg.connect(url, autocommit=True, row_factory=tuple_row) as conn:
         span = conn.execute(

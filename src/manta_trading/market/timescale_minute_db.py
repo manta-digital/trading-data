@@ -17,7 +17,8 @@ from psycopg_pool import ConnectionPool
 
 from manta_trading.constants import (
     DB_BULK_SESSION,
-    PRINTS_ELIGIBLE_1M_ONLY_MESSAGE,
+    DEFAULT_PRINT_MODE,
+    PRINTS_ALL_1M_ONLY_MESSAGE,
     DbSessionSettings,
     Granularity,
     PrintMode,
@@ -234,7 +235,7 @@ class TimescaleMinuteDataDB:
         aggregation: str | Granularity | None = None,
         *,
         adjusted: bool = True,
-        prints: PrintMode = PrintMode.ALL,
+        prints: PrintMode = DEFAULT_PRINT_MODE,
     ) -> pd.DataFrame:
         """High-performance time-series query with optional aggregation.
 
@@ -245,21 +246,24 @@ class TimescaleMinuteDataDB:
             aggregation: Optional aggregation level
                 (``'5m'``, ``'15m'``, ``'1h'``, ``'4h'``, or a ``Granularity`` member).
             adjusted: When True, apply split/dividend adjustment (default True).
-            prints: ``ALL`` serves raw bars; ``ELIGIBLE`` serves tape-eligible
-                1m bars (slice 171): marked prices clamped into the bar's
-                eligible range, all-marked minutes absent. Adjustment applies
-                after the eligible values.
+            prints: ``ELIGIBLE`` (the default) serves tape-eligible bars:
+                marked prices clamped into the bar's eligible range, all-marked
+                minutes absent (slice 171). With an aggregation it reads the
+                rollups, which hold eligible values (slice 173). ``ALL`` serves
+                raw bars, at 1m only. Adjustment applies after the eligible
+                values.
 
         Returns:
             DataFrame with DatetimeIndex (UTC) and OHLCV columns.
 
         Raises:
-            ValueError: ``prints=ELIGIBLE`` with an aggregation (until slice 172).
+            ValueError: ``prints=ALL`` with an aggregation: the rollups hold
+                eligible values only.
             psycopg.Error: any database failure, including a cancelled query.
                 An empty frame always means an empty window.
         """
-        if prints is PrintMode.ELIGIBLE and aggregation:
-            raise ValueError(PRINTS_ELIGIBLE_1M_ONLY_MESSAGE)
+        if prints is PrintMode.ALL and aggregation:
+            raise ValueError(PRINTS_ALL_1M_ONLY_MESSAGE)
         try:
             if aggregation:
                 df = self._get_aggregated_data(symbol, start_time, end_time, str(aggregation))
@@ -324,13 +328,16 @@ class TimescaleMinuteDataDB:
         if not view_name:
             raise ValueError(f"Unsupported aggregation: {aggregation}")
 
-        # View name is validated against hardcoded whitelist — safe to use in query
+        # View name is validated against hardcoded whitelist — safe to use in query.
+        # A bucket of only all-marked minutes has NULL prices (slice 172); it is
+        # left out like an empty bucket, so adjusted() never sees a NULL price.
         query = f"""
             SELECT time_bucket as time, open, high, low, close, volume
             FROM "{view_name}"
             WHERE symbol = %s
             AND time_bucket >= %s
             AND time_bucket <= %s
+            AND open IS NOT NULL
             ORDER BY time_bucket
         """
 
