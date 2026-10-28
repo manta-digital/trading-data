@@ -13,6 +13,7 @@ import psycopg
 import pytest
 
 from manta_trading.cli.commands.health_value_parity import (
+    ValueParitySample,
     check_value_parity,
     fetch_value_parity,
 )
@@ -26,7 +27,7 @@ SESSION = TradingSessionBounds(_OPEN, _OPEN + timedelta(hours=6, minutes=30))
 
 def _minutes(symbol: str, marks: dict[int, int]) -> list[tuple[object, ...]]:
     """Twenty minutes from the open; ``marks`` maps a minute to its mask."""
-    rows = []
+    rows: list[tuple[object, ...]] = []
     for offset in range(20):
         mark = marks.get(offset, 0)
         high = "150" if mark else "101"
@@ -46,7 +47,7 @@ def _write(url: str, rows: list[tuple[object, ...]]) -> None:
         conn.execute(f"CALL refresh_continuous_aggregate('{_5M}', NULL, NULL)")
 
 
-def _sample(url: str):  # type: ignore[no-untyped-def]
+def _sample(url: str) -> ValueParitySample:
     with psycopg.connect(url) as conn:
         return fetch_value_parity(conn, SESSION)
 
