@@ -1,0 +1,108 @@
+---
+docType: architecture
+layer: project
+project: trading
+archIndex: 300
+component: futures-historical-bars-statistics-and-tick-aggregation
+parent: 001-initiative-plan.trading.md
+dependencies:
+  - 220-arch.data-acquisition-futures-tick-primary-focus.md
+  - 180-arch.data-serving.md
+  - 900-arch.foundation-cleanup.md
+relatedSlices: []
+riskLevel: medium
+dateCreated: 20261028
+dateUpdated: 20261028
+status: not_started
+---
+
+# Futures Historical Bars, Statistics and Tick Aggregation Architecture
+
+## Overview
+
+Initiative 220 built and proved the futures tick pipeline, but on two free-credit files, and it has never bought anything. Production holds ES from 2024-08-30 to 2024-12-31 (64 sessions) and GC from 2024-11-04 to 2024-12-31 (41 sessions), both at `tbbo`. That is enough to prove a pipeline and not enough to research with. This initiative makes the futures history usable: deep bar history, open interest, bars that can be read quickly over long ranges, and checks that say whether what is stored is complete.
+
+The shape of what Databento sells decides the design. Verified on the pricing page on 2026-10-28, the Standard plan ($199/month) includes `ohlcv-1s/1m/1h/1d`, `definition`, `statistics` (open interest, settlement) and `status` for 16+ years, and `trades`, `tbbo`, `bbo` and `mbp-1` for the last 12 months only. Ticks therefore cover a rolling year plus the files we already hold. Bars and statistics cover the whole history. Research that reaches back past a year can only be served from the bar and statistics schemas.
+
+**Scope:** the bar and statistics schemas as archive units with their own storage; the open-interest roll rule; tick-derived aggregates; completeness checks for every futures tier; serving of the new data; and a small real purchase that proves 220's purchase path. It is the part of 280's original scope that does not depend on a live feed, moved here on 2026-10-28.
+
+**Motivation:** the primary research target is futures, and research needs history before it needs a live feed. Today a query over a year of bars rescans the ticks every time, nothing reaches back past what was bought, `mt data health` and `accounting` cannot say whether a futures range is complete, and the one thing 220 reserved for later (open interest) is not built.
+
+## Design Goals
+
+- **Deep history for ES and GC** — Bars from the start of the dataset (2010-06-06) and open interest and settlement over the same range, stored in the project's own database and kept.
+- **One bars read path that says where its bars came from** — A consumer asks for bars and gets them. The response names the source (provider bars or tick-derived), so a spliced series is never silent.
+- **Every tier answers "what do I have, and is it complete"** — Ticks, bars and statistics each get a completeness verdict against the CME calendar, in the same surfaces operators already read.
+- **A purchase path proven with real money** — A small real purchase, checked against the invoice, so the first large purchase is not the first test.
+- **Open interest available as a roll rule** — The rule 220 evaluated and deferred, built on stored `statistics`.
+
+## Architectural Principles
+
+- **Provider bars are a tier of their own** — `ohlcv-1m`, `ohlcv-1s` and `statistics` are new archive schemas, each projected into its own table with contract identity. Never into `minute_ohlcv` (equities, symbol-keyed) and never into the tick hypertable. This repeats 220's rule that a futures contract is the instrument and a continuous series is a rule.
+- **File-first, as in 220** — Raw DBN is archived and recorded in the manifest before anything is projected. Acquisition and ingest stay separate and idempotent; a database rebuilt from the archive holds the same projection.
+- **Cost is a first-class input, never a surprise** — Every request that could cost money is preceded by an estimate and passes the spend guard. The PM sets the ceilings.
+- **A tier ships with its completeness check** — No new schema is done until `status`, `coverage`, `health` and `accounting` can say whether its range is complete. A tier that cannot be verified is not delivered.
+- **Completeness comes from the manifest and the ledger, never from an aggregate** — Same rule as 220. A continuous aggregate answers a read; it never answers "what do I have", and nothing it derives informs acquisition (journal 20260725).
+- **Never splice tiers silently** — Where provider bars and tick-derived bars could both answer, the design names which wins and the response says so. Tick-derived bars are checked against provider bars where both exist, by measurement.
+- **Everything is built and tested before it costs money** — Code runs against real DBN files (the local files and the DBN project's samples), never invented fixtures. Real spending starts with a bounded test purchase.
+- **Every feature answers the API question** — Whether it belongs in `/api/v1/futures/*`, with human and AI documentation, is decided per feature, not at the end.
+
+## Current State
+
+- **Ticks:** the pipeline works end to end (adapter, archive, manifest, ingest, calendars, roll rules for calendar and volume, `/api/v1/futures/*`). ES and GC are configured at `tbbo`, measured at 28.6 bytes per row compressed and about 4.7 GB per year for both. The pass has only run on the two free-credit files; the spend ceiling is $0.50.
+- **Bars:** the futures bars routes compute bars at read time. `read_bars` runs `time_bucket` over one session's `tick_trade` rows, so bars exist only where ticks do, and a long range scans every tick in it. There are no continuous aggregates over `tick_trade`, which is an integer-nanosecond hypertable.
+- **Schemas:** the schema enum knows `trades`, `tbbo`, `mbp-1` and `definition`. `ohlcv-*` and `statistics` cannot be archived today.
+- **Open interest:** evaluated in 220 and deferred. For ES, Databento's `.n.0` matched `.v.0` on all 11 rolls from 2023 to 2025; GC differs.
+- **Checks:** `mt data health` reports the tick database's state and retention. `accounting` and the status coverage aggregates map only `minute_ohlcv` and `daily_ohlcv`. Tick completeness is a manual raw-count proof (`mt data tick coverage`).
+- **Consumers:** trading-ui plots equities from the API. Neither it nor manta-engine calls the futures routes yet.
+- **Cost of history, usage-based list prices** (free metadata calls, 2026-10-28, `GLBX.MDP3` parent symbols, 2010-06-06 to 2026-10-15). All of it is included in the Standard plan.
+
+  | Schema | ES | GC |
+  |---|---|---|
+  | `ohlcv-1m` | 8.7 M records, 0.49 GB, $31.86 | 15.9 M records, 0.89 GB, $57.88 |
+  | `ohlcv-1s`, all history | 170.6 M records, 9.56 GB, $622.97 | 133.8 M records, 7.49 GB, $488.41 |
+  | `ohlcv-1s`, last 12 months | 13.8 M records, 0.77 GB, $50.26 | 10.6 M records, 0.59 GB, $38.77 |
+  | `statistics` | 6.0 M records, 0.48 GB, $0.45 | 13.4 M records, 1.07 GB, $1.00 |
+  | `definition` | 0.19 M records, $0.16 | 3.1 M records, 1.62 GB, $2.56 |
+
+## Envisioned State
+
+The archive holds `ohlcv-1m`, `ohlcv-1s` (in the range chosen by purpose) and `statistics` units for ES and GC, each recorded in the manifest with its cost, ingested into its own table, and counted by the same completeness vocabulary 220 uses. Tick-derived aggregates answer long-range reads over the tick window. A single bars read names its source tier. `mt data tick coverage`, `health`, `accounting` and `overview` report every futures tier against the CME session calendar, and a gap is a named finding, not a surprise in a backtest. The open-interest roll rule reads stored `statistics`. 220's purchase path has spent real money once, and the invoice agreed with the manifest.
+
+## Technical Considerations
+
+- **Which tier serves bars** — Provider `ohlcv-1m` reaches back to 2010 and provider `ohlcv-1s` to 2010 as well; tick-derived bars exist only for the rolling year plus the held files. So the tick-derived aggregate cannot be the primary bars tier, and is chiefly for tick-window reads and for granularities provider bars do not give. Slice design settles which granularities come from which source, and whether coarser bars (5m and up) derive from `ohlcv-1m`.
+- **What 1-second bars are for** — Ticks are held only for what was bought, so 1s bars serve research in periods with no ticks. Storage is not the argument: ES and GC `ohlcv-1s` over all history is about 17 GB billable, against $1,111 at list price outside a subscription. The open question is purpose. The PM leaned (2026-10-15) toward pulling only for requested intervals and keeping what was fetched; pulling everything and fetching on request are the same path over different ranges.
+- **Tick-derived continuous aggregates** — `tick_trade` is on integer-nanosecond time with an integer-now function, which constrains aggregate creation. Intervals are set explicitly and refresh horizons stated (journal 20260725). The aggregate's source window slides: when old ticks leave the plan the held data does not disappear, but no new old data arrives. Small by itself, and may land first.
+- **Parity between tiers** — Provider bars are trade-only bars per second or minute. Tick-derived bars from `tbbo` trades should match them for the same instrument and interval. Parity is measured on a window where we hold both, not assumed. The 2024 files give such a window.
+- **Completeness of sparse bars** — An `ohlcv-1s` bar exists only for a second with a trade, so a row count per session proves nothing. Completeness is defined at unit and session grain (manifest state plus the ledger's counts and first and last event time), and a quiet overnight session is not a hole. This definition is the hardest part of the checks.
+- **Statistics** — Contents (settlement, cleared volume, open interest, session statistics) and publication timing (CME publishes session D's statistics during D + 1, pinned in 220's constants) set when a session's statistics are complete. Revisions may supersede earlier values; provenance per figure is kept.
+- **Open-interest roll** — Needs per-contract daily open interest from `statistics`, aligned to the 221 session model. ES `.n.0` matched `.v.0` on all 11 rolls; GC does not, so GC is where the rule earns its place. The rule vocabulary must match Databento's continuous-symbol conventions closely enough that a request in either resolves to the same contract on the same day.
+- **Purchase test** — A bounded real purchase (about $25 per the PM), with the ceilings raised for that run by the PM and the actual charge compared with the estimate and the manifest. What is bought is kept. Candidates and sizes are chosen at slice design from the table above.
+- **The rolling tick window** — In-plan `trades`/`tbbo` cover only the last 12 months, so each day without a subscription moves the oldest in-plan day out of the plan. This is a known cost of delay (PM, 2026-10-28), not a blocker. Selected older history can be bought outside the plan as budget allows.
+- **Serving** — `/api/v1/futures/products/{product}/bars` and the contract routes serve tick-derived bars today. New tiers change what "bars" means there. The response must name its source tier, and the change is documented in `docs/api/reference.md`, `agents.md` and the OpenAPI file. Open interest and settlement need routes or an explicit decision not to serve them.
+- **Surface coverage** — `COVERAGE_SOURCE_TABLE` and the status coverage logic map only minute and daily tables; tick and the new tiers need their own definition of "source edge" and "caught up". The slice that adds a tier extends these surfaces in place; no parallel set.
+- **Cost accounting** — 220's manifest records cost per unit and the 30-day cap treats every purchase alike. New schemas inherit that path. Plan-included ranges are bought as part of the subscription, so the manifest records what the estimate says and the PM's invoice is the reference.
+
+## Anticipated Slices
+
+Provisional, in rough build order. Only the purchase test spends money before a subscription.
+
+- **Tick-derived aggregates** — Continuous aggregates over `tick_trade`, `read_bars` switched to them, parity against the raw ticks. Small, independent.
+- **Bar and statistics schemas** — `ohlcv-1m`, `ohlcv-1s` and `statistics` in the schema enum, archive, manifest and their own tables, built on DBN sample files.
+- **Completeness for every futures tier** — Tick, bar and statistics completeness in `status`, `coverage`, `health`, `accounting` and `overview`, including the sparse-bar definition.
+- **Open-interest roll rule** — The rule on stored `statistics`, evaluated against calendar and volume rules for ES and GC.
+- **Purchase test** — A small real purchase through the pass, invoice reconciled, ceilings raised once by the PM.
+- **Serving the new tiers** — Bars with provenance, open interest and settlement through `/api/v1/futures/*`, with documentation.
+- **History acquisition** — Taking the chosen ranges of `ohlcv-1m`, `statistics` and `ohlcv-1s`, through the same pass, within the budget set at the time.
+
+## Related Work
+
+- **220-arch.data-acquisition-futures-tick-primary-focus.md** (complete) — the pipeline this extends: adapter, archive, manifest, ingest, session model, roll rules, "Completeness is answered from the manifest and the raw table", "A futures contract is the instrument", "Active contract and roll methods".
+- **220-slices.data-acquisition-futures-tick-primary-focus.md** — 221 (CME session model), 222 (tick storage and manifest), 224/225 (acquisition and ingest), 226 (measured rates and the `tbbo` decision), 229/232 (roll rules), 231 (futures API).
+- **226-analysis.tick-proof-go-no-go.md** — bytes per record, capacity, the `tbbo` decision.
+- **280-arch.futures-realtime-data-databento-live.md** — now live-only. Its former "Bar and statistics history" slice and subscription-month history moved here; its architecture document still describes them and is amended separately.
+- **180-arch.data-serving.md** — the serving layer these tiers extend.
+- **140-arch.data-quality-operations.md** — the quality surfaces (`data_status`, coverage aggregates, health) the checks extend.
+- **000-process-journal.md** — 20260719 (chunk intervals from wall-clock span), 20260725 (aggregate intervals set explicitly; derived data must not inform acquisition), 20260823 (production form).
+- **Databento pricing page** (`databento.com/pricing#cme`, read 2026-10-28) — the plan's included schemas and history. The docs site is client-rendered; the pricing page needs a browser to render.
