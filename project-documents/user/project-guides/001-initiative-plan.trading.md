@@ -4,7 +4,7 @@ layer: project
 project: trading
 source: user/project-guides/000-concept.trading.md
 dateCreated: 20260327
-dateUpdated: 20261015
+dateUpdated: 20261028
 status: in_progress
 ---
 
@@ -52,7 +52,7 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
 
 10. [x] **(260) Kalshi Event-Contract Data** — Continuous collection of Kalshi prediction-market data via their public REST API (`trade-api/v2`; market data requires no authentication). Relational catalog following Kalshi's own hierarchy: series → events → markets, with settlement outcomes captured on close. Collected surfaces: catalog sync (market lifecycle and settlement), candlesticks, and public trades; orderbook snapshots optional/later. Value is time-sensitive: Kalshi is migrating settled markets, old trades, and candlesticks behind `/historical/*` endpoints with a cutoff timestamp whose retention policy is theirs to change, and orderbook depth is live-only — data not collected now may be unobtainable later. Runs as a low-priority async collector (polling daemon on the 120 daemon/orchestrator patterns; websocket exists if ever needed) so it accumulates data while higher-priority initiatives (e.g. 220) proceed. Simpler than minute OHLCV: modest volumes, plain relational tables (hypertable only if trade/candle volume warrants), tiered rate limits are generous at the public tier. Dependencies: [900] (patterns from 120 reused, not blocking). Status: complete
 
-11. [ ] **(280) Futures Realtime Data — Databento Live** — Live capture of CME futures (ES, then GC) through the Databento Live API, plus everything else the Standard plan subscription ($199/month) unlocks. Initiative 220 proved the historical pipeline on the free-credit files; this initiative is what justifies paying every month. **Design principle: do the most possible before subscribing.** Everything is designed, built and tested against recorded data — the local DBN files, Databento's published samples, and a local replay of them standing in for the live gateway — so the subscription starts only when the work is ready to run, not while code is being written. Questions the subscription alone can answer (whether plan-included history prices at $0, the real live session behaviour) are listed and taken on assumption; the work proceeds past them. Status: not_started
+11. [ ] **(280) Futures Realtime Data — Databento Live** — Live capture of CME futures (ES, then GC) through the Databento Live API, on the Standard plan subscription ($199/month). Initiative 220 proved the historical pipeline on the free-credit files; this initiative is what justifies paying every month. **Design principle: do the most possible before subscribing.** Everything is designed, built and tested against recorded data — the local DBN files, Databento's published samples, and a local replay of them standing in for the live gateway — so the subscription starts only when the work is ready to run, not while code is being written. Questions the subscription alone can answer (whether plan-included history prices at $0, the real live session behaviour) are listed and taken on assumption; the work proceeds past them. Status: not_started
 
     Questions the architecture answers:
     - **How we pull it** — a long-running streaming service (the `Type=simple` form 220 reserved), its subscription set (schemas, symbols, parent vs raw symbology), the session lifecycle across the CME daily maintenance break and weekend close, and how it shares the host with the existing passes.
@@ -60,9 +60,21 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
     - **Recovery and resiliency** — disconnects and reconnects, the gateway's intraday replay, sequence-gap detection (reserved in 220), and filling a gap from historical once the provider's embargo passes; what a host outage of minutes, hours or days costs, and how health reports it. No silent holes.
     - **Expected bandwidth and size** — the records per second, bytes per second and bytes per day at peak and on average per product and schema. Computed now from the local ES `trades` and `tbbo` files (bursts measured from their timestamps), not guessed, and checked against the host's network and disk.
     - **Who consumes it, and how fast** — whether realtime reaches consumers (manta-engine, trading-ui) through the API, a stream, or only the database, and the latency each needs. The standing API question applies.
-    - **Subscription-month history** — what to take while subscribed: the included 12 months of `tbbo` (already supported by 220's pass), 16 years of `ohlcv-1m`, and 16 years of `statistics` for the open-interest roll rule. Both new schemas get their own tables with contract identity (never `minute_ohlcv`, never the tick hypertable) and are built and tested on sample files before subscribing. `ohlcv-1s` needs a stated purpose first; the PM leans (2026-10-15) toward pulling it only for requested intervals and keeping what is fetched, not pulling the full history. The architecture settles it.
+    - **Subscription-month history** — the included 12 months of `tbbo`, already supported by 220's pass. Bars and statistics history (`ohlcv-1m`, `ohlcv-1s`, `statistics`) moved to initiative 300 (2026-10-28).
 
     Out of scope: MBP-10 and MBO (not in the plan), options, equities realtime, order routing or execution. Dependencies: [220, 180]. Status: not_started
+
+12. [ ] **(300) Futures Historical Bars, Statistics and Tick Aggregation** — Make the futures history usable for research. Initiative 220 built and proved the tick pipeline on two free-credit files; it holds ES 2024-08-30 to 2024-12-31 and GC 2024-11-04 to 2024-12-31, has never bought anything, computes bars per query from `tick_trade`, and its health and accounting surfaces know only the minute and daily tiers. The Standard plan includes `ohlcv-1s/1m/1h/1d`, `definition`, `statistics` (open interest, settlement) and `status` for 16+ years, but `trades`, `tbbo` and `bbo` for the last 12 months only. So the deep history that research needs can only come from the bar and statistics schemas; ticks cover a rolling year. The work is built and tested on sample and local files before any subscription, as 280 does.
+
+    Questions the architecture answers:
+    - **Which tier serves bars** — Databento's own `ohlcv-1m` and `ohlcv-1s` (16+ years) versus bars derived from ticks (the rolling year plus the files we hold), which granularities come from which, and how a consumer asks for bars without knowing the tier. Tick-derived continuous aggregates over `tick_trade` are small and may land first, before the bar history exists.
+    - **How we store bars and statistics** — `ohlcv-1m`, `ohlcv-1s` and `statistics` as archive schemas with their own tables and contract identity (never `minute_ohlcv`, never the tick hypertable), through 220's adapter, manifest and ingest. `ohlcv-1s` needs a stated purpose first; the PM leaned (2026-10-15) toward pulling it for requested intervals and keeping what is fetched.
+    - **Open interest and roll** — the open-interest roll rule from `statistics`, alongside 220's calendar and volume rules.
+    - **Data checks** — completeness of ticks, bars and statistics against the CME calendar in `mt data health`, `accounting` and the status coverage aggregates, which today cover only minute and daily.
+    - **Serving** — whether bars, open interest and settlement reach consumers through `/api/v1/futures/*`, and with what docs. The standing API question applies. trading-ui plots equities from the API today; neither it nor the engine calls the futures routes yet.
+    - **The purchase path** — 220's pass has never bought anything. A small real purchase (about $25) proves it end to end, and the spend ceiling and the manifest's cost accounting are checked against the actual invoice.
+
+    Out of scope: live capture and the subscription cutover (280), MBP-10 and MBO, options, equities. Dependencies: [220, 180]. Status: not_started
 
 ## Cross-Initiative Dependencies
 
@@ -73,6 +85,7 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
 - **200 depends on 900**: Event Infrastructure needs config and logging foundation. Can proceed in parallel with 100-160 once foundation is in place.
 - **220 depends on 100, 120**: Tick hypertable (100) + daemon patterns, provider protocol scaffolding, and orchestrator core established in 120. The daemon framework extraction deferred from 120 was originally assigned here as the first slice; 220-arch (2026-09-21) reassigns it — the third source is a bounded pass under the 2026-08-23 production form, not a daemon, and follows an existing pass shape; extraction into a shared framework, if the third instance shows it is warranted, is foundation (900-band) work.
 - **280 depends on 220, 180**: Live capture reuses 220's adapter, tick storage, archive, manifest (delivery-agnostic key, delivery-mode discriminator, reserved sequence-gap tracking), session model and roll rules. Serving realtime data, if the architecture puts it in the API, extends 180.
+- **300 depends on 220, 180**: Reuses 220's adapter, archive, manifest, tick storage, session model and roll rules for the new bar and statistics schemas; serving bars and open interest extends 180. 280 does not depend on it; 280's bar and statistics history moved here.
 - **240 depends on 100, 120**: Reuses 120's orchestrator core, `acquisition_state` tracking, and idempotent-write patterns so imports share the live-acquisition state universe. Writes to storage established in 100.
 
 ## Dependency Graph
@@ -83,7 +96,8 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
  │    ├── 120 Data Acquisition — AlphaVantage
  │    │    ├── 140 Data Quality & Operations
  │    │    ├── 220 Data Acquisition — Futures Tick (primary focus)
- │    │    │    └── 280 Futures Realtime Data — Databento Live
+ │    │    │    ├── 280 Futures Realtime Data — Databento Live
+ │    │    │    └── 300 Futures Historical Bars, Statistics and Tick Aggregation
  │    │    └── 240 Data Acquisition — Flat File Import
  │    └── 180 Data Serving API
  ├── 200 Event Infrastructure
@@ -99,7 +113,8 @@ Rationale: A gap of 20 gives each initiative room for up to 19 slices, which is 
 5. **220** — Futures tick acquisition (the project's primary research target). Start with purchased historical-tick data to prove schema, provider seam, roll logic, and storage volume before signing up for a $179/mo live feed. Can begin once the equities pipeline (120 → 140 → 160) is solid enough to validate the patterns 220 reuses.
 6. **240** — Flat file import, sequenced after 220 or in parallel depending on operational priority (it is a smaller, self-contained tool and can be slotted opportunistically)
 7. **260** — Kalshi collector, started as early as practical and run async at low priority alongside 220 — its value is the data accumulated while other work proceeds
-8. **280** — Futures realtime and the Standard plan subscription, after 220. Built and tested on recorded data first; the subscription starts when the work is ready to run.
+8. **300** — Futures historical bars, statistics and tick aggregation, after 220. Built before 280: research needs usable history before it needs a live feed.
+9. **280** — Futures realtime and the Standard plan subscription, after 220 (live only). Built and tested on recorded data first; the subscription starts when the work is ready to run.
 
 ## Notes
 
