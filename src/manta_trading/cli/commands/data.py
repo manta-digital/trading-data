@@ -18,6 +18,7 @@ import typer
 # enums, ``--track`` from ``TRACK_REGISTRY``) to build the choice list and
 # reject anything else.
 from manta_trading.cli.commands._pass_run import make_pass_run_recorder
+from manta_trading.cli.help_layout import DataHelpGroup
 from manta_trading.cli.output import make_table, print_error, print_result
 from manta_trading.constants import (
     DEFAULT_PRINT_MODE,
@@ -53,6 +54,7 @@ logger = get_logger(__name__)
 
 data_app = typer.Typer(
     name="data",
+    cls=DataHelpGroup,
     help="Data acquisition and management.",
     no_args_is_help=True,
 )
