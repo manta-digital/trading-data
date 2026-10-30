@@ -35,7 +35,6 @@ from manta_trading.data.tick.constants import (
     TickSchema,
     UnitState,
     calendar_for_product,
-    tier_rank_sql,
 )
 from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
 from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_CALENDAR_ID
@@ -164,10 +163,3 @@ def test_ingest_workers_is_positive() -> None:
 def test_tier_rank_follows_tier_order() -> None:
     assert sorted(TICK_TIER_RANK, key=TICK_TIER_RANK.__getitem__) == list(TICK_TIERS)
     assert TICK_TIER_RANK[TickSchema.TBBO] > TICK_TIER_RANK[TickSchema.TRADES]
-
-
-def test_tier_rank_sql_lists_tiers_in_order() -> None:
-    rendered = tier_rank_sql("r.schema")
-    positions = [rendered.index(f"'{tier.value}'") for tier in TICK_TIERS]
-    assert positions == sorted(positions)
-    assert rendered.endswith(", r.schema)")

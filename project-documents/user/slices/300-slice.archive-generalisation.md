@@ -11,8 +11,8 @@ interfaces:
 - 304
 - 306
 dateCreated: 20261028
-dateUpdated: 20261028
-status: not_started
+dateUpdated: 20261030
+status: complete
 turns: 42
 promptTokens: 4474005
 cachedTokens: 4317927
@@ -363,34 +363,23 @@ All commands are run from the checkout root with the test database URL exported,
    ```
    Expected: all pass. The new tests include `test_schema_families.py`, `test_plan_inclusion.py`, the extended `test_spend_guard.py`, and an integration `test_tick_008_plan_inclusion.py`.
 
-2. **Parity on the held files** (D10).
-   ```bash
-   git worktree add ../td-300-base <base-commit>
-   (cd ../td-300-base && uv run python scripts/proof_226_tick.py rebuild)
-   # record: drill_228_fingerprint.fingerprint and table_md5 of tick_definition, tick_ingest_ledger
-   uv run python scripts/proof_226_tick.py rebuild
-   # record the same three values again
-   ```
-   Expected: the two `tick_trade` fingerprints are equal (`diff_fingerprints` returns no lines), and both table hashes are equal.
+2. **Parity on the held files** (D10). `trading_tick_proof` was retired by slice 227 (no pg_hba entry; `provision_tick_cluster.sh` no longer creates it), so `proof_226_tick.py rebuild` cannot run on this host. Build the held archive twice into throwaway databases on the test cluster instead: for each of the base commit (a worktree) and the branch head, create a database from `MT_TIMESCALE_TEST_URL`, point `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` at it and a scratch directory, and run `uv run mt data init --database tick`, `uv run mt data tick adopt --job-id <job> --source <archive>/<job>` for every job directory in sorted order, `uv run mt data tick pass --estimate-only --json` and `uv run mt data tick ingest --json`. Then record `drill_228_fingerprint.fingerprint` and `drill_228_bookkeeping.table_md5` of `tick_definition` and `tick_ingest_ledger`, and drop the database.
+   Observed (2026-10-30, 10 job directories): both sides planned 0 requests, ingested 129 units with 0 failed, and held 31,722,710 `tick_trade` rows in 1,835 fingerprint groups. The fingerprints are equal, `tick_definition` md5 is `ffa1efe417c4c31e2be8b16517786d76` and `tick_ingest_ledger` md5 is `d649539179c7d46ebdcaa6453dd5c74f` on both. The full record is in the task file's "Parity result".
 
-3. **The marker in the proof database.**
-   ```bash
-   psql "$MT_PROOF_226_DB_URL" -c "SELECT schema, is_plan_included, count(*) FROM tick_request GROUP BY 1, 2"
-   ```
-   Expected: every row `false` (no plan configured).
+3. **The marker.** Run on the head database before dropping it: `SELECT schema, is_plan_included, count(*) FROM tick_request GROUP BY 1, 2`. Observed: `definition false 6`, `tbbo false 3`, `trades false 1`. Expected: every row `false` (no plan configured).
 
 4. **Plan inclusion in the estimate** (free metadata calls only). The pass's guard with a plan is proven by the unit and integration tests above, because the production universe holds no in-plan days to plan.
    ```bash
    uv run mt data tick estimate --symbols ES.FUT --stype parent --start 2026-09-01 --end 2026-09-08 --json
    MT_TICK_DATABENTO_PLAN=standard uv run mt data tick estimate --symbols ES.FUT --stype parent --start 2026-09-01 --end 2026-09-08 --json
    ```
-   Expected: the first run shows `is_plan_included: false` on every schema, and its verdicts match today's. The second shows `is_plan_included: true` on `trades`, `tbbo`, `mbp-1` and `definition`, and the bundle verdict is `within` even at the $0.50 ceiling. `cost_usd` is unchanged (list price) in both.
+   Run it with `MT_TICK_SPEND_CEILING_USD=0.50` exported. Observed (2026-10-30): plan unset gives `is_plan_included: false` on every schema, `trades` (2.0809) and `tbbo` (3.4681) `over`; with `standard`, all four `true` and `trades` and `tbbo` `within`, `cost_usd` identical. Expected: the first run shows `is_plan_included: false` on every schema, and its verdicts match today's. The second shows `is_plan_included: true` on `trades`, `tbbo`, `mbp-1` and `definition`, and the bundle verdict is `within` even at the $0.50 ceiling. `cost_usd` is unchanged (list price) in both.
 
 5. **Unknown plan refused.**
    ```bash
    MT_TICK_DATABENTO_PLAN=platinum uv run mt data tick pass --estimate-only
    ```
-   Expected: refused before any provider call, naming `MT_TICK_DATABENTO_PLAN` and the allowed value `standard`.
+   Observed: a pydantic `ValidationError` at CLI startup, `Value error, MT_TICK_DATABENTO_PLAN='platinum' is not a plan; allowed: standard`, raised before any provider is built. Expected: refused before any provider call, naming `MT_TICK_DATABENTO_PLAN` and the allowed value `standard`.
 
 6. **Production, after merge.** Apply `tick_008` with `mt data migrate apply --track tick`, then run the existing production check, `sudo mt-run data health`. Expected: the tick lines are unchanged, and the next `mt-run tick` firing reports the same plan as before, with its spend lines unchanged.
 

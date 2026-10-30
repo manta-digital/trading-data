@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from manta_trading.config import ENV_FILE, Settings
+from manta_trading.config.databento_plans import DatabentoPlan
 from manta_trading.constants import API_MAX_BARS_PER_REQUEST, API_SERVING_SESSION
 from manta_trading.data.tick.constants import (
     TICK_ARCHIVE_DIR_ENV,
@@ -37,9 +38,7 @@ class TestSettingsDefaults:
         assert s.databento_api_key is None
         assert s.eodhd_api_key is None
 
-    def test_minute_provider_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_minute_provider_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MT_MINUTE_PROVIDER", raising=False)
         s = Settings(_env_file=None)
         assert s.minute_provider == "eodhd"
@@ -70,9 +69,7 @@ class TestSettingsDefaults:
         s = Settings(_env_file=None)
         assert s.corporate_actions_provider == "eodhd"
 
-    def test_eodhd_daily_limit_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_eodhd_daily_limit_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MT_EODHD_DAILY_LIMIT", raising=False)
         s = Settings(_env_file=None)
         assert s.eodhd_daily_limit == 100_000
@@ -110,16 +107,12 @@ class TestSettingsEnvOverride:
         s = Settings()
         assert s.tick_maintenance_url == "postgresql://localhost/tickm"
 
-    def test_eodhd_api_key_override(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_eodhd_api_key_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MT_EODHD_API_KEY", "eodhd-test-key")
         s = Settings()
         assert s.eodhd_api_key == "eodhd-test-key"
 
-    def test_minute_provider_override(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_minute_provider_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MT_MINUTE_PROVIDER", "eodhd")
         s = Settings()
         assert s.minute_provider == "eodhd"
@@ -131,9 +124,7 @@ class TestSettingsEnvOverride:
         s = Settings()
         assert s.corporate_actions_provider == "eodhd"
 
-    def test_eodhd_daily_limit_override(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_eodhd_daily_limit_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MT_EODHD_DAILY_LIMIT", "50000")
         s = Settings()
         assert s.eodhd_daily_limit == 50_000
@@ -191,9 +182,7 @@ class TestApiPolicySettings:
         monkeypatch.setenv("MT_API_MAX_BARS_PER_REQUEST", "1000")
         assert Settings(_env_file=None).api_max_bars_per_request == 1000
 
-    def test_statement_timeout_override(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_statement_timeout_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MT_API_STATEMENT_TIMEOUT", "5s")
         assert Settings(_env_file=None).api_statement_timeout == "5s"
 
@@ -287,9 +276,7 @@ class TestTickArchiveDir:
         monkeypatch.delenv(TICK_ARCHIVE_DIR_ENV, raising=False)
         assert Settings(_env_file=None).tick_archive_dir is None
 
-    def test_loads_path(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_loads_path(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         missing = tmp_path / "tick-archive"
         monkeypatch.setenv(TICK_ARCHIVE_DIR_ENV, str(missing))
         assert Settings(_env_file=None).tick_archive_dir == missing
@@ -307,3 +294,25 @@ class TestBackupRoots:
     def test_loads_raw(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
         monkeypatch.setenv("MT_BACKUP_ROOTS", value)
         assert Settings(_env_file=None).backup_roots == value
+
+
+class TestTickDatabentoPlan:
+    """Slice 300 (D5): optional; absent means no subscription; unknown refused."""
+
+    def test_unset_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MT_TICK_DATABENTO_PLAN", raising=False)
+        assert Settings(_env_file=None).tick_databento_plan is None
+
+    def test_standard_loads_as_the_plan(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MT_TICK_DATABENTO_PLAN", "standard")
+        assert Settings(_env_file=None).tick_databento_plan is DatabentoPlan.STANDARD
+
+    @pytest.mark.parametrize("value", ["platinum", ""])
+    def test_an_unknown_plan_is_refused_naming_variable_and_allowed(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv("MT_TICK_DATABENTO_PLAN", value)
+        with pytest.raises(ValidationError) as info:
+            Settings(_env_file=None)
+        assert "MT_TICK_DATABENTO_PLAN" in str(info.value)
+        assert "standard" in str(info.value)

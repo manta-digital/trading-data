@@ -91,8 +91,9 @@ async def _unit(
     (run.archive_root / "JOB" / name).write_bytes(content)
     cursor = await run.conn.execute(
         "INSERT INTO tick_request (dataset, schema, symbols, stype_in, range_start,"
-        " range_end, delivery_mode, is_adopted, estimated_cost_usd, requested_at)"
-        " VALUES (%s, %s, %s, %s, %s, %s, 'batch_job', FALSE, 0, %s)"
+        " range_end, delivery_mode, is_adopted, estimated_cost_usd, requested_at,"
+        " is_plan_included)"
+        " VALUES (%s, %s, %s, %s, %s, %s, 'batch_job', FALSE, 0, %s, FALSE)"
         " RETURNING request_id",
         (
             CME_DATASET,

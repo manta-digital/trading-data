@@ -28,12 +28,14 @@ class RequestRow:
     requested_at: datetime
     estimated_cost_usd: Decimal
     download_deadline: datetime | None
+    is_plan_included: bool
 
 
 _REQUEST_SELECT: LiteralString = (
     "SELECT r.request_id, r.dataset, r.schema, r.symbols, r.stype_in,"
     " r.range_start, r.range_end, r.provider_job_id, r.requested_at,"
-    " r.estimated_cost_usd, r.download_deadline FROM tick_request r"
+    " r.estimated_cost_usd, r.download_deadline, r.is_plan_included"
+    " FROM tick_request r"
 )
 
 
@@ -48,6 +50,7 @@ def _request_row(row: tuple[Any, ...]) -> RequestRow:
         requested_at=row[8],
         estimated_cost_usd=row[9],
         download_deadline=row[10],
+        is_plan_included=row[11],
     )
 
 
@@ -174,12 +177,27 @@ async def reopened_unit_ids(
 
 
 async def trailing_spend_rows(conn: Conn, since: datetime) -> list[TrailingRow]:
-    """Every request row inside the spend window, adopted and unaccepted included
-    (TD7): ``COALESCE(actual, estimated)`` at ``COALESCE(committed, requested)``."""
+    """Every usage-billed request row inside the spend window, adopted and
+    unaccepted included (TD7): ``COALESCE(actual, estimated)`` at
+    ``COALESCE(committed, requested)``. Plan-included rows cost nothing at the
+    margin and are left out (slice 300, D8)."""
     cursor = await conn.execute(
         "SELECT COALESCE(committed_at, requested_at),"
         " COALESCE(actual_cost_usd, estimated_cost_usd), provider_job_id"
-        " FROM tick_request WHERE COALESCE(committed_at, requested_at) >= %s",
+        " FROM tick_request WHERE COALESCE(committed_at, requested_at) >= %s"
+        " AND NOT is_plan_included",
         (since,),
     )
     return [TrailingRow(row[0], row[1], row[2]) for row in await cursor.fetchall()]
+
+
+async def held_job_ids(conn: Conn) -> frozenset[str]:
+    """Job ids any request row holds, plan-included rows too.
+
+    The spend window leaves included rows out of ``trailing_spend_rows``; their
+    jobs are still held, so they must not surface as unheld provider spend.
+    """
+    cursor = await conn.execute(
+        "SELECT provider_job_id FROM tick_request WHERE provider_job_id IS NOT NULL"
+    )
+    return frozenset(row[0] for row in await cursor.fetchall())

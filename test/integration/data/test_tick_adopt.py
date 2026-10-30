@@ -110,6 +110,7 @@ def make_run(archive: Path, session_migrated_db: str) -> RunFactory:
         job: dict[str, Any] | None = None,
         calendar_url: str = "",
         record_count: object = RECORDS_PER_DAY,
+        plan: str | None = None,
     ) -> Any:
         record = job if job is not None else _job()
         historical = FakeHistorical(
@@ -122,6 +123,7 @@ def make_run(archive: Path, session_migrated_db: str) -> RunFactory:
             tick_db_url=tick_url,
             tick_archive_dir=archive,
             timescale_db_url=calendar_url or session_migrated_db,
+            tick_databento_plan=plan,
         )
         return open_tick_run(
             settings,
@@ -186,6 +188,21 @@ async def test_adoption_records_verified_units_holes_and_strays(
         (date(2024, 9, 9), *hole),
     ]
     assert units[0][3] == f"{JOB}/{_file_name(FILE_DAYS[0])}"
+
+
+@pytest.mark.parametrize(("plan", "included"), [(None, False), ("standard", True)])
+async def test_adoption_classifies_plan_inclusion_at_ts_received(
+    make_run: RunFactory,
+    migrated_tick_db: str,
+    source: Path,
+    plan: str | None,
+    included: bool,
+) -> None:
+    """No plan configured: usage-billed. Standard: the job's days are inside
+    the window as of its ``ts_received`` (2024-09-10)."""
+    await _adopt(make_run, migrated_tick_db, source, plan=plan)
+    rows = _rows(migrated_tick_db, "SELECT is_plan_included FROM tick_request")
+    assert rows == [(included,)]
 
 
 async def test_second_adoption_writes_nothing(

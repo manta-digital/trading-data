@@ -43,6 +43,7 @@ from manta_trading.data.tick.manifest_repo import (
     reset_exhausted,
 )
 from manta_trading.data.tick.manifest_request_reads import (
+    held_job_ids,
     jobless_requests,
     reopened_unit_ids,
     requests_with_units_in,
@@ -93,7 +94,7 @@ async def _unit(conn: AConn, unit_id: int) -> dict[str, Any]:
 async def test_pending_insert_stamps_the_attempt_before_the_paid_call(
     conn: AConn,
 ) -> None:
-    pending = await insert_pending_request(conn, _planned(), COST, NOW, {})
+    pending = await insert_pending_request(conn, _planned(), COST, NOW, {}, False)
     assert sorted(pending.unit_ids) == list(DAYS)
     for unit_id in pending.unit_ids.values():
         unit = await _unit(conn, unit_id)
@@ -124,7 +125,9 @@ async def test_a_repurchase_writes_both_supersession_links_in_one_transaction(
     assert await reopened_unit_ids(conn, _planned().request, list(DAYS)) == {
         DAYS[0]: old
     }
-    pending = await insert_pending_request(conn, _planned(), COST, NOW, {DAYS[0]: old})
+    pending = await insert_pending_request(
+        conn, _planned(), COST, NOW, {DAYS[0]: old}, False
+    )
     new = pending.unit_ids[DAYS[0]]
     assert (await _unit(conn, new))["repurchase_of"] == old
     assert (await _unit(conn, old))["superseded_by"] == new
@@ -140,13 +143,15 @@ async def test_a_repurchase_of_a_unit_not_reopened_writes_nothing(
         request = insert_request(sync, schema=TickSchema.DEFINITION.value)
         live = insert_unit(sync, request, unit_date=DAYS[0])
     with pytest.raises(ManifestTransitionError):
-        await insert_pending_request(conn, _planned(), COST, NOW, {DAYS[0]: live})
+        await insert_pending_request(
+            conn, _planned(), COST, NOW, {DAYS[0]: live}, False
+        )
     cursor = await conn.execute("SELECT count(*) FROM tick_request")
     assert await cursor.fetchone() == (1,)  # only the seeded request: rolled back
 
 
 async def test_record_submit_moves_units_and_is_compare_and_set(conn: AConn) -> None:
-    pending = await insert_pending_request(conn, _planned(), COST, NOW, {})
+    pending = await insert_pending_request(conn, _planned(), COST, NOW, {}, False)
     committed = NOW + timedelta(seconds=3)
     await record_submit(conn, pending.request_id, "GLBX-1", committed, NOW)
     for unit_id in pending.unit_ids.values():
@@ -161,7 +166,7 @@ async def test_record_submit_moves_units_and_is_compare_and_set(conn: AConn) -> 
 
 
 async def test_record_submit_also_resolves_an_exhausted_unknown(conn: AConn) -> None:
-    pending = await insert_pending_request(conn, _planned(), COST, NOW, {})
+    pending = await insert_pending_request(conn, _planned(), COST, NOW, {}, False)
     await mark_submit_outcome(
         conn, pending.request_id, FetchStatus.RETRY_EXHAUSTED, "unknown"
     )
@@ -171,7 +176,7 @@ async def test_record_submit_also_resolves_an_exhausted_unknown(conn: AConn) -> 
 
 
 async def test_mark_submit_outcome_keeps_the_attempt(conn: AConn) -> None:
-    pending = await insert_pending_request(conn, _planned(), COST, NOW, {})
+    pending = await insert_pending_request(conn, _planned(), COST, NOW, {}, False)
     await mark_submit_outcome(
         conn, pending.request_id, FetchStatus.FAILED_RETRYABLE, "submit outcome unknown"
     )
@@ -189,7 +194,7 @@ async def test_mark_submit_outcome_keeps_the_attempt(conn: AConn) -> None:
 async def test_restamp_after_reset_is_a_second_attempt_on_the_same_row(
     conn: AConn,
 ) -> None:
-    pending = await insert_pending_request(conn, _planned(), COST, NOW, {})
+    pending = await insert_pending_request(conn, _planned(), COST, NOW, {}, False)
     with pytest.raises(ManifestTransitionError):  # attempt_count is 1, not 0
         await restamp_attempt(conn, pending.request_id, NOW)
     await mark_submit_outcome(
@@ -206,7 +211,7 @@ async def test_restamp_after_reset_is_a_second_attempt_on_the_same_row(
 
 
 async def test_mark_delivered_records_the_job_and_advances(conn: AConn) -> None:
-    pending = await insert_pending_request(conn, _planned(), COST, NOW, {})
+    pending = await insert_pending_request(conn, _planned(), COST, NOW, {}, False)
     await record_submit(conn, pending.request_id, "GLBX-1", NOW, NOW)
     deadline = NOW + timedelta(days=30)
     await mark_delivered(
@@ -239,13 +244,13 @@ async def test_mark_delivered_records_the_job_and_advances(conn: AConn) -> None:
 
 
 async def test_requests_with_units_are_ordered_by_deadline(conn: AConn) -> None:
-    first = await insert_pending_request(conn, _planned(), COST, NOW, {})
+    first = await insert_pending_request(conn, _planned(), COST, NOW, {}, False)
     second_planned = PlannedRequest(
         "ES",
         request_for(TickSchema.DEFINITION, date(2024, 9, 10), date(2024, 9, 11)),
         (date(2024, 9, 10),),
     )
-    second = await insert_pending_request(conn, second_planned, COST, NOW, {})
+    second = await insert_pending_request(conn, second_planned, COST, NOW, {}, False)
     for pending, job, deadline in (
         (first, "GLBX-LATE", NOW + timedelta(days=10)),
         (second, "GLBX-EARLY", NOW + timedelta(days=2)),
@@ -347,3 +352,37 @@ async def test_trailing_spend_rows_include_adopted_and_unaccepted(
         (Decimal("0.5"), None),
         (Decimal("2"), "ADOPTED"),
     ]
+
+
+@pytest.mark.parametrize("included", [False, True])
+async def test_the_pending_request_row_records_the_plan_marker(
+    conn: AConn, included: bool
+) -> None:
+    pending = await insert_pending_request(conn, _planned(), COST, NOW, {}, included)
+    cursor = await conn.execute(
+        "SELECT is_plan_included FROM tick_request WHERE request_id = %s",
+        (pending.request_id,),
+    )
+    assert await cursor.fetchone() == (included,)
+
+
+async def test_trailing_spend_leaves_included_rows_out_but_they_still_hold_their_job(
+    conn: AConn, migrated_tick_db: str
+) -> None:
+    with psycopg.connect(migrated_tick_db, autocommit=True) as sync:
+        insert_request(
+            sync,
+            provider_job_id="BILLED",
+            estimated_cost_usd=Decimal("2"),
+            requested_at=NOW - timedelta(days=1),
+        )
+        insert_request(
+            sync,
+            provider_job_id="INCLUDED",
+            estimated_cost_usd=Decimal("7"),
+            requested_at=NOW - timedelta(days=1),
+            is_plan_included=True,
+        )
+    rows = await trailing_spend_rows(conn, NOW - timedelta(days=30))
+    assert [(r.cost, r.job_id) for r in rows] == [(Decimal("2"), "BILLED")]
+    assert await held_job_ids(conn) == {"BILLED", "INCLUDED"}

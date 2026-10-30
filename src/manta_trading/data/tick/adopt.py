@@ -55,6 +55,7 @@ from manta_trading.data.tick.manifest_repo import (
     NewUnit,
     insert_adopted_request,
 )
+from manta_trading.data.tick.plan_inclusion import is_plan_included
 from manta_trading.data.tick.provider import BatchJob, ITickFileReader
 from manta_trading.data.tick.run_context import TickRun
 from manta_trading.data.tick.tick_calendar import (
@@ -260,7 +261,18 @@ async def adopt_job(
 
 
 async def _insert(run: TickRun, job: BatchJob, units: list[NewUnit]) -> int:
-    await insert_adopted_request(run.conn, _adopted_request(job), units, run.clock())
+    request = job.request
+    included = is_plan_included(
+        run.settings.tick_databento_plan,
+        request.dataset,
+        request.schema,
+        request.start,
+        request.end,
+        job.ts_received,
+    )
+    await insert_adopted_request(
+        run.conn, _adopted_request(job), units, run.clock(), included
+    )
     request_id = await request_id_for_job(run.conn, job.job_id)
     assert request_id is not None  # inserted just above
     return request_id

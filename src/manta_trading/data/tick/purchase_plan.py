@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -32,9 +32,11 @@ from manta_trading.data.tick.manifest_reads import (
     units_of_request,
 )
 from manta_trading.data.tick.manifest_request_reads import (
+    held_job_ids,
     resubmittable_requests,
     trailing_spend_rows,
 )
+from manta_trading.data.tick.plan_inclusion import request_is_plan_included
 from manta_trading.data.tick.planner import (
     OwnedTierDay,
     Plan,
@@ -49,7 +51,6 @@ from manta_trading.data.tick.spend_guard import (
     PlannedCost,
     SpaceVerdict,
     SpendVerdict,
-    TrailingRow,
     UnheldJob,
     evaluate_space,
     evaluate_spend,
@@ -73,6 +74,9 @@ class PlanItem:
     planned: PlannedRequest
     cost: Decimal
     billable_bytes: int
+    #: Whether the plan includes this request; the one value the guard sums by
+    #: and the submit writes to the row (slice 300, D8).
+    included: bool
     resubmit_of: int | None = None
 
 
@@ -153,21 +157,34 @@ async def _resubmits(run: TickRun) -> list[PlanItem]:
             planning_product(request.stype_in, request.symbols), request, days
         )
         size = await asyncio.to_thread(run.provider.billable_size, request)
-        items.append(PlanItem(planned, row.estimated_cost_usd, size, row.request_id))
+        items.append(
+            PlanItem(
+                planned,
+                row.estimated_cost_usd,
+                size,
+                row.is_plan_included,  # fixed when the row was written
+                row.request_id,
+            )
+        )
     return items
 
 
-async def _costed(run: TickRun, planned: Sequence[PlannedRequest]) -> list[PlanItem]:
+async def _costed(
+    run: TickRun, planned: Sequence[PlannedRequest], now: datetime
+) -> list[PlanItem]:
     items = []
     for entry in planned:
         cost = await asyncio.to_thread(run.provider.cost, entry.request)
         size = await asyncio.to_thread(run.provider.billable_size, entry.request)
-        items.append(PlanItem(entry, cost, size))
+        plan = run.settings.tick_databento_plan
+        included = request_is_plan_included(plan, entry.request, now)
+        items.append(PlanItem(entry, cost, size, included))
     return items
 
 
-async def _unheld(run: TickRun, trailing: Sequence[TrailingRow]) -> list[UnheldJob]:
-    """Provider jobs from the spend window that no manifest row holds."""
+async def _unheld(run: TickRun, held: frozenset[str]) -> list[UnheldJob]:
+    """Provider jobs from the spend window that no manifest row holds and the
+    plan does not include, each judged at its own ``ts_received`` (D8)."""
     since = run.clock() - TICK_SPEND_WINDOW
     jobs: tuple[BatchJob, ...] = await asyncio.to_thread(
         run.provider.batch_jobs_since, since
@@ -175,7 +192,10 @@ async def _unheld(run: TickRun, trailing: Sequence[TrailingRow]) -> list[UnheldJ
     by_id = {job.job_id: job for job in jobs}
     listed = [ListedJob(j.job_id, j.ts_received, j.cost_usd) for j in jobs]
     unheld = []
-    for job in unheld_listed(listed, trailing):
+    for job in unheld_listed(listed, held):
+        request = by_id[job.job_id].request
+        if request_is_plan_included(run.settings.tick_databento_plan, request, job.at):
+            continue
         cost = job.cost
         if cost is None:  # not yet priced: count it at its request's cost
             cost = await asyncio.to_thread(run.provider.cost, by_id[job.job_id].request)
@@ -203,16 +223,16 @@ async def build_plan(
             window_end=window[1],
         )
     )
-    items = [*await _resubmits(run), *await _costed(run, plan.requests)]
+    now = run.clock()
+    items = [*await _resubmits(run), *await _costed(run, plan.requests, now)]
     per_pass = run.settings.tick_spend_ceiling_usd
     cap_30d = run.settings.tick_spend_30d_ceiling_usd
     if not items:
         return PurchasePlan(plan, (), None, None, Decimal(0), per_pass, cap_30d)
-    now = run.clock()
     trailing = await trailing_spend_rows(conn, now - TICK_SPEND_WINDOW)
-    unheld = await _unheld(run, trailing)
+    unheld = await _unheld(run, await held_job_ids(conn))
     spend = evaluate_spend(
-        [PlannedCost(i.cost, counted=i.resubmit_of is not None) for i in items],
+        [PlannedCost(i.cost, i.resubmit_of is not None, i.included) for i in items],
         trailing,
         unheld,
         per_pass,

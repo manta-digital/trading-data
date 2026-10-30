@@ -84,7 +84,7 @@ async def _stamp(run: TickRun, item: PlanItem) -> int:
     request = item.planned.request
     links = await reopened_unit_ids(run.conn, request, list(item.planned.days))
     pending = await insert_pending_request(
-        run.conn, item.planned, item.cost, now, links
+        run.conn, item.planned, item.cost, now, links, item.included
     )
     return pending.request_id
 

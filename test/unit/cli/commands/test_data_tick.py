@@ -107,6 +107,16 @@ def test_happy_path_prints_four_rows(metadata: FakeApi) -> None:
     assert f"{TICK_SPEND_CEILING_ENV} unset" in result.output
     assert "end exclusive" in result.output
     assert "5 available" in result.output
+    assert "In plan" in result.output  # slice 300: the inclusion column
+
+
+def test_json_carries_is_plan_included_per_schema(
+    metadata: FakeApi, env: pytest.MonkeyPatch
+) -> None:
+    env.delenv("MT_TICK_DATABENTO_PLAN", raising=False)
+    result = runner.invoke(app, [*ESTIMATE, *RANGE, "--json"])
+    rows = json.loads(result.stdout)["schemas"]
+    assert [row["is_plan_included"] for row in rows] == [False] * len(rows)
 
 
 def test_json_carries_the_ceiling_fields(
@@ -595,6 +605,7 @@ def test_the_text_report_shows_phases_the_plan_and_the_closing_line(
     assert "$0.0041" in text and "$0.0014" in text  # sub-cent amounts stay visible
     assert "GLBX-PORTAL" in text and "verdict: refused" in text
     assert "30-day cap unset" in text
+    assert "marginal spend (plan-included excluded): planned" in text
     assert "MT_TICK_SPEND_30D_CEILING_USD [x]" in text  # brackets are not markup
     assert "Outcome: refused  exit 5" in text
     assert text.count("await") == 1  # a skipped phase gets a table row, no section

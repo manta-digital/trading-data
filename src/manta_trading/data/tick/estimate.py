@@ -3,15 +3,23 @@
 ``build_estimate`` accepts an ``ITickMetadataProvider`` only — a protocol with
 no paid method — so the preflight cannot spend by construction. It imports
 nothing from ``data/tick/databento/``.
+
+Plan inclusion (slice 300, D9): each row says whether the configured Databento
+plan includes that schema for the request, and a bundle's verdict judges its
+*marginal* cost (the members the plan does not include) against the ceiling, so
+this command and the pass's spend guard cannot disagree. ``cost_usd`` and
+``bundle_cost_usd`` stay at list price.
 """
 
 from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from manta_trading.config.databento_plans import DatabentoPlan
 from manta_trading.data.tick.constants import (
     COMPANION_SCHEMAS,
     ESTIMATE_SCHEMAS,
@@ -19,6 +27,7 @@ from manta_trading.data.tick.constants import (
     DatasetCondition,
     TickSchema,
 )
+from manta_trading.data.tick.plan_inclusion import request_is_plan_included
 from manta_trading.data.tick.provider import (
     DatasetRange,
     ITickMetadataProvider,
@@ -56,6 +65,8 @@ class SchemaEstimate:
     #: Tier cost plus the companion ``definition`` cost; stored tiers only.
     bundle_cost_usd: Decimal | None
     verdict: CeilingVerdict
+    #: Whether the configured plan includes this schema for the request.
+    is_plan_included: bool
 
 
 @dataclass(frozen=True)
@@ -89,6 +100,7 @@ class EstimateReport:
                     "cost_usd": _money(row.cost_usd),
                     "bundle_cost_usd": _money(row.bundle_cost_usd),
                     "ceiling_verdict": row.verdict.value,
+                    "is_plan_included": row.is_plan_included,
                 }
                 for row in self.rows
             ],
@@ -108,28 +120,38 @@ def _bundle_verdict(bundle: Decimal, ceiling: Decimal | None) -> CeilingVerdict:
 def _row(
     schema: TickSchema,
     figures: dict[TickSchema, tuple[int, int, Decimal]],
+    included: dict[TickSchema, bool],
     ceiling: Decimal | None,
 ) -> SchemaEstimate:
     records, size, cost = figures[schema]
     bundle: Decimal | None = None
     if schema in STORED_TIERS:
-        bundle = cost + sum(
-            (figures[c][2] for c in COMPANION_SCHEMAS), start=Decimal(0)
+        members = (schema, *COMPANION_SCHEMAS)
+        bundle = sum((figures[m][2] for m in members), start=Decimal(0))
+        marginal = sum(
+            (figures[m][2] for m in members if not included[m]), start=Decimal(0)
         )
-        verdict = _bundle_verdict(bundle, ceiling)
+        verdict = _bundle_verdict(marginal, ceiling)
     elif schema in COMPANION_SCHEMAS:
         verdict = CeilingVerdict.BOUGHT_WITH_EACH_TIER
     else:
         verdict = CeilingVerdict.NOT_PURCHASABLE
-    return SchemaEstimate(schema, records, size, cost, bundle, verdict)
+    return SchemaEstimate(
+        schema, records, size, cost, bundle, verdict, included[schema]
+    )
 
 
 def build_estimate(
     metadata: ITickMetadataProvider,
     request: TickRequest,
     ceiling: Decimal | None,
+    plan: DatabentoPlan | None,
+    at: datetime,
 ) -> EstimateReport:
     """Price ``request`` at every schema in ``ESTIMATE_SCHEMAS``; free calls only.
+
+    ``plan`` and ``at`` (when the request would be made) decide each row's
+    ``is_plan_included``.
 
     Raises ``EstimateRefusedError`` naming the edge when ``request.end`` is
     past the dataset's available end.
@@ -150,10 +172,16 @@ def build_estimate(
             metadata.billable_size(at_schema),
             metadata.cost(at_schema),
         )
+    included = {
+        schema: request_is_plan_included(plan, request.with_schema(schema), at)
+        for schema in ESTIMATE_SCHEMAS
+    }
     return EstimateReport(
         request=request,
         available=available,
         conditions={c: tally[c] for c in DatasetCondition},
-        rows=tuple(_row(schema, figures, ceiling) for schema in ESTIMATE_SCHEMAS),
+        rows=tuple(
+            _row(schema, figures, included, ceiling) for schema in ESTIMATE_SCHEMAS
+        ),
         ceiling_usd=ceiling,
     )

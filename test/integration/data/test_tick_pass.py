@@ -162,7 +162,7 @@ async def _in_flight_definition(
         "ES", request_for(TickSchema.DEFINITION, day, day + timedelta(days=1)), (day,)
     )
     pending = await insert_pending_request(
-        run.conn, planned, Decimal("0.001"), run.clock(), {}
+        run.conn, planned, Decimal("0.001"), run.clock(), {}, False
     )
     job = provider.add_job(planned.request)
     await record_submit(

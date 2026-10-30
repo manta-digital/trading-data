@@ -78,20 +78,25 @@ class NewUnit:
 
 
 async def insert_adopted_request(
-    conn: Conn, request: AdoptedRequest, units: Sequence[NewUnit], now: datetime
+    conn: Conn,
+    request: AdoptedRequest,
+    units: Sequence[NewUnit],
+    now: datetime,
+    is_plan_included: bool,
 ) -> dict[date, int]:
     """One transaction: the adopted request and its units (TD10). Unit ids by day.
 
     ``requested_at`` and ``committed_at`` are the provider's ``ts_received``,
     so rebuilding the manifest from the archive yields identical rows.
+    ``is_plan_included`` is classified at that same ``ts_received`` (slice 300).
     """
     async with conn.transaction():
         cursor = await conn.execute(
             "INSERT INTO tick_request (dataset, schema, symbols, stype_in,"
             " range_start, range_end, delivery_mode, is_adopted, provider_job_id,"
             " estimated_cost_usd, actual_cost_usd, provider_record_count,"
-            " billed_size_bytes, requested_at, committed_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s, %s, %s, %s, %s)"
+            " billed_size_bytes, requested_at, committed_at, is_plan_included)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s, %s, %s, %s, %s, %s, %s)"
             " RETURNING request_id",
             (
                 request.dataset,
@@ -108,6 +113,7 @@ async def insert_adopted_request(
                 request.billed_size,
                 request.ts_received,
                 request.ts_received,
+                is_plan_included,
             ),
         )
         row = await cursor.fetchone()

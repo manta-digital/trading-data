@@ -44,6 +44,7 @@ async def insert_pending_request(
     estimate: Decimal,
     now: datetime,
     repurchase_of: Mapping[date, int],
+    is_plan_included: bool,
 ) -> PendingRequest:
     """One transaction: the request and its units at *requested*, before the
     paid call (TD9). ``attempt_count = 1`` and ``last_attempt_at = now`` are
@@ -51,15 +52,16 @@ async def insert_pending_request(
 
     ``repurchase_of`` maps a day to the reopened unit it replaces; the pair of
     links (``repurchase_of_unit_id`` on the new unit, ``superseded_by_unit_id``
-    on the old) is written in this same transaction (TD8).
+    on the old) is written in this same transaction (TD8). ``is_plan_included``
+    is written once here and never updated (slice 300).
     """
     request = planned.request
     async with conn.transaction():
         cursor = await conn.execute(
             "INSERT INTO tick_request (dataset, schema, symbols, stype_in,"
             " range_start, range_end, delivery_mode, is_adopted,"
-            " estimated_cost_usd, requested_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s)"
+            " estimated_cost_usd, requested_at, is_plan_included)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, %s, %s, %s)"
             " RETURNING request_id",
             (
                 request.dataset,
@@ -71,6 +73,7 @@ async def insert_pending_request(
                 DeliveryMode.BATCH_JOB.value,
                 estimate,
                 now,
+                is_plan_included,
             ),
         )
         row = await cursor.fetchone()

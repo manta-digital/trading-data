@@ -32,11 +32,10 @@ from manta_trading.data.base.trading_calendar import (
     TradingCalendar,
 )
 from manta_trading.data.tick.constants import (
-    STORED_TIERS,
     SType,
+    TickSchema,
     UnitState,
     calendar_for_product,
-    tier_rank_sql,
 )
 from manta_trading.data.tick.ingest_checks import (
     IngestCheck,
@@ -50,6 +49,8 @@ from manta_trading.data.tick.ingest_records import (
     utc_ns,
 )
 from manta_trading.data.tick.manifest_reads import Conn, UnitRow
+from manta_trading.data.tick.projectors import INGEST_PROJECTORS
+from manta_trading.data.tick.schema_families import supersedes_sql
 from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.tick_calendar import TickCalendarError, planning_product
 
@@ -59,6 +60,7 @@ class SupersededUnit:
     """A current lower-tier unit of the same shape and day (TD5)."""
 
     unit_id: int
+    schema: TickSchema
     state: UnitState
     first_event_ns: int | None
     last_event_ns: int | None
@@ -124,17 +126,18 @@ async def _definitions(conn: Conn, product: str, frame: SessionFrame) -> Definit
     return Definitions.of(await cursor.fetchall())
 
 
-#: Rank expressions come from code constants only (``tier_rank_sql``).
+#: Rank expressions come from code constants only (``supersedes_sql``).
 _SUPERSEDED = (
-    "SELECT o.unit_id, o.state, min(l.first_event_ns), max(l.last_event_ns)"
+    "SELECT o.unit_id, p.schema, o.state, min(l.first_event_ns),"
+    " max(l.last_event_ns)"
     " FROM tick_archive_unit o JOIN tick_request p USING (request_id)"
     " LEFT JOIN tick_ingest_ledger l ON l.unit_id = o.unit_id"
     " WHERE p.dataset = %(dataset)s AND p.symbols = %(symbols)s"
     " AND p.stype_in = %(stype_in)s AND o.unit_date = %(day)s"
     " AND p.schema = ANY(%(tiers)s)"
     " AND o.superseded_by_unit_id IS NULL AND o.reopened_at IS NULL"
-    f" AND {tier_rank_sql('p.schema')} < {tier_rank_sql('%(schema)s')}"
-    " GROUP BY o.unit_id, o.state ORDER BY o.unit_id"
+    f" AND {supersedes_sql('%(schema)s', 'p.schema')}"
+    " GROUP BY o.unit_id, p.schema, o.state ORDER BY o.unit_id"
 )
 
 
@@ -146,13 +149,13 @@ async def _superseded(conn: Conn, unit: UnitRow) -> tuple[SupersededUnit, ...]:
             "symbols": list(unit.symbols),
             "stype_in": unit.stype_in.value,
             "day": unit.unit_date,
-            "tiers": sorted(tier.value for tier in STORED_TIERS),
+            "tiers": sorted(schema.value for schema in INGEST_PROJECTORS),
             "schema": unit.schema.value,
         },
     )
     return tuple(
-        SupersededUnit(unit_id, UnitState(state), first, last)
-        for unit_id, state, first, last in await cursor.fetchall()
+        SupersededUnit(unit_id, TickSchema(schema), UnitState(state), first, last)
+        for unit_id, schema, state, first, last in await cursor.fetchall()
     )
 
 

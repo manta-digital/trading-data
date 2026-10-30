@@ -1,10 +1,11 @@
 """Ingest one unit on a worker thread, in one transaction (slice 225, TD2).
 
 :func:`ingest_unit` is plain synchronous code a thread runs. On its own
-connection, in one transaction: supersede the lower-tier units the plan names
-(TD5), ``COPY`` the file's records batch by batch, check the counts, insert the
-ledger rows, and ``mark_ingested`` — then ``COMMIT``. A failed check rolls it
-all back and is returned as a :class:`UnitOutcome`; the loop records it.
+connection, in one transaction: supersede the lower-ranked units the plan names
+(TD5), have the schema's projector load the file's records, check the counts,
+let it write its bookkeeping, and ``mark_ingested`` — then ``COMMIT``. A failed
+check rolls it all back and is returned as a :class:`UnitOutcome`; the loop
+records it.
 
 Caught here, and only these: a check failure (``UnitCheckFailed``);
 ``UniqueViolation`` on ``COPY`` (``overlap``: another current unit holds the
@@ -35,7 +36,7 @@ from typing import Any
 import psycopg
 from psycopg import errors
 
-from manta_trading.data.tick.constants import STORED_TIERS, UnitState
+from manta_trading.data.tick.constants import UnitState
 from manta_trading.data.tick.ingest_checks import (
     IngestCheck,
     counts_reason,
@@ -43,15 +44,7 @@ from manta_trading.data.tick.ingest_checks import (
     overlap_reason,
 )
 from manta_trading.data.tick.ingest_plan import UnitIngestPlan
-from manta_trading.data.tick.ingest_records import (
-    LedgerAccumulator,
-    LedgerRow,
-    OrdinalCarry,
-    UnitCheckFailed,
-    locate_sessions,
-    resolve,
-)
-from manta_trading.data.tick.ingest_rows import COPY_SQL, COPY_TYPES, copy_rows
+from manta_trading.data.tick.ingest_records import UnitCheckFailed
 from manta_trading.data.tick.manifest_reads import COVERAGE_PREDICATE
 from manta_trading.data.tick.manifest_repo import mark_ingested_statement
 from manta_trading.data.tick.manifest_transitions import (
@@ -59,9 +52,15 @@ from manta_trading.data.tick.manifest_transitions import (
     execute_transition_sync,
     mark_superseded_statement,
 )
+from manta_trading.data.tick.projector_types import (
+    BatchProgress,
+    Cursor,
+    IUnitProjector,
+    Loaded,
+)
+from manta_trading.data.tick.projectors import projector_for
 from manta_trading.data.tick.provider import ITickFileReader, TickFileDecodeError
-
-Cursor = psycopg.Cursor[Any]
+from manta_trading.data.tick.schema_families import FAMILY_SCHEMAS, SCHEMA_FAMILY
 
 
 @dataclass(frozen=True)
@@ -94,16 +93,6 @@ class UnitOutcome:
     write_seconds: float
 
 
-@dataclass
-class _Loaded:
-    """What the COPY pass counted, for the checks after it."""
-
-    decoded: int = 0
-    first_ns: int | None = None
-    last_ns: int | None = None
-    decode_seconds: float = 0.0
-
-
 def _connect(settings: WorkerConnectionSettings) -> psycopg.Connection[Any]:
     lock_ms = int(settings.lock_timeout_seconds * 1000)
     return psycopg.connect(
@@ -120,106 +109,36 @@ def _connect(settings: WorkerConnectionSettings) -> psycopg.Connection[Any]:
 def supersede(cur: Cursor, plan: UnitIngestPlan) -> None:
     """Link each superseded unit to this one; delete an ingested one's rows.
 
-    The delete is bounded by that unit's own ledger times, so chunk exclusion
-    limits it to the chunks the unit touched. Its ledger rows stay (TD5).
+    The delete is the old unit's own projector's (its schema may differ from
+    this unit's), bounded by the old unit's ledger times where it has them.
     """
     for old in plan.superseded:
         execute_transition_sync(
             cur, mark_superseded_statement(old.unit_id, plan.unit.unit_id)
         )
-        if old.state is UnitState.INGESTED and old.first_event_ns is not None:
-            cur.execute(
-                "DELETE FROM tick_trade WHERE unit_id = %s"
-                " AND ts_event BETWEEN %s AND %s",
-                (old.unit_id, old.first_event_ns, old.last_event_ns),
+        if old.state is UnitState.INGESTED:
+            projector_for(old.schema).delete_unit(
+                cur, old.unit_id, old.first_event_ns, old.last_event_ns
             )
 
 
-#: Receives the row count of each ``COPY`` batch (234). Rows are inside the
-#: unit's open transaction, so a count is a liveness signal, not a commit.
-BatchProgress = Callable[[int], None]
-
-
-def _copy(
-    cur: Cursor,
-    plan: UnitIngestPlan,
-    path: Path,
-    reader: ITickFileReader,
-    progress: BatchProgress | None,
-) -> tuple[_Loaded, list[LedgerRow]]:
-    loaded, carry, ledger = _Loaded(), OrdinalCarry(), LedgerAccumulator()
-    batches = reader.open_file(path).iter_batches()
-    with cur.copy(COPY_SQL) as copy:
-        copy.set_types(list(COPY_TYPES))
-        while True:
-            started = time.monotonic()
-            batch = next(batches, None)
-            loaded.decode_seconds += time.monotonic() - started
-            if batch is None:
-                break
-            records = batch.records
-            ids, ts = records["instrument_id"], records["ts_event"]
-            resolve(plan.definitions, ids, ts, plan.product)
-            positions = locate_sessions(plan.frame, ts)
-            ordinals = carry.ordinals(ids, ts, records["sequence"])
-            ledger.add(ids, positions, records["size"], ts)
-            for row in copy_rows(records, ordinals, plan.unit.unit_id):
-                copy.write_row(row)
-            if batch.count:
-                low, high = int(ts.min()), int(ts.max())
-                loaded.first_ns = (
-                    low if loaded.first_ns is None else min(loaded.first_ns, low)
-                )
-                loaded.last_ns = (
-                    high if loaded.last_ns is None else max(loaded.last_ns, high)
-                )
-            loaded.decoded += batch.count
-            if progress is not None and batch.count:
-                progress(batch.count)
-    return loaded, ledger.rows(plan.definitions, plan.frame, plan.calendar_id)
-
-
-def _check_counts(cur: Cursor, plan: UnitIngestPlan, loaded: _Loaded) -> None:
-    """provider = decoded = stored rows of this unit, bounded by its time range."""
-    stored = 0
-    if loaded.first_ns is not None:
-        cur.execute(
-            "SELECT count(*) FROM tick_trade WHERE unit_id = %s"
-            " AND ts_event BETWEEN %s AND %s",
-            (plan.unit.unit_id, loaded.first_ns, loaded.last_ns),
-        )
-        stored = int(cur.fetchone()[0])  # type: ignore[index]
+def _check_counts(
+    cur: Cursor, projector: IUnitProjector, plan: UnitIngestPlan, loaded: Loaded
+) -> None:
+    """provider = decoded = stored rows of this unit."""
+    stored = projector.stored_count(
+        cur, plan.unit.unit_id, loaded.first_ns, loaded.last_ns
+    )
     provider = plan.unit.provider_record_count
     if not provider == loaded.decoded == stored:
         reason = counts_reason(provider, loaded.decoded, stored)
         raise UnitCheckFailed(IngestCheck.COUNTS, reason)
 
 
-def _insert_ledger(cur: Cursor, unit_id: int, rows: list[LedgerRow]) -> None:
-    cur.executemany(
-        "INSERT INTO tick_ingest_ledger (unit_id, instrument_id, calendar_id,"
-        " session_date, record_count, volume, first_event_ns, last_event_ns)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-        [
-            (
-                unit_id,
-                row.instrument_id,
-                row.calendar_id,
-                row.session_date,
-                row.record_count,
-                row.volume,
-                row.first_event_ns,
-                row.last_event_ns,
-            )
-            for row in rows
-        ],
-    )
-
-
 def _other_current_units(
     conn: psycopg.Connection[Any], plan: UnitIngestPlan
 ) -> list[int]:
-    """Current tier units of the same dataset and day, other than this one."""
+    """Current units of this unit's family, same dataset and day, other than it."""
     rows = conn.execute(
         "SELECT u.unit_id FROM tick_archive_unit u JOIN tick_request r"
         " USING (request_id) WHERE r.dataset = %s AND u.unit_date = %s"
@@ -229,7 +148,10 @@ def _other_current_units(
             plan.unit.dataset,
             plan.unit.unit_date,
             plan.unit.unit_id,
-            sorted(tier.value for tier in STORED_TIERS),
+            sorted(
+                schema.value
+                for schema in FAMILY_SCHEMAS[SCHEMA_FAMILY[plan.unit.schema]]
+            ),
         ),
     ).fetchall()
     return [int(row[0]) for row in rows]
@@ -252,7 +174,8 @@ def ingest_unit(
     unit = plan.unit
     assert unit.file is not None, f"unit {unit.unit_id} is verified with no file"
     path = archive_root / unit.file.path
-    loaded = _Loaded()
+    projector = projector_for(unit.schema)
+    loaded = Loaded()
 
     def outcome(
         result: UnitResult, failure: UnitCheckFailed | None = None
@@ -273,9 +196,9 @@ def ingest_unit(
         try:
             with conn.transaction(), conn.cursor() as cur:
                 supersede(cur, plan)
-                loaded, ledger = _copy(cur, plan, path, reader, progress)
-                _check_counts(cur, plan, loaded)
-                _insert_ledger(cur, unit.unit_id, ledger)
+                loaded = projector.load(cur, plan, path, reader, progress)
+                _check_counts(cur, projector, plan, loaded)
+                projector.finish(cur, unit.unit_id, loaded)
                 statement = mark_ingested_statement(
                     unit.unit_id, loaded.decoded, clock()
                 )

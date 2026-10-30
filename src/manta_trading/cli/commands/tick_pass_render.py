@@ -222,7 +222,8 @@ def _purchase_lines(summary: dict[str, Any]) -> list[str]:
         for r in summary["requests"]
     ]
     lines.append(
-        f"planned {_money(summary['planned_usd'])}; trailing 30 days "
+        f"marginal spend (plan-included excluded): planned "
+        f"{_money(summary['planned_usd'])}; trailing 30 days "
         f"{_money(summary['trailing_30d_usd'])}; per-pass ceiling "
         f"{_money(summary['per_pass_ceiling_usd'])}; 30-day cap "
         f"{_money(summary['cap_30d_usd'])}"
