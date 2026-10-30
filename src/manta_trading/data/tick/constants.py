@@ -259,18 +259,6 @@ TICK_TIER_RANK: Final[Mapping[TickSchema, int]] = {
 }
 
 
-def tier_rank_sql(column: str) -> str:
-    """SQL ranking ``column`` (a schema name) by ``TICK_TIERS`` order (TD5).
-
-    ``array_position`` is 1-based where ``TICK_TIER_RANK`` is 0-based; only the
-    order is compared. ``column`` is interpolated verbatim into the SQL text: a
-    column reference or a bind placeholder (``%(schema)s``) written in code,
-    never input.
-    """
-    tiers = ", ".join(f"'{tier.value}'" for tier in TICK_TIERS)
-    return f"array_position(ARRAY[{tiers}]::text[], {column})"
-
-
 #: A worker's ``lock_timeout`` (TD8): a unit row or trade chunk held longer
 #: than this aborts the run as ``storage_abort`` instead of hanging. Rule (226
 #: TD6): at least 4 × the slowest supersession delete on compressed chunks,

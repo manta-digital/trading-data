@@ -36,7 +36,6 @@ from manta_trading.data.tick.constants import (
     SType,
     UnitState,
     calendar_for_product,
-    tier_rank_sql,
 )
 from manta_trading.data.tick.ingest_checks import (
     IngestCheck,
@@ -50,6 +49,7 @@ from manta_trading.data.tick.ingest_records import (
     utc_ns,
 )
 from manta_trading.data.tick.manifest_reads import Conn, UnitRow
+from manta_trading.data.tick.schema_families import supersedes_sql
 from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.tick_calendar import TickCalendarError, planning_product
 
@@ -124,7 +124,7 @@ async def _definitions(conn: Conn, product: str, frame: SessionFrame) -> Definit
     return Definitions.of(await cursor.fetchall())
 
 
-#: Rank expressions come from code constants only (``tier_rank_sql``).
+#: Rank expressions come from code constants only (``supersedes_sql``).
 _SUPERSEDED = (
     "SELECT o.unit_id, o.state, min(l.first_event_ns), max(l.last_event_ns)"
     " FROM tick_archive_unit o JOIN tick_request p USING (request_id)"
@@ -133,7 +133,7 @@ _SUPERSEDED = (
     " AND p.stype_in = %(stype_in)s AND o.unit_date = %(day)s"
     " AND p.schema = ANY(%(tiers)s)"
     " AND o.superseded_by_unit_id IS NULL AND o.reopened_at IS NULL"
-    f" AND {tier_rank_sql('p.schema')} < {tier_rank_sql('%(schema)s')}"
+    f" AND {supersedes_sql('%(schema)s', 'p.schema')}"
     " GROUP BY o.unit_id, o.state ORDER BY o.unit_id"
 )
 

@@ -26,7 +26,6 @@ from manta_trading.data.tick.constants import (
     STORED_TIERS,
     TickSchema,
     UnitState,
-    tier_rank_sql,
 )
 from manta_trading.data.tick.manifest_reads import (
     OPEN_STATUS_VALUES,
@@ -36,6 +35,7 @@ from manta_trading.data.tick.manifest_reads import (
     UnitRow,
     unit_row,
 )
+from manta_trading.data.tick.schema_families import supersedes_sql
 
 
 class SkipKind(StrEnum):
@@ -66,13 +66,13 @@ _SHAPE_MATCH: LiteralString = (
     " AND o.unit_date = u.unit_date"
 )
 
-#: Column names and the rank expression come from code constants only.
+#: Column names and the supersession predicate come from code constants only.
 _SELECT = (
     f"SELECT {UNIT_COLUMNS}, u.superseded_by_unit_id, ("
     f" SELECT min(o.unit_id) FROM tick_archive_unit o, tick_request p"
     f" WHERE {_SHAPE_MATCH} AND o.superseded_by_unit_id IS NULL"
     " AND o.reopened_at IS NULL AND p.schema = ANY(%(tiers)s)"
-    f" AND {tier_rank_sql('p.schema')} > {tier_rank_sql('r.schema')}"
+    f" AND {supersedes_sql('p.schema', 'r.schema')}"
     ") AS outranked_by, EXISTS ("
     f" SELECT 1 FROM tick_archive_unit o, tick_request p WHERE {_SHAPE_MATCH}"
     " AND p.schema = %(definition)s AND o.state = %(ingested)s"
