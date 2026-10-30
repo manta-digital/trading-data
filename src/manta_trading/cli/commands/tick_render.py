@@ -77,6 +77,7 @@ def _cells(row: SchemaEstimate) -> tuple[str, ...]:
         human_bytes(row.billable_bytes),
         usd(row.cost_usd),
         bundle,
+        "yes" if row.is_plan_included else "no",
         VERDICT_LABELS[row.verdict],
     )
 
@@ -94,6 +95,7 @@ def print_estimate(report: EstimateReport, *, json_mode: bool) -> None:
             ("Size", ""),
             ("Cost (USD)", ""),
             ("Bundle (tier + definition)", ""),
+            ("In plan", ""),
             ("Verdict", "bold"),
         ],
     )

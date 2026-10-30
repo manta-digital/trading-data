@@ -195,36 +195,51 @@ Relative effort: 4/5.
 
 ## 6. Spend guard counts marginal spend (D8)
 
-- [ ] **6.1 `PlannedCost.included` and `evaluate_spend`**
-  - [ ] Add `included: bool` to `PlannedCost` in `spend_guard.py`. Make it a required field; update every constructor call. Until 6.4, production call sites pass `included=False` (today's behaviour); only tests set `True`.
-  - [ ] `evaluate_spend` sums only items with `included` false into the per-pass and 30-day totals. `SpendVerdict` shape is unchanged.
-  - [ ] Success: `evaluate_spend` has no other new branches; the file stays under 300 lines.
-- [ ] **6.2 Unit tests in `test_spend_guard.py`**
-  - [ ] Included planned items add $0 to the per-pass and 30-day sums; non-included items add their cost.
-  - [ ] An included resubmitted item (`counted`) is not double counted.
-  - [ ] Included trailing rows and included unheld jobs are excluded; a non-included unheld job counts in full (criteria 5 and 6).
-  - [ ] Existing tests pass after adding `included=False` to their fixtures.
-  - [ ] Success: all pass.
-- [ ] **6.3 Trailing read returns marginal rows only**
-  - [ ] In `manifest_request_reads.trailing_spend_rows`, add `NOT is_plan_included` to the query.
-  - [ ] Integration test (in the existing manifest-request-reads or pass test file): a trailing included row is absent, a usage-billed row is present.
-  - [ ] Success: test passes.
-- [ ] **6.4 `purchase_plan` classifies planned, resubmitted and unheld items**
-  - [ ] For each planned item call `is_plan_included(settings.tick_databento_plan, dataset, schema, start, end, now)` once, build `PlannedCost(cost, counted, included)`, and hold the value on the plan item, and make the submit call site from 5.3 read it from there instead of calling `is_plan_included` itself.
-  - [ ] Classify each unheld provider job from its own request and `ts_received` with the same function. A job on another dataset, or seen with no plan configured, is not included.
-  - [ ] Do not add a default for an absent `ts_received`; per D8 it never reaches this code and the job listing already fails.
-  - [ ] Success: no second call site computes inclusion; `purchase_plan.py` stays under 300 lines.
-- [ ] **6.5 Tests: purchase plan classification**
-  - [ ] Plan `standard`: a recent `tbbo` item is included; an item older than the window is not; a boundary-straddling item is not; a `definition` item of any age is included (criterion 5).
-  - [ ] Unheld jobs through `purchase_plan` (not just `evaluate_spend`): with plan `standard`, a recent in-window job and a `definition` job are included; an out-of-window job and a job on another dataset are not and count in full (criterion 6).
-  - [ ] No plan: every item and unheld job is not included, and the verdict equals today's.
-  - [ ] The value written to the row by `insert_pending_request` equals the value the guard used for the same item.
-  - [ ] Success: all pass, including the existing purchase-phase and pass tests.
-- [ ] **6.6 Pass render shows marginal totals**
-  - [ ] Update the pass renderer so the guard line says the totals are marginal and keeps list-price figures where they already are. This is the only operator-visible text change besides 7.1. Update any test that asserts the old line.
-  - [ ] Success: render tests pass; `estimated_cost_usd` on each row is unchanged.
-- [ ] **6.7 Commit: marginal spend guard**
-  - [ ] Commit as `feat: count marginal spend in the tick spend guard`.
+- [x] **6.1 `PlannedCost.included` and `evaluate_spend`**
+  - [x] Add `included: bool` to `PlannedCost` in `spend_guard.py`. Make it a required field; update every constructor call. Until 6.4, production call sites pass `included=False` (today's behaviour); only tests set `True`.
+  - [x] `evaluate_spend` sums only items with `included` false into the per-pass and 30-day totals. `SpendVerdict` shape is unchanged.
+  - [x] Success: `evaluate_spend` has no other new branches; the file stays under 300 lines.
+
+  *Note: `PlannedCost` is now `(cost, counted, included)`, all required, no defaults; production sets `included` from the plan item at once (6.4 landed in the same commit, so no interim `included=False`).*
+
+- [x] **6.2 Unit tests in `test_spend_guard.py`**
+  - [x] Included planned items add $0 to the per-pass and 30-day sums; non-included items add their cost.
+  - [x] An included resubmitted item (`counted`) is not double counted.
+  - [x] Included trailing rows and included unheld jobs are excluded; a non-included unheld job counts in full (criteria 5 and 6).
+  - [x] Existing tests pass after adding `included=False` to their fixtures.
+  - [x] Success: all pass.
+
+  *Note: included trailing rows and included unheld jobs never reach `evaluate_spend`: the trailing read (6.3) and `_unheld` (6.4) drop them upstream, so those cases are tested in `test_tick_manifest_pass.py` and `test_tick_purchase_inclusion.py`; `test_spend_guard.py` covers included planned items, included re-submits and the held-job rule.*
+
+- [x] **6.3 Trailing read returns marginal rows only**
+  - [x] In `manifest_request_reads.trailing_spend_rows`, add `NOT is_plan_included` to the query.
+  - [x] Integration test (in the existing manifest-request-reads or pass test file): a trailing included row is absent, a usage-billed row is present.
+  - [x] Success: test passes.
+
+  *Note: added `held_job_ids` (every request row, plan-included too) and `unheld_listed` now takes held ids instead of trailing rows; otherwise an included row left out of the trailing read would surface its job as unheld spend and count in full (e.g. plan unset later).*
+
+- [x] **6.4 `purchase_plan` classifies planned, resubmitted and unheld items**
+  - [x] For each planned item call `is_plan_included(settings.tick_databento_plan, dataset, schema, start, end, now)` once, build `PlannedCost(cost, counted, included)`, and hold the value on the plan item, and make the submit call site from 5.3 read it from there instead of calling `is_plan_included` itself.
+  - [x] Classify each unheld provider job from its own request and `ts_received` with the same function. A job on another dataset, or seen with no plan configured, is not included.
+  - [x] Do not add a default for an absent `ts_received`; per D8 it never reaches this code and the job listing already fails.
+  - [x] Success: no second call site computes inclusion; `purchase_plan.py` stays under 300 lines.
+
+  *Note: `PlanItem` gained required `included`; re-submits carry the row's stored `is_plan_included`; classification helper `request_is_plan_included` lives in `plan_inclusion.py`.*
+
+- [x] **6.5 Tests: purchase plan classification**
+  - [x] Plan `standard`: a recent `tbbo` item is included; an item older than the window is not; a boundary-straddling item is not; a `definition` item of any age is included (criterion 5).
+  - [x] Unheld jobs through `purchase_plan` (not just `evaluate_spend`): with plan `standard`, a recent in-window job and a `definition` job are included; an out-of-window job and a job on another dataset are not and count in full (criterion 6).
+  - [x] No plan: every item and unheld job is not included, and the verdict equals today's.
+  - [x] The value written to the row by `insert_pending_request` equals the value the guard used for the same item.
+  - [x] Success: all pass, including the existing purchase-phase and pass tests.
+
+  *Note: tests in `test/integration/data/test_tick_purchase_inclusion.py` call `purchase_plan._costed` and `_unheld` directly for the age/boundary/dataset table, and run the purchase phase for the row-equals-guard check.*
+
+- [x] **6.6 Pass render shows marginal totals**
+  - [x] Update the pass renderer so the guard line says the totals are marginal and keeps list-price figures where they already are. This is the only operator-visible text change besides 7.1. Update any test that asserts the old line.
+  - [x] Success: render tests pass; `estimated_cost_usd` on each row is unchanged.
+- [x] **6.7 Commit: marginal spend guard**
+  - [x] Commit as `feat: count marginal spend in the tick spend guard`.
 
 ## 7. Estimate reports plan inclusion (D9)
 

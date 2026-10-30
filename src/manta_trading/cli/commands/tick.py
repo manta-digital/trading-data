@@ -14,7 +14,7 @@ Rich rendering lives in ``tick_render.py`` and ``tick_pass_render.py``.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -126,7 +126,13 @@ def tick_estimate(
         raise typer.Exit(EXIT_PREFLIGHT) from exc
     with provider:
         try:
-            report = build_estimate(provider, request, settings.tick_spend_ceiling_usd)
+            report = build_estimate(
+                provider,
+                request,
+                settings.tick_spend_ceiling_usd,
+                settings.tick_databento_plan,
+                datetime.now(UTC),
+            )
         except EstimateRefusedError as exc:
             print_error(str(exc), json_mode=json_output)
             raise typer.Exit(EXIT_PREFLIGHT) from exc

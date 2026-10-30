@@ -107,6 +107,16 @@ def test_happy_path_prints_four_rows(metadata: FakeApi) -> None:
     assert f"{TICK_SPEND_CEILING_ENV} unset" in result.output
     assert "end exclusive" in result.output
     assert "5 available" in result.output
+    assert "In plan" in result.output  # slice 300: the inclusion column
+
+
+def test_json_carries_is_plan_included_per_schema(
+    metadata: FakeApi, env: pytest.MonkeyPatch
+) -> None:
+    env.delenv("MT_TICK_DATABENTO_PLAN", raising=False)
+    result = runner.invoke(app, [*ESTIMATE, *RANGE, "--json"])
+    rows = json.loads(result.stdout)["schemas"]
+    assert [row["is_plan_included"] for row in rows] == [False] * len(rows)
 
 
 def test_json_carries_the_ceiling_fields(

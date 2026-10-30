@@ -8,7 +8,7 @@ Figures come from ``tick_support.metadata_responses`` through a real
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import httpx
@@ -24,6 +24,7 @@ from tick_support.metadata_responses import (
     symbology_api,
 )
 
+from manta_trading.config.databento_plans import DatabentoPlan
 from manta_trading.data.tick.constants import (
     CME_DATASET,
     ESTIMATE_SCHEMAS,
@@ -47,6 +48,11 @@ REQUEST = TickRequest(
     start=REQUEST_START,
     end=REQUEST_END,
 )
+#: The recorded request is early January 2025: inside the Standard window now,
+#: outside it a year and a half on.
+RECENT = datetime(2025, 3, 1, tzinfo=UTC)
+AT = RECENT
+OLD = datetime(2026, 9, 1, tzinfo=UTC)
 TRADES_BUNDLE = bundle(TickSchema.TRADES)
 TBBO_BUNDLE = bundle(TickSchema.TBBO)
 #: Between the two bundles: trades within, tbbo over.
@@ -63,12 +69,12 @@ def _provider(metadata: FakeApi | None = None) -> DatabentoTickProvider:
 
 
 def _verdicts(ceiling: Decimal | None) -> dict[TickSchema, CeilingVerdict]:
-    report = build_estimate(_provider(), REQUEST, ceiling)
+    report = build_estimate(_provider(), REQUEST, ceiling, None, AT)
     return {row.schema: row.verdict for row in report.rows}
 
 
 def test_rows_follow_estimate_schemas_with_figures() -> None:
-    report = build_estimate(_provider(), REQUEST, None)
+    report = build_estimate(_provider(), REQUEST, None, None, AT)
     assert [row.schema for row in report.rows] == list(ESTIMATE_SCHEMAS)
     trades = report.rows[0]
     assert (trades.record_count, trades.billable_bytes) == (2_509_722, 120_466_656)
@@ -122,7 +128,7 @@ def test_end_past_the_edge_is_refused_naming_it() -> None:
     )
     metadata = metadata_api()
     with pytest.raises(EstimateRefusedError, match="2026-09-27T12:24:28"):
-        build_estimate(_provider(metadata), late, None)
+        build_estimate(_provider(metadata), late, None, None, AT)
     assert [name for name, _ in metadata.calls] == ["get_dataset_range"]
 
 
@@ -135,7 +141,7 @@ def test_end_at_the_edge_is_allowed() -> None:
         start=date(2026, 9, 22),
         end=date(2026, 9, 27),
     )
-    build_estimate(_provider(), at_edge, None)
+    build_estimate(_provider(), at_edge, None, None, AT)
 
 
 def test_condition_tally_counts_each_day_once() -> None:
@@ -145,7 +151,7 @@ def test_condition_tally_counts_each_day_once() -> None:
     for entry, label in zip(entries, labels, strict=True):
         entry["condition"] = label
     metadata.responses["get_dataset_condition"] = entries
-    report = build_estimate(_provider(metadata), REQUEST, None)
+    report = build_estimate(_provider(metadata), REQUEST, None, None, AT)
     assert report.conditions == {
         DatasetCondition.AVAILABLE: 2,
         DatasetCondition.DEGRADED: 1,
@@ -157,7 +163,7 @@ def test_condition_tally_counts_each_day_once() -> None:
 
 def test_each_metadata_call_happens_once_per_schema() -> None:
     metadata = metadata_api()
-    build_estimate(_provider(metadata), REQUEST, None)
+    build_estimate(_provider(metadata), REQUEST, None, None, AT)
     names = [name for name, _ in metadata.calls]
     assert names.count("get_dataset_range") == 1
     assert names.count("get_dataset_condition") == 1
@@ -167,7 +173,7 @@ def test_each_metadata_call_happens_once_per_schema() -> None:
 
 
 def test_to_dict_carries_the_ceiling_fields() -> None:
-    payload = build_estimate(_provider(), REQUEST, Decimal("4.00")).to_dict()
+    payload = build_estimate(_provider(), REQUEST, Decimal("4.00"), None, AT).to_dict()
     assert payload["ceiling_usd"] == "4.00"
     rows = payload["schemas"]
     assert isinstance(rows, list)
@@ -176,3 +182,41 @@ def test_to_dict_carries_the_ceiling_fields() -> None:
     assert rows[1]["ceiling_verdict"] == "over"
     assert rows[2]["bundle_cost_usd"] is None
     assert payload["end_exclusive"] == "2025-01-11"
+
+
+def test_with_no_plan_no_schema_is_plan_included() -> None:
+    report = build_estimate(_provider(), REQUEST, Decimal("4.00"), None, RECENT)
+    assert [row.is_plan_included for row in report.rows] == [False] * 4
+    assert report.rows[0].verdict is CeilingVerdict.WITHIN
+    assert report.rows[1].verdict is CeilingVerdict.OVER
+
+
+def test_a_recent_range_is_plan_included_and_any_ceiling_is_within() -> None:
+    tiny = Decimal("0.0001")
+    report = build_estimate(_provider(), REQUEST, tiny, DatabentoPlan.STANDARD, RECENT)
+    assert [row.is_plan_included for row in report.rows] == [True] * 4
+    assert [row.verdict for row in report.rows[:2]] == [CeilingVerdict.WITHIN] * 2
+    assert report.rows[0].cost_usd == FIGURES[TickSchema.TRADES][2]  # list price
+    assert report.rows[0].bundle_cost_usd == TRADES_BUNDLE
+
+
+def test_an_old_range_counts_only_the_part_the_plan_does_not_include() -> None:
+    """Definitions are included at any age; the tick tiers are not."""
+    trades_alone = FIGURES[TickSchema.TRADES][2]
+    ceiling = trades_alone + Decimal("0.000001")  # fits marginal, not the list bundle
+    assert ceiling < TRADES_BUNDLE
+    report = build_estimate(_provider(), REQUEST, ceiling, DatabentoPlan.STANDARD, OLD)
+    by_schema = {row.schema: row for row in report.rows}
+    assert not by_schema[TickSchema.TRADES].is_plan_included
+    assert by_schema[TickSchema.DEFINITION].is_plan_included
+    assert by_schema[TickSchema.TRADES].verdict is CeilingVerdict.WITHIN
+    assert by_schema[TickSchema.TBBO].verdict is CeilingVerdict.OVER
+
+
+def test_to_dict_carries_is_plan_included() -> None:
+    payload = build_estimate(
+        _provider(), REQUEST, None, DatabentoPlan.STANDARD, RECENT
+    ).to_dict()
+    rows = payload["schemas"]
+    assert isinstance(rows, list)
+    assert [row["is_plan_included"] for row in rows] == [True] * 4
