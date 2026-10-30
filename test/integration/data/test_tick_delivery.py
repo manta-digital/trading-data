@@ -101,7 +101,7 @@ async def _pending(
     run: TickRun, planned: PlannedRequest | None = None
 ) -> PendingRequest:
     return await insert_pending_request(
-        run.conn, planned or _planned(), ESTIMATE, run.clock(), {}
+        run.conn, planned or _planned(), ESTIMATE, run.clock(), {}, False
     )
 
 

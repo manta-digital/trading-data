@@ -42,6 +42,9 @@ the application credential for `status`, the maintenance credential for `apply`
   `TICK_TRADE_SEGMENT_BY` / `TICK_TRADE_ORDER_BY`, and a columnstore policy
   at `TICK_TRADE_COMPRESS_AFTER`. `ALTER ... SET` fails while compressed
   chunks exist, so it applies to an empty or uncompressed `tick_trade`.
+  Slice 300 adds `tick_008_plan_inclusion`: `tick_request.is_plan_included`
+  `BOOLEAN NOT NULL`, backfilled `FALSE` (existing requests were usage-billed),
+  then its default dropped so every writer must name it.
 - **Misroute guard.** Before applying, `apply` reads the target ledger and
   refuses if it holds ids of a track routed to another database (for example a
   tick maintenance URL that points at `trading`). It checks the ledger, not

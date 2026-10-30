@@ -159,8 +159,8 @@ def test_is_adopted_has_no_default(tick_conn: Conn) -> None:
         tick_conn.execute(
             "INSERT INTO tick_request (dataset, schema, symbols, stype_in,"
             " range_start, range_end, delivery_mode, estimated_cost_usd,"
-            " requested_at) VALUES ('d', %s, ARRAY['ES.FUT'], %s,"
-            " '2024-09-03', '2024-09-04', %s, 0, now())",
+            " requested_at, is_plan_included) VALUES ('d', %s, ARRAY['ES.FUT'], %s,"
+            " '2024-09-03', '2024-09-04', %s, 0, now(), FALSE)",
             (
                 TickSchema.TRADES.value,
                 SType.PARENT.value,

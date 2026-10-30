@@ -12,7 +12,7 @@ from typing import Any
 
 import psycopg
 from psycopg_pool import ConnectionPool
-from tick_support.rows import FILE_COLUMNS, insert_request, insert_trade, insert_unit
+from tick_support.rows import FILE_COLUMNS, insert_trade, insert_unit
 
 from manta_trading.data.tick.constants import (
     TICK_TRADE_COMPRESS_AFTER,
@@ -25,6 +25,12 @@ from manta_trading.market.schema.migrations.tick import interval_to_ns
 from manta_trading.market.schema.runner import apply_migrations
 
 NS_PER_SECOND = 1_000_000_000
+MIGRATION_ID = "tick_007_trade_columnstore"
+
+
+def _migration_007() -> dict[str, Any]:
+    (found,) = [m for m in TRACKS["tick"] if m["id"] == MIGRATION_ID]
+    return found
 
 
 def _apply(url: str, migrations: list[dict[str, Any]]) -> None:
@@ -62,21 +68,27 @@ def _assert_columnstore(url: str) -> None:
 def test_tick_007_on_an_empty_database(migrated_tick_db: str) -> None:
     _assert_columnstore(migrated_tick_db)
     with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
-        conn.execute(TRACKS["tick"][-1]["sql"])  # its SQL re-applies cleanly
+        conn.execute(_migration_007()["sql"])  # its SQL re-applies cleanly
     _assert_columnstore(migrated_tick_db)
 
 
 def test_tick_007_on_a_populated_uncompressed_database(ephemeral_tick_db: str) -> None:
     url = ephemeral_tick_db
-    *before, last = TRACKS["tick"]
-    assert last["id"] == "tick_007_trade_columnstore"
+    ids = [m["id"] for m in TRACKS["tick"]]
+    before = TRACKS["tick"][: ids.index(MIGRATION_ID)]
     _apply(url, before)
     with psycopg.connect(url, autocommit=True) as conn:
+        # Raw SQL: the helper names `is_plan_included`, which 008 adds later.
+        request = conn.execute(
+            "INSERT INTO tick_request (dataset, schema, symbols, stype_in,"
+            " range_start, range_end, delivery_mode, is_adopted,"
+            " estimated_cost_usd, requested_at) VALUES ('GLBX.MDP3', 'trades',"
+            " ARRAY['ES.FUT'], 'parent', '2024-09-03', '2024-09-04', 'batch_job',"
+            " FALSE, 0, now()) RETURNING request_id"
+        ).fetchone()
+        assert request is not None
         unit = insert_unit(
-            conn,
-            insert_request(conn),
-            state=UnitState.INGESTED.value,
-            **FILE_COLUMNS,
+            conn, request[0], state=UnitState.INGESTED.value, **FILE_COLUMNS
         )
         insert_trade(conn, unit)
     _apply(url, TRACKS["tick"])

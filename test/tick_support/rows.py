@@ -67,6 +67,7 @@ def insert_request(conn: psycopg.Connection[Any], **overrides: Any) -> int:
         "range_end": date(2024, 9, 4),
         "delivery_mode": DeliveryMode.BATCH_JOB.value,
         "is_adopted": False,
+        "is_plan_included": False,
         "estimated_cost_usd": Decimal("0.01"),
         "requested_at": _AT,
     }

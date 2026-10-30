@@ -9,7 +9,9 @@ minute track rather than copied. Every later id is prefixed ``tick_NNN_*``
 (slice 222 onward) so it can never collide with a primary-track id.
 
 Slice 222 adds the five storage tables; slice 223 adds availability metadata
-and ``reopened_at`` (``tick_006``). SQL is idempotent (IF NOT EXISTS,
+and ``reopened_at`` (``tick_006``); slice 226 the columnstore layout
+(``tick_007``); slice 300 ``tick_request.is_plan_included`` (``tick_008``).
+SQL is idempotent (IF NOT EXISTS,
 ``if_not_exists => TRUE``, constraints named inside the CREATE). Every enum
 CHECK is rendered from its enum, never hand-listed (222 TD9). No migration
 grants anything: ``tick_migrate``'s default privileges give ``tick_app`` DML,
@@ -356,6 +358,19 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                 after         => {interval_to_ns(TICK_TRADE_COMPRESS_AFTER)}::BIGINT,
                 if_not_exists => TRUE
             );
+        """,
+    },
+    {
+        "id": "tick_008_plan_inclusion",
+        "description": "Record on each tick_request whether a plan included it",
+        # Slice 300 D5-D8. Existing rows are usage-billed (both adopted jobs
+        # drew free credit), so FALSE is true for them. The default is dropped
+        # after the backfill so a writer that forgets the column fails NOT NULL.
+        "sql": """
+            ALTER TABLE tick_request
+                ADD COLUMN IF NOT EXISTS is_plan_included
+                BOOLEAN NOT NULL DEFAULT FALSE;
+            ALTER TABLE tick_request ALTER COLUMN is_plan_included DROP DEFAULT;
         """,
     },
 ]

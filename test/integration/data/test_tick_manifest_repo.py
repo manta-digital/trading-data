@@ -249,7 +249,7 @@ async def test_adopted_request_and_units_round_trip(aconn: AConn) -> None:
             PROVIDER_HOLE_REASON,
         ),
     ]
-    ids = await insert_adopted_request(aconn, request, units, NOW)
+    ids = await insert_adopted_request(aconn, request, units, NOW, False)
     request_id = await request_id_for_job(aconn, "GLBX-TEST-JOB")
     assert request_id is not None
     rows = await units_of_request(aconn, request_id)

@@ -129,34 +129,37 @@ Relative effort: 4/5.
   - [x] Add one worker test that a unit with an unregistered schema fails with the explicit error.
   - [x] Add one test that an ingested superseded unit is deleted through its own schema's projector (spy on the registry).
   - [x] Success: `uv run pytest test/unit/data/tick -q` and `-k tick` integration tests are green.
-- [ ] **3.6 Commit: projector registry**
+- [x] **3.6 Commit: projector registry**
   - [x] Format touched files only; check `git diff` for swept lines.
-  - [ ] Commit as `refactor: ingest through a projector registry`.
+  - [x] Commit as `refactor: ingest through a projector registry`.
 
 ## 4. Plan configuration and `is_plan_included` (D5, D6, D7)
 
-- [ ] **4.1 Create `config/databento_plans.py`**
-  - [ ] `DatabentoPlan` StrEnum with one member `STANDARD = "standard"`.
-  - [ ] `PLAN_INCLUDED_HISTORY: Mapping[DatabentoPlan, Mapping[TickSchema, timedelta | None]]` per D6: `trades`, `tbbo`, `mbp-1` at `timedelta(days=365)`; `definition` at `None`. Comment cites the Databento CME pricing page and the date read (2026-10-28).
-  - [ ] Define the dataset the plans cover by referencing `CME_DATASET` (`GLBX.MDP3`); do not restate the string.
-  - [ ] Import `TickSchema` and `CME_DATASET` from `data/tick/constants.py`. `config/__init__.py` already imports from `data.*`, and `constants.py` imports nothing from `config`, so there is no cycle.
-  - [ ] Success: `uv run python -c "import manta_trading.config"` succeeds and the module is under 80 lines.
-- [ ] **4.2 Add `Settings.tick_databento_plan`**
-  - [ ] In `config/__init__.py`, add `tick_databento_plan: DatabentoPlan | None = None` next to the other `tick_` settings. Environment variable `MT_TICK_DATABENTO_PLAN`. Absent means no subscription (D5); this is not a fallback.
-  - [ ] An unknown value fails settings validation with a message that names `MT_TICK_DATABENTO_PLAN` and the allowed values (criterion 8). Confirm the preflight surfaces that message and refuses before any provider call; fix the message path if it does not.
-  - [ ] Success: unset gives `None`; `standard` gives `DatabentoPlan.STANDARD`; `platinum` is refused.
-- [ ] **4.3 Create `data/tick/plan_inclusion.py`**
-  - [ ] `is_plan_included(plan, dataset, schema, start, end_exclusive, at) -> bool` per D7: false when `plan` is `None` or the dataset is not `CME_DATASET`; a `None` window is included for any date; otherwise true only if every day in `[start, end_exclusive)` is on or after `at`'s UTC date minus the window. An empty or inverted range (`end_exclusive <= start`) raises `ValueError`; it is never reported as included.
-  - [ ] Look up the window with a direct index into the plan's map. A missing schema raises `KeyError`; there is no default (D6).
-  - [ ] Success: one pure function, no I/O, under 60 lines.
-- [ ] **4.4 Unit tests: `test_plan_inclusion.py`**
-  - [ ] `PLAN_INCLUDED_HISTORY` is total over `TickSchema` for every plan.
-  - [ ] `is_plan_included` cases: inside the window; outside; straddling the boundary (false); the 365th day (included) and the 366th (not); `definition` of any age; another dataset; plan `None`; an empty range and an inverted range each raise `ValueError`.
-  - [ ] Settings tests (extend the existing settings test file): the three cases from 4.2.
-  - [ ] Preflight test (extend the existing preflight or pass test): with `platinum` set, the tick preflight refuses before any provider call (use a provider double that fails if called), and the message names `MT_TICK_DATABENTO_PLAN` and `standard` (criterion 8).
-  - [ ] Success: all pass.
-- [ ] **4.5 Commit: plan inclusion rule and setting**
-  - [ ] Commit as `feat: add Databento plan inclusion table and rule`.
+- [x] **4.1 Create `config/databento_plans.py`**
+  - [x] `DatabentoPlan` StrEnum with one member `STANDARD = "standard"`.
+  - [x] `PLAN_INCLUDED_HISTORY: Mapping[DatabentoPlan, Mapping[TickSchema, timedelta | None]]` per D6: `trades`, `tbbo`, `mbp-1` at `timedelta(days=365)`; `definition` at `None`. Comment cites the Databento CME pricing page and the date read (2026-10-28).
+  - [x] Define the dataset the plans cover by referencing `CME_DATASET` (`GLBX.MDP3`); do not restate the string.
+  - [x] Import `TickSchema` and `CME_DATASET` from `data/tick/constants.py`. `config/__init__.py` already imports from `data.*`, and `constants.py` imports nothing from `config`, so there is no cycle.
+  - [x] Success: `uv run python -c "import manta_trading.config"` succeeds and the module is under 80 lines.
+- [x] **4.2 Add `Settings.tick_databento_plan`**
+  - [x] In `config/__init__.py`, add `tick_databento_plan: DatabentoPlan | None = None` next to the other `tick_` settings. Environment variable `MT_TICK_DATABENTO_PLAN`. Absent means no subscription (D5); this is not a fallback.
+  - [x] An unknown value fails settings validation with a message that names `MT_TICK_DATABENTO_PLAN` and the allowed values (criterion 8). Confirm the preflight surfaces that message and refuses before any provider call; fix the message path if it does not.
+  - [x] Success: unset gives `None`; `standard` gives `DatabentoPlan.STANDARD`; `platinum` is refused.
+
+  *Note: the unknown-plan refusal is a pydantic `ValidationError` raised when the CLI builds `Settings` at startup, before any command or provider call, on the same path as the other typed tick settings; the message names `MT_TICK_DATABENTO_PLAN` and the allowed value `standard`; it is covered by `test/unit/cli/test_databento_plan_refusal.py` (CLI-level, provider factory rigged to fail) rather than a run-context test, because `Settings` construction fails before `open_tick_run` is reached.*
+
+- [x] **4.3 Create `data/tick/plan_inclusion.py`**
+  - [x] `is_plan_included(plan, dataset, schema, start, end_exclusive, at) -> bool` per D7: false when `plan` is `None` or the dataset is not `CME_DATASET`; a `None` window is included for any date; otherwise true only if every day in `[start, end_exclusive)` is on or after `at`'s UTC date minus the window. An empty or inverted range (`end_exclusive <= start`) raises `ValueError`; it is never reported as included.
+  - [x] Look up the window with a direct index into the plan's map. A missing schema raises `KeyError`; there is no default (D6).
+  - [x] Success: one pure function, no I/O, under 60 lines.
+- [x] **4.4 Unit tests: `test_plan_inclusion.py`**
+  - [x] `PLAN_INCLUDED_HISTORY` is total over `TickSchema` for every plan.
+  - [x] `is_plan_included` cases: inside the window; outside; straddling the boundary (false); the 365th day (included) and the 366th (not); `definition` of any age; another dataset; plan `None`; an empty range and an inverted range each raise `ValueError`.
+  - [x] Settings tests (extend the existing settings test file): the three cases from 4.2.
+  - [x] Preflight test (extend the existing preflight or pass test): with `platinum` set, the tick preflight refuses before any provider call (use a provider double that fails if called), and the message names `MT_TICK_DATABENTO_PLAN` and `standard` (criterion 8).
+  - [x] Success: all pass.
+- [x] **4.5 Commit: plan inclusion rule and setting**
+  - [x] Commit as `feat: add Databento plan inclusion table and rule`.
 
 ## 5. Migration `tick_008_plan_inclusion` and the request writers
 

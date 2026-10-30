@@ -126,7 +126,12 @@ async def test_delivery_fails_the_unclaimed_day_of_a_refused_header(
     async with connect(migrated_tick_db) as conn:
         run = tick_run(conn, provider, tmp_path, clock)
         pending = await insert_pending_request(
-            conn, PlannedRequest("ES", request, DAYS), Decimal("0.002"), clock(), {}
+            conn,
+            PlannedRequest("ES", request, DAYS),
+            Decimal("0.002"),
+            clock(),
+            {},
+            False,
         )
         job = provider.add_job(request)
         await record_submit(
