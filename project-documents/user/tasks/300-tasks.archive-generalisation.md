@@ -262,7 +262,12 @@ Relative effort: 4/5.
 
 ## Parity result
 
-Base commit: _(recorded in 1.1)_
+Base commit: `739305815ccf41693c282e1ee9dd3a28a93fa961`
+
+Baseline (1.1, dev checkout, before any code change):
+- `uv run pytest test/unit/data/tick -q`: 535 passed.
+- `uv run pytest test/integration/data -q -k tick`: 425 passed, 2 failed. Re-run in isolation, same two fail: `test_health_tick.py::test_an_unreachable_tick_database_is_informational` and `::test_holed_and_reopened_units_never_fail_retention`. Cause: `FAIL backup  MT_BACKUP_ROOTS is not set` in the dev environment (health check fails on the backup line, not on anything tick). Environmental and deterministic, not related to this slice.
+- Load tier runs once, in 8.2.
 
 Results: _(recorded in 8.4-8.6)_
 
