@@ -22,7 +22,7 @@ projectState: Slice design committed (revision 2). The tick archive, manifest, i
   at `tick_007_trade_columnstore`.
 dateCreated: 20261030
 dateUpdated: 20261030
-status: not_started
+status: complete
 turns: 21
 promptTokens: 1360902
 cachedTokens: 1285220
@@ -243,54 +243,63 @@ Relative effort: 4/5.
 
 ## 7. Estimate reports plan inclusion (D9)
 
-- [ ] **7.1 `SchemaEstimate.is_plan_included`**
-  - [ ] Add the field to `SchemaEstimate` in `estimate.py`, set from `is_plan_included(settings.tick_databento_plan, ...)` at the current time.
-  - [ ] The bundle verdict compares the marginal bundle (sum of the bundle's non-included members) with the ceiling. `cost_usd` and `bundle_cost_usd` stay at list price.
-  - [ ] `--json` output adds `is_plan_included` per schema; the human table gets an inclusion column.
-  - [ ] Keep the bundle composition (`COMPANION_SCHEMAS`, `_row`) as it is (D4).
-  - [ ] Success: `estimate.py` stays under 300 lines.
-- [ ] **7.2 Tests in `test_estimate.py`**
-  - [ ] No plan: every schema is `false`, and verdicts equal today's.
-  - [ ] Plan `standard`, recent range: all four schemas `true`; the bundle verdict is `within` even at a tiny ceiling; `cost_usd` is unchanged.
-  - [ ] Mixed bundle (an old range): the verdict counts only the non-included part.
-  - [ ] JSON and table output each include the new field.
-  - [ ] Success: all pass (criterion 7).
-- [ ] **7.3 Commit: estimate inclusion**
-  - [ ] Commit as `feat: show plan inclusion in tick estimate`.
+- [x] **7.1 `SchemaEstimate.is_plan_included`**
+  - [x] Add the field to `SchemaEstimate` in `estimate.py`, set from `is_plan_included(settings.tick_databento_plan, ...)` at the current time.
+  - [x] The bundle verdict compares the marginal bundle (sum of the bundle's non-included members) with the ceiling. `cost_usd` and `bundle_cost_usd` stay at list price.
+  - [x] `--json` output adds `is_plan_included` per schema; the human table gets an inclusion column.
+  - [x] Keep the bundle composition (`COMPANION_SCHEMAS`, `_row`) as it is (D4).
+  - [x] Success: `estimate.py` stays under 300 lines.
+
+  *Note: `build_estimate` gained required `plan` and `at` arguments (the CLI passes `settings.tick_databento_plan` and `datetime.now(UTC)`); the human table has an "In plan" yes/no column.*
+
+- [x] **7.2 Tests in `test_estimate.py`**
+  - [x] No plan: every schema is `false`, and verdicts equal today's.
+  - [x] Plan `standard`, recent range: all four schemas `true`; the bundle verdict is `within` even at a tiny ceiling; `cost_usd` is unchanged.
+  - [x] Mixed bundle (an old range): the verdict counts only the non-included part.
+  - [x] JSON and table output each include the new field.
+  - [x] Success: all pass (criterion 7).
+- [x] **7.3 Commit: estimate inclusion**
+  - [x] Commit as `feat: show plan inclusion in tick estimate`.
 
 ## 8. Full validation and parity (D10)
 
-- [ ] **8.1 Remaining-use grep (design Migration Plan)**
-  - [ ] Run `grep -rnE "STORED_TIERS|TICK_TIERS|TICK_TIER_RANK" src scripts`.
-  - [ ] Every remaining hit must be in the tick-tier-only list in the design (`status_reads`, `manifest_reads.owned_tier_days`, `tick_status.day_unit`, `universe`, `planner._companion_wants`, `estimate._row`, the ledger readers, `scripts/proof_226/`) or in `constants.py` / `schema_families.py`.
-  - [ ] Any other hit is a missed use: convert it to family or registry, with a test.
-  - [ ] Success: the final list is pasted under "Remaining tier-name uses" at the end of this file, each with a one-line reason.
-- [ ] **8.2 Static checks and full tick tests**
-  - [ ] Run `ruff check`, `ruff format --check` on touched files, and mypy with the project's kalshi paths and `test` in one invocation (a narrower run reports false errors).
-  - [ ] Run `uv run pytest test/unit/data/tick -q`, `-k tick` integration tests, and the tick tests in the load tier (the design requires them to pass unchanged). Run each tier separately; re-run a failure in isolation before investigating. The full load tier takes about 77 minutes: give it a timeout of at least 90 minutes.
-  - [ ] Success: clean, apart from the failures already recorded in 1.1.
-- [ ] **8.3 File-size check and checkpoint commit**
-  - [ ] `wc -l` on every new and touched source file; none above ~300 lines except files already above it before this slice.
-  - [ ] If 8.1 or 8.2 changed any file, format touched files only, check `git diff` for swept lines, and commit as `refactor: convert missed tier-name uses` (or `fix:` for a defect), with the file-size list in the body. The parity runs in 8.4 and 8.5 must run on this commit.
-  - [ ] Success: the file-size list is recorded and the working tree is clean.
-- [ ] **8.4 Rebuild at the base commit**
-  - [ ] Create a worktree at the hash recorded in 1.1 (outside the checkout, for example `../td-300-base`). Confirm `.env` supplies `MT_PROOF_226_DB_URL` and `MT_PROOF_226_MAINTENANCE_URL`.
-  - [ ] From the worktree run `uv run python scripts/proof_226_tick.py rebuild`. The destructive-statement guard in `scripts/proof_226/guard.py` applies; confirm the target is `trading_tick_proof`, never the production tick database.
-  - [ ] Record the `drill_228_fingerprint.fingerprint` of `tick_trade` and `drill_228_bookkeeping.table_md5` of `tick_definition` and `tick_ingest_ledger`, using the existing 228 functions.
-  - [ ] Success: three values recorded under "Parity result".
-- [ ] **8.5 Rebuild at the branch head and compare**
-  - [ ] From the checkout run the same `rebuild`, then record the same three values.
-  - [ ] Compare: `diff_fingerprints` returns no lines, and both table hashes are equal. A difference is a defect in this slice: find it before continuing.
-  - [ ] Query the proof database: `SELECT schema, is_plan_included, count(*) FROM tick_request GROUP BY 1, 2`. Every row must be `false`.
-  - [ ] Remove the base worktree with `git worktree remove`.
-  - [ ] Success: equal values and an all-`false` marker recorded under "Parity result".
-- [ ] **8.6 Verification walkthrough steps 4 and 5 (free metadata calls only)**
-  - [ ] Run the two `mt data tick estimate ... --json` commands from the design's step 4, plan unset and `MT_TICK_DATABENTO_PLAN=standard`.
-  - [ ] Run `MT_TICK_DATABENTO_PLAN=platinum uv run mt data tick pass --estimate-only`.
-  - [ ] Success: outputs match the design's expected results (first run all `false`; second all `true` with `within` verdict and unchanged `cost_usd`; third refused before any provider call, naming `MT_TICK_DATABENTO_PLAN` and `standard`). Paste the key lines under "Parity result".
-- [ ] **8.7 Record results and commit**
-  - [ ] Fill in "Parity result" and "Remaining tier-name uses" below, and add the result to the slice design's Verification Walkthrough as the design asks.
-  - [ ] Commit as `docs: record archive generalisation parity result`.
+- [x] **8.1 Remaining-use grep (design Migration Plan)**
+  - [x] Run `grep -rnE "STORED_TIERS|TICK_TIERS|TICK_TIER_RANK" src scripts`.
+  - [x] Every remaining hit must be in the tick-tier-only list in the design (`status_reads`, `manifest_reads.owned_tier_days`, `tick_status.day_unit`, `universe`, `planner._companion_wants`, `estimate._row`, the ledger readers, `scripts/proof_226/`) or in `constants.py` / `schema_families.py`.
+  - [x] Any other hit is a missed use: convert it to family or registry, with a test.
+  - [x] Success: the final list is pasted under "Remaining tier-name uses" at the end of this file, each with a one-line reason.
+- [x] **8.2 Static checks and full tick tests**
+  - [x] Run `ruff check`, `ruff format --check` on touched files, and mypy with the project's kalshi paths and `test` in one invocation (a narrower run reports false errors).
+  - [x] Run `uv run pytest test/unit/data/tick -q`, `-k tick` integration tests, and the tick tests in the load tier (the design requires them to pass unchanged). Run each tier separately; re-run a failure in isolation before investigating. The full load tier takes about 77 minutes: give it a timeout of at least 90 minutes.
+  - [x] Success: clean, apart from the failures already recorded in 1.1.
+
+  *Note: the load-tier run was the five tick load tests with `MT_RUN_LOAD_TESTS=1`, not the full 77-minute load tier.*
+
+- [x] **8.3 File-size check and checkpoint commit**
+  - [x] `wc -l` on every new and touched source file; none above ~300 lines except files already above it before this slice.
+  - [x] If 8.1 or 8.2 changed any file, format touched files only, check `git diff` for swept lines, and commit as `refactor: convert missed tier-name uses` (or `fix:` for a defect), with the file-size list in the body. The parity runs in 8.4 and 8.5 must run on this commit.
+  - [x] Success: the file-size list is recorded and the working tree is clean.
+- [x] **8.4 Rebuild at the base commit**
+  - [x] Create a worktree at the hash recorded in 1.1 (outside the checkout, for example `../td-300-base`). Confirm `.env` supplies `MT_PROOF_226_DB_URL` and `MT_PROOF_226_MAINTENANCE_URL`.
+  - [x] From the worktree run `uv run python scripts/proof_226_tick.py rebuild`. The destructive-statement guard in `scripts/proof_226/guard.py` applies; confirm the target is `trading_tick_proof`, never the production tick database.
+  - [x] Record the `drill_228_fingerprint.fingerprint` of `tick_trade` and `drill_228_bookkeeping.table_md5` of `tick_definition` and `tick_ingest_ledger`, using the existing 228 functions.
+  - [x] Success: three values recorded under "Parity result".
+
+  *Deviation: the proof database was retired by slice 227, so both sides built into throwaway databases on the test cluster with the same steps (see "Parity result"); no worktree `../td-300-base` remains (removed).*
+
+- [x] **8.5 Rebuild at the branch head and compare**
+  - [x] From the checkout run the same `rebuild`, then record the same three values.
+  - [x] Compare: `diff_fingerprints` returns no lines, and both table hashes are equal. A difference is a defect in this slice: find it before continuing.
+  - [x] Query the proof database: `SELECT schema, is_plan_included, count(*) FROM tick_request GROUP BY 1, 2`. Every row must be `false`.
+  - [x] Remove the base worktree with `git worktree remove`.
+  - [x] Success: equal values and an all-`false` marker recorded under "Parity result".
+- [x] **8.6 Verification walkthrough steps 4 and 5 (free metadata calls only)**
+  - [x] Run the two `mt data tick estimate ... --json` commands from the design's step 4, plan unset and `MT_TICK_DATABENTO_PLAN=standard`.
+  - [x] Run `MT_TICK_DATABENTO_PLAN=platinum uv run mt data tick pass --estimate-only`.
+  - [x] Success: outputs match the design's expected results (first run all `false`; second all `true` with `within` verdict and unchanged `cost_usd`; third refused before any provider call, naming `MT_TICK_DATABENTO_PLAN` and `standard`). Paste the key lines under "Parity result".
+- [x] **8.7 Record results and commit**
+  - [x] Fill in "Parity result" and "Remaining tier-name uses" below, and add the result to the slice design's Verification Walkthrough as the design asks.
+  - [x] Commit as `docs: record archive generalisation parity result`.
 
 ## Parity result
 
@@ -301,8 +310,39 @@ Baseline (1.1, dev checkout, before any code change):
 - `uv run pytest test/integration/data -q -k tick`: 425 passed, 2 failed. Re-run in isolation, same two fail: `test_health_tick.py::test_an_unreachable_tick_database_is_informational` and `::test_holed_and_reopened_units_never_fail_retention`. Cause: `FAIL backup  MT_BACKUP_ROOTS is not set` in the dev environment (health check fails on the backup line, not on anything tick). Environmental and deterministic, not related to this slice.
 - Load tier runs once, in 8.2.
 
-Results: _(recorded in 8.4-8.6)_
+Head commit at the parity run: `118782a` (task groups 1-7 committed).
+
+**Deviation (D10 mechanism).** `trading_tick_proof` was retired by slice 227 (no pg_hba entry, `provision_tick_cluster.sh` no longer creates it), so `proof_226_tick.py rebuild` could not run. Each side instead built into a throwaway database it created and dropped on the test cluster (`MT_TIMESCALE_TEST_URL` admin), from a scratch copy of the archive, with the same steps the 226 harness runs: `data init --database tick`, `tick adopt` per job (all 10 job directories, sorted), `tick pass --estimate-only`, `tick ingest`. Base side from a worktree at the base commit, head side from this checkout, `MT_TICK_DATABENTO_PLAN` unset. Comparison values come from `drill_228_fingerprint.fingerprint` and `drill_228_bookkeeping.table_md5`. Driver: scratchpad `parity_300.py` (not committed).
+
+| measure | base | head |
+|---|---|---|
+| estimate plans | 0 requests (`nothing_to_buy`) | 0 requests (`nothing_to_buy`) |
+| units ingested / failed | 129 / 0 | 129 / 0 |
+| `tick_trade` rows | 31,722,710 | 31,722,710 |
+| fingerprint groups | 1,835 | 1,835 |
+| `tick_definition` md5 | `ffa1efe417c4c31e2be8b16517786d76` | `ffa1efe417c4c31e2be8b16517786d76` |
+| `tick_ingest_ledger` md5 | `d649539179c7d46ebdcaa6453dd5c74f` | `d649539179c7d46ebdcaa6453dd5c74f` |
+
+The fingerprints are equal group for group (no differing line). Marker query on the head database, `SELECT schema, is_plan_included, count(*) FROM tick_request GROUP BY 1, 2`: `definition false 6`, `tbbo false 3`, `trades false 1`: every row `false`.
+
+**Static and test results (8.2).** `ruff check` and `ruff format --check` clean on all 48 changed Python files. mypy over `src/manta_trading` plus the changed test and script files: 91 errors, all in 16 files this branch does not touch (`cli/commands/data.py`, `provider.py`, `status.py`, `config/manager.py`, `gaps/*`, `csv_export_service.py`, `util/*`, and others). Unit tier 5,191 passed. Tick integration tier 445 passed, 2 failed (the two `test_health_tick` failures recorded in 1.1). The five tick load tests (`MT_RUN_LOAD_TESTS=1`: 224 pass NFR, 225 ingest NFR, 226 query NFR, 231 tick read and status) all pass.
+
+**File sizes (8.3).** New: `schema_families.py` 82, `projector_types.py` 73, `projectors.py` 32, `tick_trade_projector.py` 126, `plan_inclusion.py` 55, `config/databento_plans.py` 42. Changed, base to head: `ingest_worker.py` 300 to 223, `purchase_plan.py` 275 to 295, `spend_guard.py` 275 to 284, `tick.py` 297 to 303, `manifest_repo.py` 298 to 304, `tick_pass_render.py` 298 to 299, `estimate.py` 187. `config/__init__.py` (331 to 351) and `migrations/tick.py` were already above 300. 8.1 and 8.2 changed no files, so no checkpoint commit was needed.
+
+**Walkthrough steps 4 and 5 (8.6).** `MT_TICK_SPEND_CEILING_USD=0.50`, `mt data tick estimate --symbols ES.FUT --stype parent --start 2026-09-01 --end 2026-09-08 --json`:
+- plan unset: `trades 2.0809 over False`, `tbbo 3.4681 over False`, `mbp-1 not_purchasable False`, `definition bought_with_each_tier False`.
+- `MT_TICK_DATABENTO_PLAN=standard`: all four `is_plan_included: true`; `trades` and `tbbo` verdict `within`; `cost_usd` unchanged.
+- `MT_TICK_DATABENTO_PLAN=platinum mt data tick pass --estimate-only`: `ValidationError ... Value error, MT_TICK_DATABENTO_PLAN='platinum' is not a plan; allowed: standard`, raised at CLI startup before any provider was built.
 
 ## Remaining tier-name uses
 
-_(recorded in 8.1)_
+`grep -rnE "STORED_TIERS|TICK_TIERS|TICK_TIER_RANK" src scripts`, excluding `constants.py` and `schema_families.py`. Every hit means the tick tiers, so it stays:
+
+- `universe.py` (lines 22, 35, 85): a universe entry's tier must be a stored tier.
+- `manifest_reads.py:190` (`owned_tier_days`): the tier days the manifest holds files for, the source of companion wants.
+- `tick_status.py:89` (`day_unit`): picks a day's highest-ranked tier unit for the tick status report.
+- `estimate.py:128` (`_row`): a stored tier's bundle is tier plus definition (D4).
+- `status_reads.py:64` (`Shape.params`): status counts tick-tier units.
+- `scripts/proof_226/mapping.py`, `guard.py`, `batch.py`, `size.py`, `queries.py`, `rebuild.py`: the 226 proof harness measures the tick tiers.
+
+No other hit; nothing converted.

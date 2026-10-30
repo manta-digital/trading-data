@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Plan-included requests no longer count against the tick spend caps** (slice 300). Set `MT_TICK_DATABENTO_PLAN=standard` to tell the tick pass that your Databento Standard plan includes the last 365 days of `trades`, `tbbo` and `mbp-1` and all `definition` history on `GLBX.MDP3`. The per-pass ceiling and the 30-day cap then sum only the spend the plan does not cover. `mt data tick estimate` adds an `is_plan_included` field per schema (and an "In plan" column) and judges the marginal bundle against the ceiling; `cost_usd` stays at list price. Unset keeps today's behaviour. An unknown value is refused at startup, naming the variable and `standard`. Each new request records the answer in `tick_request.is_plan_included` (migration `tick_008_plan_inclusion`; apply with `mt data migrate apply --track tick`).
+
+### Changed
+- The tick archive no longer assumes every schema is a tick tier: supersession is scoped to a schema family, and ingest writes through a per-schema projector registry. No behaviour change on the held files; a rebuild at the base and head commits gives identical `tick_trade`, `tick_definition` and `tick_ingest_ledger` contents.
+- The pass's guard line now reads "marginal spend (plan-included excluded)".
+
 ## [0.24.3] - 2026-10-27
 
 ### Added
