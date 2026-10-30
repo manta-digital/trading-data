@@ -595,6 +595,7 @@ def test_the_text_report_shows_phases_the_plan_and_the_closing_line(
     assert "$0.0041" in text and "$0.0014" in text  # sub-cent amounts stay visible
     assert "GLBX-PORTAL" in text and "verdict: refused" in text
     assert "30-day cap unset" in text
+    assert "marginal spend (plan-included excluded): planned" in text
     assert "MT_TICK_SPEND_30D_CEILING_USD [x]" in text  # brackets are not markup
     assert "Outcome: refused  exit 5" in text
     assert text.count("await") == 1  # a skipped phase gets a table row, no section

@@ -17,6 +17,7 @@ from manta_trading.config.databento_plans import (
     DatabentoPlan,
 )
 from manta_trading.data.tick.constants import TickSchema
+from manta_trading.data.tick.provider import TickRequest
 
 
 def is_plan_included(
@@ -43,3 +44,12 @@ def is_plan_included(
     if window is None:
         return True
     return start >= at.astimezone(UTC).date() - window
+
+
+def request_is_plan_included(
+    plan: DatabentoPlan | None, request: TickRequest, at: datetime
+) -> bool:
+    """:func:`is_plan_included` for a provider request."""
+    return is_plan_included(
+        plan, request.dataset, request.schema, request.start, request.end, at
+    )

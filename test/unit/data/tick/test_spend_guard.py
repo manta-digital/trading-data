@@ -48,7 +48,7 @@ def _row(cost: str, days_ago: float, job_id: str | None = None) -> TrailingRow:
 
 
 def _plan(*costs: str) -> list[PlannedCost]:
-    return [PlannedCost(D(c)) for c in costs]
+    return [PlannedCost(D(c), False, False) for c in costs]
 
 
 @pytest.mark.parametrize(
@@ -145,7 +145,7 @@ def test_an_unheld_job_counts_and_is_named_in_the_refusal() -> None:
 
 def test_a_re_submit_already_in_the_trailing_rows_is_not_added_twice() -> None:
     trailing = [_row("4.5", 0.1)]  # its estimate, already on its request row
-    planned = [PlannedCost(D("0.9"), counted=True)]
+    planned = [PlannedCost(D("0.9"), True, False)]
     verdict = _spend(planned, trailing=trailing, cap=D("5"), per_pass=D("1"))
     assert verdict.allowed  # 4.5 <= 5, not 4.5 + 0.9
     assert verdict.planned_total == D("0.9")  # but it still counts per pass
@@ -160,7 +160,8 @@ def test_a_listed_job_a_row_holds_is_not_unheld() -> None:
         ListedJob("GLBX-OTHER", NOW, None),
     ]
     rows = [_row("3", 1, job_id="GLBX-HELD")]
-    assert [job.job_id for job in unheld_listed(listed, rows)] == ["GLBX-OTHER"]
+    held = {row.job_id for row in rows if row.job_id is not None}
+    assert [job.job_id for job in unheld_listed(listed, held)] == ["GLBX-OTHER"]
     with_held = _spend(_plan("0.5"), trailing=rows)
     assert with_held.trailing_total == D("3")
     assert with_held.unheld_total == 0
@@ -168,7 +169,7 @@ def test_a_listed_job_a_row_holds_is_not_unheld() -> None:
 
 def test_an_unpriced_unheld_job_is_counted_at_the_supplied_request_cost() -> None:
     unpriced = ListedJob("GLBX-UNPRICED", NOW, None)
-    (kept,) = unheld_listed([unpriced], [])
+    (kept,) = unheld_listed([unpriced], set())
     assert kept.cost is None  # the caller resolves it with cost(job.request)
     resolved = UnheldJob(kept.job_id, kept.at, D("1.2"))
     assert _spend(_plan("0.1"), unheld=[resolved]).unheld_total == D("1.2")
@@ -181,3 +182,36 @@ def test_space_allowed_and_shortfall() -> None:
     assert verdict.shortfall == 500
     assert "500 short" in (verdict.reason or "")
     assert evaluate_space(0, 0).reason is None
+
+
+def test_included_planned_items_add_nothing_and_the_rest_add_their_cost() -> None:
+    planned = [
+        PlannedCost(D("0.8"), False, True),
+        PlannedCost(D("0.6"), False, False),
+    ]
+    verdict = _spend(planned, trailing=[_row("4.3", 1)])
+    assert verdict.planned_total == D("0.6")  # per pass: the included item is $0
+    assert verdict.over_30d == D("0")  # 30-day: 4.3 + 0.6 <= 5, 0.8 not added
+    assert verdict.allowed
+    assert _spend([PlannedCost(D("9"), False, True)]).allowed
+
+
+def test_an_all_included_plan_still_needs_both_ceilings() -> None:
+    verdict = _spend([PlannedCost(D("9"), False, True)], per_pass=None)
+    assert verdict.status is VerdictStatus.REFUSED
+    assert verdict.planned_total == D("0")
+
+
+def test_an_included_re_submit_is_not_double_counted() -> None:
+    planned = [PlannedCost(D("9"), True, True)]
+    verdict = _spend(planned, trailing=[_row("4.5", 0.1)])
+    assert (verdict.planned_total, verdict.over_per_pass) == (D("0"), D("0"))
+    assert verdict.allowed
+
+
+def test_a_job_an_included_row_holds_is_not_unheld() -> None:
+    """The held set comes from every row, so a plan-included row (left out of the
+    trailing spend) still holds its job."""
+    listed = [ListedJob("GLBX-INCLUDED", NOW, D("3"))]
+    assert unheld_listed(listed, {"GLBX-INCLUDED"}) == []
+    assert [job.job_id for job in unheld_listed(listed, set())] == ["GLBX-INCLUDED"]

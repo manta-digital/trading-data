@@ -1,7 +1,10 @@
 """The spend and space guards: pure verdicts before any paid call (224).
 
 LLD 224 Technical Decision 7. No I/O: the caller hands in the planned costs,
-the manifest's trailing spend rows and the provider's unheld jobs.
+the manifest's trailing spend rows and the provider's unheld jobs. Every sum is
+*marginal* (slice 300, D8): what a Databento plan includes costs nothing at the
+margin, so included planned items are not summed here and the caller leaves
+plan-included trailing rows and unheld jobs out before calling.
 
 The spend guard is **all-or-nothing** and needs **both ceilings**. It allows a
 purchase only when
@@ -23,7 +26,7 @@ nothing to spend.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -47,10 +50,12 @@ class VerdictStatus(StrEnum):
 @dataclass(frozen=True)
 class PlannedCost:
     """One request's cost. ``counted`` marks a re-submit whose estimate is
-    already in the trailing rows (its row is reused, so it is never added twice)."""
+    already in the trailing rows (its row is reused, so it is never added twice).
+    ``included`` marks a request the plan includes: it adds nothing to any sum."""
 
     cost: Decimal
-    counted: bool = False
+    counted: bool
+    included: bool
 
 
 @dataclass(frozen=True)
@@ -120,11 +125,14 @@ class SpaceVerdict:
 
 
 def unheld_listed(
-    listed: Sequence[ListedJob], trailing_rows: Sequence[TrailingRow]
+    listed: Sequence[ListedJob], held_job_ids: Collection[str]
 ) -> list[ListedJob]:
-    """Listed jobs whose id no manifest row holds: spend the manifest cannot see."""
-    held = {row.job_id for row in trailing_rows if row.job_id is not None}
-    return [job for job in listed if job.job_id not in held]
+    """Listed jobs whose id no manifest row holds: spend the manifest cannot see.
+
+    ``held_job_ids`` comes from *every* request row, plan-included ones too: a
+    row left out of the trailing spend must still hold its job.
+    """
+    return [job for job in listed if job.job_id not in held_job_ids]
 
 
 def evaluate_space(planned_bytes: int, free_bytes: int) -> SpaceVerdict:
@@ -227,8 +235,9 @@ def evaluate_spend(
     cutoff = now - TICK_SPEND_WINDOW
     trailing = [row for row in trailing_rows if row.at >= cutoff]
     unheld = [job for job in unheld_jobs if job.at >= cutoff]
-    planned_total = sum((p.cost for p in planned), _ZERO)
-    planned_new = sum((p.cost for p in planned if not p.counted), _ZERO)
+    marginal = [p for p in planned if not p.included]
+    planned_total = sum((p.cost for p in marginal), _ZERO)
+    planned_new = sum((p.cost for p in marginal if not p.counted), _ZERO)
     trailing_total = sum((row.cost for row in trailing), _ZERO)
     unheld_total = sum((job.cost for job in unheld), _ZERO)
     absent = tuple(

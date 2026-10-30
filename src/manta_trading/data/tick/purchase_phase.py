@@ -43,7 +43,6 @@ from manta_trading.data.tick.pass_contract import (
     TickPassPhaseName,
 )
 from manta_trading.data.tick.phase_support import run_phase
-from manta_trading.data.tick.plan_inclusion import is_plan_included
 from manta_trading.data.tick.purchase_plan import (
     PlanItem,
     PurchasePlan,
@@ -84,16 +83,8 @@ async def _stamp(run: TickRun, item: PlanItem) -> int:
         return item.resubmit_of
     request = item.planned.request
     links = await reopened_unit_ids(run.conn, request, list(item.planned.days))
-    included = is_plan_included(
-        run.settings.tick_databento_plan,
-        request.dataset,
-        request.schema,
-        request.start,
-        request.end,
-        now,
-    )
     pending = await insert_pending_request(
-        run.conn, item.planned, item.cost, now, links, included
+        run.conn, item.planned, item.cost, now, links, item.included
     )
     return pending.request_id
 

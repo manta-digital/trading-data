@@ -43,6 +43,7 @@ from manta_trading.data.tick.manifest_repo import (
     reset_exhausted,
 )
 from manta_trading.data.tick.manifest_request_reads import (
+    held_job_ids,
     jobless_requests,
     reopened_unit_ids,
     requests_with_units_in,
@@ -363,3 +364,25 @@ async def test_the_pending_request_row_records_the_plan_marker(
         (pending.request_id,),
     )
     assert await cursor.fetchone() == (included,)
+
+
+async def test_trailing_spend_leaves_included_rows_out_but_they_still_hold_their_job(
+    conn: AConn, migrated_tick_db: str
+) -> None:
+    with psycopg.connect(migrated_tick_db, autocommit=True) as sync:
+        insert_request(
+            sync,
+            provider_job_id="BILLED",
+            estimated_cost_usd=Decimal("2"),
+            requested_at=NOW - timedelta(days=1),
+        )
+        insert_request(
+            sync,
+            provider_job_id="INCLUDED",
+            estimated_cost_usd=Decimal("7"),
+            requested_at=NOW - timedelta(days=1),
+            is_plan_included=True,
+        )
+    rows = await trailing_spend_rows(conn, NOW - timedelta(days=30))
+    assert [(r.cost, r.job_id) for r in rows] == [(Decimal("2"), "BILLED")]
+    assert await held_job_ids(conn) == {"BILLED", "INCLUDED"}

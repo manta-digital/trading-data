@@ -163,26 +163,35 @@ Relative effort: 4/5.
 
 ## 5. Migration `tick_008_plan_inclusion` and the request writers
 
-- [ ] **5.1 Add the migration**
-  - [ ] Append `tick_008_plan_inclusion` to the list in `market/schema/migrations/tick.py` after `tick_007_trade_columnstore`, using the SQL in the design's "Database / Storage Schema": add `is_plan_included BOOLEAN NOT NULL DEFAULT FALSE`, then drop the default.
-  - [ ] Update the module docstring's migration list and any hard-coded "chain ends at" constant or doc that names the last tick migration (grep for `tick_007_trade_columnstore`).
-  - [ ] Success: `uv run mt data migrate apply --track tick` against a scratch database applies it twice with no error.
-- [ ] **5.2 Integration test: `test_tick_008_plan_inclusion.py`**
-  - [ ] On an empty tick database: the column exists, is `NOT NULL`, and has no default.
-  - [ ] On a database holding requests before 008: existing rows become `FALSE`.
-  - [ ] An `INSERT` that omits the column fails on `NOT NULL`.
-  - [ ] Success: all pass. Known pre-existing 051/052 migration failures are not caused by this change; confirm with the project-memory list if they appear.
-- [ ] **5.3 Both request writers set the marker**
-  - [ ] `manifest_pass.insert_pending_request` takes the `is_plan_included` value as a required argument and names the column in its `INSERT`. At this step the submit call site computes it with `is_plan_included(settings.tick_databento_plan, ...)` for the item being submitted; task 6.4 moves that single call onto the plan item so the guard and the row share one value.
-  - [ ] `adopt.py` classifies each adopted job with `is_plan_included(settings.tick_databento_plan, ...)` at the job's `ts_received` and writes it. If `adopt` does not receive settings today, thread the plan through its existing call chain rather than reading the environment in place.
-  - [ ] Fix every other `INSERT INTO tick_request` found by grep (tests, scripts) so each names the column.
-  - [ ] Success: `grep -rn "INSERT INTO tick_request" src test scripts` shows every statement naming `is_plan_included`.
-- [ ] **5.4 Integration tests: both writers**
-  - [ ] Extend `test_tick_manifest_pass.py`: a pending request written with the plan unset has `is_plan_included = FALSE`; one written with an included item has `TRUE`.
-  - [ ] Extend `test_tick_adopt.py`: an adopted job with no plan configured is `FALSE`; with `standard` and a recent `ts_received` inside the window it is `TRUE`.
-  - [ ] Success: all pass (criterion 4).
-- [ ] **5.5 Commit: marker column and writers**
-  - [ ] Commit as `feat: record plan inclusion on tick requests`.
+- [x] **5.1 Add the migration**
+  - [x] Append `tick_008_plan_inclusion` to the list in `market/schema/migrations/tick.py` after `tick_007_trade_columnstore`, using the SQL in the design's "Database / Storage Schema": add `is_plan_included BOOLEAN NOT NULL DEFAULT FALSE`, then drop the default.
+  - [x] Update the module docstring's migration list and any hard-coded "chain ends at" constant or doc that names the last tick migration (grep for `tick_007_trade_columnstore`).
+  - [x] Success: `uv run mt data migrate apply --track tick` against a scratch database applies it twice with no error.
+
+  *Note: "applies twice" is covered by the existing `test_tick_storage_track` assertion that a second apply returns `[]`, plus the SQL's own `IF NOT EXISTS` / `DROP DEFAULT` idempotence.*
+
+- [x] **5.2 Integration test: `test_tick_008_plan_inclusion.py`**
+  - [x] On an empty tick database: the column exists, is `NOT NULL`, and has no default.
+  - [x] On a database holding requests before 008: existing rows become `FALSE`.
+  - [x] An `INSERT` that omits the column fails on `NOT NULL`.
+  - [x] Success: all pass. Known pre-existing 051/052 migration failures are not caused by this change; confirm with the project-memory list if they appear.
+- [x] **5.3 Both request writers set the marker**
+  - [x] `manifest_pass.insert_pending_request` takes the `is_plan_included` value as a required argument and names the column in its `INSERT`. At this step the submit call site computes it with `is_plan_included(settings.tick_databento_plan, ...)` for the item being submitted; task 6.4 moves that single call onto the plan item so the guard and the row share one value.
+  - [x] `adopt.py` classifies each adopted job with `is_plan_included(settings.tick_databento_plan, ...)` at the job's `ts_received` and writes it. If `adopt` does not receive settings today, thread the plan through its existing call chain rather than reading the environment in place.
+  - [x] Fix every other `INSERT INTO tick_request` found by grep (tests, scripts) so each names the column.
+  - [x] Success: `grep -rn "INSERT INTO tick_request" src test scripts` shows every statement naming `is_plan_included`.
+
+  *Note: two INSERT statements deliberately omit the column: the pre-008 request in `test_tick_columnstore_migration.py` and the pre-migration/NOT NULL probes in `test_tick_008_plan_inclusion.py`; `insert_request` in `test/tick_support/rows.py` now defaults `is_plan_included` to `False`.*
+
+- [x] **5.4 Integration tests: both writers**
+  - [x] Extend `test_tick_manifest_pass.py`: a pending request written with the plan unset has `is_plan_included = FALSE`; one written with an included item has `TRUE`.
+  - [x] Extend `test_tick_adopt.py`: an adopted job with no plan configured is `FALSE`; with `standard` and a recent `ts_received` inside the window it is `TRUE`.
+  - [x] Success: all pass (criterion 4).
+
+  *Note: the manifest_pass writer test passes the bool directly (`False`/`True`) and the unset-plan versus included-item classification through the purchase phase is covered in 6.5.*
+
+- [x] **5.5 Commit: marker column and writers**
+  - [x] Commit as `feat: record plan inclusion on tick requests`.
 
 ## 6. Spend guard counts marginal spend (D8)
 
