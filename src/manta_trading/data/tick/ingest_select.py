@@ -1,8 +1,8 @@
-"""Which tier units ingest loads, and why the others wait (slice 225, TD4).
+"""Which units ingest loads, and why the others wait (slice 225, TD4; 300 D2).
 
-A unit is selected when its request schema is a stored tier, it is
+A unit is selected when its request schema has an ingest projector, it is
 *verified* with an open ``fetch_status``, it is current (``COVERAGE_PREDICATE``),
-no current unit of a higher tier holds its shape and day (TD5), and its
+no current unit of a higher rank in its family holds its shape and day (TD5), and its
 companion definition unit (same dataset, symbols, ``stype_in`` and day) is
 *ingested*. The last two are **skips**, not failures: the next acquisition
 pass or the higher tier's own ingest resolves them.
@@ -23,7 +23,6 @@ from psycopg.rows import dict_row
 
 from manta_trading.data.quality.fetch_status import OPEN_FETCH_STATUSES
 from manta_trading.data.tick.constants import (
-    STORED_TIERS,
     TickSchema,
     UnitState,
 )
@@ -35,6 +34,7 @@ from manta_trading.data.tick.manifest_reads import (
     UnitRow,
     unit_row,
 )
+from manta_trading.data.tick.projectors import INGEST_PROJECTORS
 from manta_trading.data.tick.schema_families import supersedes_sql
 
 
@@ -94,8 +94,8 @@ def _query(named: bool) -> str:
 
 def _not_selectable(unit: UnitRow, row: dict[str, Any]) -> str | None:
     """Why a named unit fails a selection rule; ``None`` when it passes them."""
-    if unit.schema not in STORED_TIERS:
-        return f"schema {unit.schema} is not a stored tier"
+    if unit.schema not in INGEST_PROJECTORS:
+        return f"schema {unit.schema} has no ingest projector"
     if unit.state is not UnitState.VERIFIED:
         return f"state is {unit.state}, not {UnitState.VERIFIED}"
     if unit.fetch_status not in OPEN_FETCH_STATUSES:
@@ -125,7 +125,7 @@ async def select_units(conn: Conn, unit_ids: Sequence[int] = ()) -> Selection:
     """Every selectable unit, or only the named ones, with the rest's reasons."""
     params = {
         "ids": list(unit_ids),
-        "tiers": sorted(tier.value for tier in STORED_TIERS),
+        "tiers": sorted(schema.value for schema in INGEST_PROJECTORS),
         "verified": UnitState.VERIFIED.value,
         "open": OPEN_STATUS_VALUES,
         "definition": TickSchema.DEFINITION.value,

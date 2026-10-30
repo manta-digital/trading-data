@@ -56,76 +56,81 @@ Relative effort: 4/5.
 
 ## 1. Baseline
 
-- [ ] **1.1 Record the base commit and baseline**
-  - [ ] Run `uv run pytest test/unit/data/tick -q` and `uv run pytest test/integration/data -q -k tick` with the test DB URL exported.
-  - [ ] Note any failures and match each against the known pre-existing failure list in project memory (integration-tier flakes, test cluster has no TimescaleDB scheduler, load-tier failures). The load tier runs once, in 8.2.
-  - [ ] Write `git rev-parse HEAD` and the pass/fail counts under "Parity result" at the end of this file, and commit the file as `docs: record 300 baseline`.
-  - [ ] Success: the hash and counts are committed before any code change; every failure is explained as pre-existing. Group 8 builds its base worktree from the hash.
+- [x] **1.1 Record the base commit and baseline**
+  - [x] Run `uv run pytest test/unit/data/tick -q` and `uv run pytest test/integration/data -q -k tick` with the test DB URL exported.
+  - [x] Note any failures and match each against the known pre-existing failure list in project memory (integration-tier flakes, test cluster has no TimescaleDB scheduler, load-tier failures). The load tier runs once, in 8.2.
+  - [x] Write `git rev-parse HEAD` and the pass/fail counts under "Parity result" at the end of this file, and commit the file as `docs: record 300 baseline`.
+  - [x] Success: the hash and counts are committed before any code change; every failure is explained as pre-existing. Group 8 builds its base worktree from the hash.
 
 ## 2. Schema families and family-scoped supersession (D1)
 
-- [ ] **2.1 Create `data/tick/schema_families.py`**
-  - [ ] Define `SchemaFamily` (StrEnum) with `TICK_TIER` and `DEFINITION`.
-  - [ ] Define `FAMILY_SCHEMAS: Mapping[SchemaFamily, tuple[TickSchema, ...]]`, lowest rank first. The `TICK_TIER` entry is the `TICK_TIERS` tuple imported from `constants.py`, not a restated list. `DEFINITION` is `(TickSchema.DEFINITION,)`.
-  - [ ] Derive `SCHEMA_FAMILY: Mapping[TickSchema, SchemaFamily]` from the table. Fail with an explicit error at import if a schema appears in two families.
-  - [ ] Success: the module imports without a circular import, and is under 100 lines.
-- [ ] **2.2 Add `supersedes_sql(newer, older)` to `schema_families.py`**
-  - [ ] Render `family(newer) = family(older) AND rank(newer) > rank(older)` as SQL `CASE` expressions built from `FAMILY_SCHEMAS`. Arguments are column references or bind placeholders written in code, never input. Document that rule in the docstring, as `tier_rank_sql` does.
-  - [ ] Success: for `('tbbo', 'trades')` the rendered predicate is true, for `('trades', 'tbbo')` false, for `('definition', 'tbbo')` and `('tbbo', 'definition')` false (checked in 2.3).
-- [ ] **2.3 Unit tests: `test/unit/data/tick/test_schema_families.py`**
-  - [ ] `FAMILY_SCHEMAS` is total and disjoint over `TickSchema`: every member is in exactly one family.
-  - [ ] `SCHEMA_FAMILY` agrees with the table; the `TICK_TIER` entry `is` the `TICK_TIERS` tuple.
-  - [ ] `supersedes_sql` text contains the family comparison and binds no values (assert on the rendered string).
-  - [ ] A test-only extra family (monkeypatched table with a fake schema) makes the rendered predicate contain the family comparison for the new schema. This is the design's mitigation for a missed rank use.
-  - [ ] Success: the new tests pass.
-- [ ] **2.4 Switch `ingest_select.py` and `ingest_plan.py` to `supersedes_sql`**
-  - [ ] `ingest_select._SELECT` outranked subquery: replace the `tier_rank_sql` comparison with `supersedes_sql('p.schema', 'r.schema')`.
-  - [ ] `ingest_plan._SUPERSEDED`: same replacement for the superseded-unit query.
-  - [ ] Keep `STORED_TIERS` as the selection set for now; group 3 replaces it.
-  - [ ] Success: both modules no longer import `tier_rank_sql`.
-- [ ] **2.5 Remove `tier_rank_sql` and migrate its tests**
-  - [ ] Delete `tier_rank_sql` from `constants.py`. Keep `TICK_TIER_RANK` (still used by tick-tier-only consumers).
-  - [ ] Move or rewrite the `tier_rank_sql` assertions in `test/unit/data/tick/test_constants.py` (lines near 165-171) so the rank behaviour is covered by `test_schema_families.py`.
-  - [ ] Success: `grep -rn tier_rank_sql src test scripts` returns nothing; unit tests pass.
-- [ ] **2.6 Integration test: family-scoped supersession (success criterion 2)**
-  - [ ] Extend `test_tick_ingest_select.py` and `test_tick_ingest_plan.py` (or add a sibling file if either would pass about 300 lines).
-  - [ ] Case A: a `tbbo` unit outranks a current `trades` unit of the same shape and day. This is today's behaviour.
-  - [ ] Case B: a `definition` unit and a tier unit of the same shape and day never outrank each other, in either direction, in `select_units` and in `build_plan`'s superseded set.
-  - [ ] Success: all pass; the existing select and plan tests are unchanged and pass.
-- [ ] **2.7 Commit: family-scoped supersession**
-  - [ ] Format touched files only; check `git diff` for swept lines; run unit and integration tick tests.
-  - [ ] Commit as `refactor: scope tick supersession to schema families`.
+- [x] **2.1 Create `data/tick/schema_families.py`**
+  - [x] Define `SchemaFamily` (StrEnum) with `TICK_TIER` and `DEFINITION`.
+  - [x] Define `FAMILY_SCHEMAS: Mapping[SchemaFamily, tuple[TickSchema, ...]]`, lowest rank first. The `TICK_TIER` entry is the `TICK_TIERS` tuple imported from `constants.py`, not a restated list. `DEFINITION` is `(TickSchema.DEFINITION,)`.
+  - [x] Derive `SCHEMA_FAMILY: Mapping[TickSchema, SchemaFamily]` from the table. Fail with an explicit error at import if a schema appears in two families.
+  - [x] Success: the module imports without a circular import, and is under 100 lines.
+- [x] **2.2 Add `supersedes_sql(newer, older)` to `schema_families.py`**
+  - [x] Render `family(newer) = family(older) AND rank(newer) > rank(older)` as SQL `CASE` expressions built from `FAMILY_SCHEMAS`. Arguments are column references or bind placeholders written in code, never input. Document that rule in the docstring, as `tier_rank_sql` does.
+  - [x] Success: for `('tbbo', 'trades')` the rendered predicate is true, for `('trades', 'tbbo')` false, for `('definition', 'tbbo')` and `('tbbo', 'definition')` false (checked in 2.3).
+- [x] **2.3 Unit tests: `test/unit/data/tick/test_schema_families.py`**
+  - [x] `FAMILY_SCHEMAS` is total and disjoint over `TickSchema`: every member is in exactly one family.
+  - [x] `SCHEMA_FAMILY` agrees with the table; the `TICK_TIER` entry `is` the `TICK_TIERS` tuple.
+  - [x] `supersedes_sql` text contains the family comparison and binds no values (assert on the rendered string).
+  - [x] A test-only extra family (monkeypatched table with a fake schema) makes the rendered predicate contain the family comparison for the new schema. This is the design's mitigation for a missed rank use.
+  - [x] Success: the new tests pass.
+- [x] **2.4 Switch `ingest_select.py` and `ingest_plan.py` to `supersedes_sql`**
+  - [x] `ingest_select._SELECT` outranked subquery: replace the `tier_rank_sql` comparison with `supersedes_sql('p.schema', 'r.schema')`.
+  - [x] `ingest_plan._SUPERSEDED`: same replacement for the superseded-unit query.
+  - [x] Keep `STORED_TIERS` as the selection set for now; group 3 replaces it.
+  - [x] Success: both modules no longer import `tier_rank_sql`.
+- [x] **2.5 Remove `tier_rank_sql` and migrate its tests**
+  - [x] Delete `tier_rank_sql` from `constants.py`. Keep `TICK_TIER_RANK` (still used by tick-tier-only consumers).
+  - [x] Move or rewrite the `tier_rank_sql` assertions in `test/unit/data/tick/test_constants.py` (lines near 165-171) so the rank behaviour is covered by `test_schema_families.py`.
+  - [x] Success: `grep -rn tier_rank_sql src test scripts` returns nothing; unit tests pass.
+- [x] **2.6 Integration test: family-scoped supersession (success criterion 2)**
+  - [x] Extend `test_tick_ingest_select.py` and `test_tick_ingest_plan.py` (or add a sibling file if either would pass about 300 lines).
+  - [x] Case A: a `tbbo` unit outranks a current `trades` unit of the same shape and day. This is today's behaviour.
+  - [x] Case B: a `definition` unit and a tier unit of the same shape and day never outrank each other, in either direction, in `select_units` and in `build_plan`'s superseded set.
+  - [x] Success: all pass; the existing select and plan tests are unchanged and pass.
+- [x] **2.7 Commit: family-scoped supersession**
+  - [x] Format touched files only; check `git diff` for swept lines; run unit and integration tick tests.
+  - [x] Commit as `refactor: scope tick supersession to schema families`.
 
 ## 3. Projector registry and a schema-agnostic worker (D2, D3, D4)
 
-- [ ] **3.1 Create `data/tick/projectors.py`**
-  - [ ] Define the `IUnitProjector` Protocol with the four members from D2: `load`, `stored_count`, `finish`, `delete_unit`. Define the `Loaded` result type it returns (decoded count, first and last event times, projector bookkeeping), moving the worker's private `_Loaded` here.
-  - [ ] Define `INGEST_PROJECTORS: Mapping[TickSchema, IUnitProjector]` in this module, filled with `{trades: TICK_TRADE, tbbo: TICK_TRADE}` once 3.2 exists. `definition` is not entered (D3).
-  - [ ] Success: the module is import-clean and under 100 lines.
-- [ ] **3.2 Create `data/tick/tick_trade_projector.py`**
-  - [ ] Move `_copy`, `_check_counts` (the stored-count part), `_insert_ledger` and the unit delete out of `ingest_worker.py` into a `TickTradeProjector` class: `load` does the COPY and collects ledger rows, `stored_count` counts `tick_trade` rows for the unit, `finish` inserts the ledger rows, `delete_unit` deletes the unit's trade rows and ledger rows.
-  - [ ] Export one instance as `TICK_TRADE`. Move code verbatim; change no SQL or behaviour.
-  - [ ] Success: the file is under 300 lines and contains no reference to the worker module (no import cycle).
-- [ ] **3.3 Rewire `ingest_worker.py` through the registry**
-  - [ ] `ingest_unit` does the steps in the design's "Ingest, after this slice": look up `INGEST_PROJECTORS[unit.schema]`, mark superseded units and call each old unit's own projector `delete_unit`, `load`, compare provider count vs decoded count vs `stored_count`, `finish`, `mark_ingested`.
-  - [ ] A unit whose schema has no projector raises an explicit error naming the schema. No default projector.
-  - [ ] `_other_current_units` uses the unit's family (from `SCHEMA_FAMILY`) instead of tier names.
-  - [ ] `SupersededUnit.first_event_ns` / `last_event_ns` may be `None`; `delete_unit` for the tick-tier family still receives them.
-  - [ ] Error handling (`UnitCheckFailed`, `UniqueViolation`, decode, `ManifestTransitionError`) is unchanged.
-  - [ ] Success: `ingest_worker.py` contains no `tick_trade` or `tick_ingest_ledger` SQL, and is shorter than before.
-- [ ] **3.4 Select by registry keys**
-  - [ ] `ingest_select.py` (params and `_not_selectable`) and `ingest_plan.py` use `INGEST_PROJECTORS` keys where they used `STORED_TIERS`. The not-selectable message names the schema and says it has no projector.
-  - [ ] `has_definitions` stays applied to every schema in the registry (D4). Do not touch `COMPANION_SCHEMAS`, `_companion_wants` or `estimate._row`.
-  - [ ] Success: criterion 3 holds: `--unit-id` of a `definition` unit is `not_selectable`, naming its schema.
-- [ ] **3.5 Tests: registry and moved code**
-  - [ ] Unit test (`test_projectors.py`): `INGEST_PROJECTORS` keys equal `STORED_TIERS`; `definition` is not a key; both tier schemas map to the same projector object.
-  - [ ] Update imports in `test_tick_ingest_worker.py` and any other test that imported a moved private helper. Do not weaken assertions.
-  - [ ] Add one `select_units` test (criterion 3): selecting a `definition` unit by `--unit-id` is reported `not_selectable`, and the reason names its schema and says it has no projector. Existing `not_selectable` tests only cover the "no such unit" reason.
-  - [ ] Add one worker test that a unit with an unregistered schema fails with the explicit error.
-  - [ ] Add one test that an ingested superseded unit is deleted through its own schema's projector (spy on the registry).
-  - [ ] Success: `uv run pytest test/unit/data/tick -q` and `-k tick` integration tests are green.
+- [x] **3.1 Create `data/tick/projectors.py`**
+  - [x] Define the `IUnitProjector` Protocol with the four members from D2: `load`, `stored_count`, `finish`, `delete_unit`. Define the `Loaded` result type it returns (decoded count, first and last event times, projector bookkeeping), moving the worker's private `_Loaded` here.
+  - [x] Define `INGEST_PROJECTORS: Mapping[TickSchema, IUnitProjector]` in this module, filled with `{trades: TICK_TRADE, tbbo: TICK_TRADE}` once 3.2 exists. `definition` is not entered (D3).
+  - [x] Success: the module is import-clean and under 100 lines.
+
+  *Deviation: `IUnitProjector`, `Loaded` and `BatchProgress` live in `data/tick/projector_types.py`, not `projectors.py`, to avoid an import cycle (`projectors.py` imports `tick_trade_projector`, which needs `Loaded`). `projectors.py` holds `INGEST_PROJECTORS`, `NoProjectorError` and `projector_for`.*
+
+- [x] **3.2 Create `data/tick/tick_trade_projector.py`**
+  - [x] Move `_copy`, `_check_counts` (the stored-count part), `_insert_ledger` and the unit delete out of `ingest_worker.py` into a `TickTradeProjector` class: `load` does the COPY and collects ledger rows, `stored_count` counts `tick_trade` rows for the unit, `finish` inserts the ledger rows, `delete_unit` deletes the unit's trade rows and ledger rows.
+  - [x] Export one instance as `TICK_TRADE`. Move code verbatim; change no SQL or behaviour.
+  - [x] Success: the file is under 300 lines and contains no reference to the worker module (no import cycle).
+
+  *Deviation: `delete_unit` deletes trade rows only; ledger rows stay (existing TD5 behaviour). "Change no SQL or behaviour" wins over the "and ledger rows" wording.*
+- [x] **3.3 Rewire `ingest_worker.py` through the registry**
+  - [x] `ingest_unit` does the steps in the design's "Ingest, after this slice": look up `INGEST_PROJECTORS[unit.schema]`, mark superseded units and call each old unit's own projector `delete_unit`, `load`, compare provider count vs decoded count vs `stored_count`, `finish`, `mark_ingested`.
+  - [x] A unit whose schema has no projector raises an explicit error naming the schema. No default projector.
+  - [x] `_other_current_units` uses the unit's family (from `SCHEMA_FAMILY`) instead of tier names.
+  - [x] `SupersededUnit.first_event_ns` / `last_event_ns` may be `None`; `delete_unit` for the tick-tier family still receives them.
+  - [x] Error handling (`UnitCheckFailed`, `UniqueViolation`, decode, `ManifestTransitionError`) is unchanged.
+  - [x] Success: `ingest_worker.py` contains no `tick_trade` or `tick_ingest_ledger` SQL, and is shorter than before.
+- [x] **3.4 Select by registry keys**
+  - [x] `ingest_select.py` (params and `_not_selectable`) and `ingest_plan.py` use `INGEST_PROJECTORS` keys where they used `STORED_TIERS`. The not-selectable message names the schema and says it has no projector.
+  - [x] `has_definitions` stays applied to every schema in the registry (D4). Do not touch `COMPANION_SCHEMAS`, `_companion_wants` or `estimate._row`.
+  - [x] Success: criterion 3 holds: `--unit-id` of a `definition` unit is `not_selectable`, naming its schema.
+- [x] **3.5 Tests: registry and moved code**
+  - [x] Unit test (`test_projectors.py`): `INGEST_PROJECTORS` keys equal `STORED_TIERS`; `definition` is not a key; both tier schemas map to the same projector object.
+  - [x] Update imports in `test_tick_ingest_worker.py` and any other test that imported a moved private helper. Do not weaken assertions.
+  - [x] Add one `select_units` test (criterion 3): selecting a `definition` unit by `--unit-id` is reported `not_selectable`, and the reason names its schema and says it has no projector. Existing `not_selectable` tests only cover the "no such unit" reason.
+  - [x] Add one worker test that a unit with an unregistered schema fails with the explicit error.
+  - [x] Add one test that an ingested superseded unit is deleted through its own schema's projector (spy on the registry).
+  - [x] Success: `uv run pytest test/unit/data/tick -q` and `-k tick` integration tests are green.
 - [ ] **3.6 Commit: projector registry**
-  - [ ] Format touched files only; check `git diff` for swept lines.
+  - [x] Format touched files only; check `git diff` for swept lines.
   - [ ] Commit as `refactor: ingest through a projector registry`.
 
 ## 4. Plan configuration and `is_plan_included` (D5, D6, D7)

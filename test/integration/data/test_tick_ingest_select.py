@@ -146,7 +146,7 @@ async def test_a_named_unit_narrows_and_never_overrides(db: Any, aconn: AConn) -
         second: (SkipKind.AWAITING_DEFINITIONS, "awaiting definitions"),
         definition: (
             SkipKind.NOT_SELECTABLE,
-            "schema definition is not a stored tier",
+            "schema definition has no ingest projector",
         ),
         999_999: (SkipKind.NOT_SELECTABLE, "no such unit"),
     }

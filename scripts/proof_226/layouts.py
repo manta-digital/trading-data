@@ -20,7 +20,7 @@ import psycopg
 from psycopg import sql
 
 from manta_trading.config import Settings
-from manta_trading.data.tick.constants import UnitState
+from manta_trading.data.tick.constants import TickSchema, UnitState
 from manta_trading.data.tick.ingest_plan import Calendars, SupersededUnit, build_plan
 from manta_trading.data.tick.ingest_worker import supersede
 from manta_trading.data.tick.manifest_reads import units_by_id
@@ -146,7 +146,9 @@ def time_supersession_delete(db_url: str, calendars_url: str) -> float:
     with psycopg.connect(db_url) as conn:
         rows = conn.execute(_VICTIM, (UnitState.INGESTED.value,)).fetchall()
     (victim_id, first, last), (other_id, _, _) = rows
-    victim = SupersededUnit(victim_id, UnitState.INGESTED, first, last)
+    victim = SupersededUnit(
+        victim_id, TickSchema.TRADES, UnitState.INGESTED, first, last
+    )
     plan = asyncio.run(_plan_with_victim(db_url, calendars_url, other_id, victim))
     with psycopg.connect(db_url) as conn, conn.cursor() as cur:
         started = time.monotonic()
