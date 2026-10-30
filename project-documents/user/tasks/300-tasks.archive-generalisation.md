@@ -120,6 +120,7 @@ Relative effort: 4/5.
 - [ ] **3.5 Tests: registry and moved code**
   - [ ] Unit test (`test_projectors.py`): `INGEST_PROJECTORS` keys equal `STORED_TIERS`; `definition` is not a key; both tier schemas map to the same projector object.
   - [ ] Update imports in `test_tick_ingest_worker.py` and any other test that imported a moved private helper. Do not weaken assertions.
+  - [ ] Add one `select_units` test (criterion 3): selecting a `definition` unit by `--unit-id` is reported `not_selectable`, and the reason names its schema and says it has no projector. Existing `not_selectable` tests only cover the "no such unit" reason.
   - [ ] Add one worker test that a unit with an unregistered schema fails with the explicit error.
   - [ ] Add one test that an ingested superseded unit is deleted through its own schema's projector (spy on the registry).
   - [ ] Success: `uv run pytest test/unit/data/tick -q` and `-k tick` integration tests are green.
