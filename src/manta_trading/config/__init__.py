@@ -13,6 +13,7 @@ from dotenv import dotenv_values
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from manta_trading.config.databento_plans import DatabentoPlan
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
     API_SERVING_SESSION,
@@ -149,6 +150,11 @@ class Settings(BaseSettings):
     # created implicitly; the run-context preflight refuses it unset, missing
     # or not writable.
     tick_archive_dir: Path | None = None
+    # Databento subscription (slice 300, D5): MT_TICK_DATABENTO_PLAN. Unset
+    # means no subscription, so nothing is plan-included and the spend guard
+    # counts every request at list price. A value that names no plan is
+    # refused (see the validator), never read as "none".
+    tick_databento_plan: DatabentoPlan | None = None
     # Backup cluster roots judged by `mt data health` (slice 924, D5):
     # MT_BACKUP_ROOTS, comma-separated absolute paths. Raw string with no
     # validator on purpose: a bad value fails one health check, not every `mt`
@@ -215,6 +221,20 @@ class Settings(BaseSettings):
         if isinstance(value, str) and value.strip() == "":
             return None
         return value
+
+    @field_validator("tick_databento_plan", mode="before")
+    @classmethod
+    def _known_databento_plan(cls, value: object) -> object:
+        # Name the variable and the allowed values: pydantic's own enum message
+        # names neither the environment variable nor reads as an operator error.
+        if value is None or isinstance(value, DatabentoPlan):
+            return value
+        if value in {plan.value for plan in DatabentoPlan}:
+            return value
+        allowed = ", ".join(plan.value for plan in DatabentoPlan)
+        raise ValueError(
+            f"MT_TICK_DATABENTO_PLAN={value!r} is not a plan; allowed: {allowed}"
+        )
 
     def collection_rule(self) -> CollectionRule:
         """The Kalshi collection rule in force — the single parse point, for
