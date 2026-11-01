@@ -15,7 +15,7 @@ interfaces:
 projectState: 'Slice design committed and revised after slice review (67b477c is the
   latest). CME_EQUITY and CME_METALS hold sessions from 2020-01-01 only, seeded by
   minute-track migrations 058 and 059 from CME_EQUITY_SEED_START and CME_METALS_SEED_START.
-  The minute chain ends at 064. Regular hours are one fixed pair per calendar in trading_calendars
+  The minute chain ends at 065 (`065_instruments_name`, issue #60). Regular hours are one fixed pair per calendar in trading_calendars
   (17:00 -> 16:00 America/Chicago).
 
   '
@@ -55,7 +55,7 @@ revision_number: 2
   closes in `trading_holidays`).
 - One code change: `populate_trading_sessions` uses the era in force on each
   session's date, for a calendar that has eras. One new primary-track
-  migration, `065_cme_calendar_history`, in `MINUTE_MIGRATIONS`.
+  migration, `066_cme_calendar_history`, in `MINUTE_MIGRATIONS`.
 - Sessions from 2020-01-01 on, NYSE and NASDAQ, and all tick-track tables stay
   unchanged.
 - Next slice: 302 (`ohlcv-1m` and definition history) places bars in these
@@ -84,16 +84,17 @@ revision_number: 2
   A calendar with an earlier supported start is trimmed to match, and the trim
   is recorded in the slice's Implementation Notes. Every stop rule below moves
   the constant by this rule only.
-- **Unrelated uncommitted work.** The tree holds other changes in files this
-  slice edits (`migrations/minute.py`, `test/unit/test_schema_migrations.py`):
-  issue #60's `065_instruments_name` migration and its pin updates. Never
+- **Other sessions' work.** Issue #60's `065_instruments_name` migration and its
+  pin updates are already committed on main in files this slice edits
+  (`migrations/minute.py`, `test/unit/test_schema_migrations.py`), and other
+  uncommitted work may appear in the tree. Never
   revert, reformat or stage them. Stage only your own hunks (`git add -p`, or
   explicit paths for files only you touched) and check `git diff --cached`
   before each commit.
-- **Migration number.** Issue #60 has taken `065`. Before 4.1, read the last id
-  in `MINUTE_MIGRATIONS` and use the next number wherever this file says `065`
-  or `064` for the chain tip; `grep` for the real ids rather than trusting the
-  numbers written here.
+- **Migration number.** Issue #60 landed `065_instruments_name` (6cdd527), so
+  the minute chain ends at 065 and this slice's migration is `066`. Before 4.1,
+  still read the last id in `MINUTE_MIGRATIONS`: if it is not
+  `065_instruments_name`, use the next number instead and `grep` for the real ids.
 - **Effort scale:** 1 (trivial) to 5 (hard).
 
 ---
@@ -218,11 +219,11 @@ revision_number: 2
         the extension reads it. In `session_extension.py` add `_read_eras`:
         returns the calendar's rows as `HoursEra`, ordered by `effective_from`,
         and `None` when the calendar has no rows.
-  - [ ] The table does not exist until migration 065, and migrations 058 and 059
+  - [ ] The table does not exist until migration 066, and migrations 058 and 059
         call this routine on a fresh database before it. Guard with
         `to_regclass('trading_calendar_hours')` (the way migration 056 branches
         on a missing object): when the table is absent, return `None`. Write a
-        comment saying why: the table is created by 065, after the seeds that
+        comment saying why: the table is created by 066, after the seeds that
         also extend.
   - [ ] Pass the result to `populate_trading_sessions`.
   - [ ] Success: mypy clean; `test_calendar_extension.py` passes unchanged
@@ -253,7 +254,7 @@ revision_number: 2
 
 These rows go in new modules and in their own tuples. They must not be added to
 `CME_EQUITY_EXCEPTIONS` or the metals tuple: migrations 058 and 059 insert those
-on a fresh database, and migration 065's precondition (task 4.2) aborts if any
+on a fresh database, and migration 066's precondition (task 4.2) aborts if any
 CME holiday row exists before the seed start.
 
 - [ ] **3.1 Create the two exception modules and the shared source test helper**
@@ -358,12 +359,12 @@ CME holiday row exists before the seed start.
 
 ---
 
-## Section 4 — Migration 065 (D3)
+## Section 4 — Migration 066 (D3)
 
-- [ ] **4.1 Register `065_cme_calendar_history` and create the table**
+- [ ] **4.1 Register `066_cme_calendar_history` and create the table**
   - [ ] Append a migration to `MINUTE_MIGRATIONS` in
         `market/schema/migrations/minute.py` after
-        `064_minute_eligible_rollup_swap`, with a `python_fn`
+        `065_instruments_name`, with a `python_fn`
         (`_cme_calendar_history`) and a description in the style of 058/059.
   - [ ] The function first runs
         `CREATE TABLE IF NOT EXISTS trading_calendar_hours (calendar_id,
@@ -397,25 +398,25 @@ CME holiday row exists before the seed start.
   - [ ] Effort: 3
 
 - [ ] **4.3 Integration tests for the migration**
-  - [ ] New `test/integration/test_migration_065_cme_calendar_history.py`,
+  - [ ] New `test/integration/test_migration_066_cme_calendar_history.py`,
         modelled on `test_migration_059_cme_metals_calendar.py` (throwaway
         databases from the conftest fixtures; read-only checks share the
         session-scoped migrated database).
   - [ ] Cases:
-    - [ ] On an empty database migrated through 065: both calendars' first
+    - [ ] On an empty database migrated through 066: both calendars' first
           session is the first weekday on or after `CME_DATASET_START` that is
           not a sourced closure, none is dated earlier, and the sessions have
           no gaps except weekends and the sourced exceptions. The pre-2020
           `trading_holidays` row count per calendar equals its tuple length.
     - [ ] `test_cme_history_2020_unchanged`: sessions from 2020-01-01 on, for
-          all four calendars, are identical to a database migrated through 064
+          all four calendars, are identical to a database migrated through 065
           only (dump both, compare). NYSE and NASDAQ untouched.
-    - [ ] On a populated database (migrated through 064, then 065 applied):
+    - [ ] On a populated database (migrated through 065, then 066 applied):
           the same result as the empty path.
     - [ ] A session in each side of an era change carries that era's open and
           close; a date inside the first era carries the first era's pair.
     - [ ] The precondition aborts: a stray `trading_holidays` row before the
-          seed start makes 065 fail and leaves no `trading_calendar_hours` rows
+          seed start makes 066 fail and leaves no `trading_calendar_hours` rows
           and no new sessions.
   - [ ] Success: the file passes
   - [ ] Effort: 3
@@ -433,12 +434,12 @@ CME holiday row exists before the seed start.
   - [ ] Effort: 2
 
 - [ ] **4.5 Update chain pins and migration docs**
-  - [ ] Run `grep -rn` for the id that was the chain tip before 4.1 (`064_minute_eligible_rollup_swap`, or `065_instruments_name` if issue #60 has landed) over `test src scripts` and
+  - [ ] Run `grep -rn` for the id that was the chain tip before 4.1 (`065_instruments_name`) over `test src scripts` and
         update every pin that names the *last* migration id (the one in
         `test/unit/test_schema_migrations.py` near line 1326 and the migration
         count comment near line 225), as every primary migration does. Do not
-        touch tests about 064 itself or `scripts/cutover_173_*`.
-  - [ ] Add a paragraph for 065 to `market/schema/migrations/README.md`, in the
+        touch tests about 065 itself or `scripts/cutover_173_*`.
+  - [ ] Add a paragraph for 066 to `market/schema/migrations/README.md`, in the
         style of the tick-track notes: what it adds and that it aborts on a
         stored pre-seed row.
   - [ ] Add an entry under the unreleased section of `CHANGELOG.md`. Do not
@@ -449,10 +450,10 @@ CME holiday row exists before the seed start.
 - [ ] **4.6 Commit checkpoint**
   - [ ] Run `ruff`, `ruff format` on touched files, mypy, then
         `uv run pytest test/unit/market test/unit/data/base test/unit/test_schema_migrations.py -q`
-        and `uv run pytest test/integration -q -k "calendar or session or migration_065"`.
+        and `uv run pytest test/integration -q -k "calendar or session or migration_066"`.
         Integration tier: run it by itself; on a known-flaky failure re-run that
         test in isolation before investigating.
-  - [ ] Commit: `feat: add migration 065 for CME calendar history`
+  - [ ] Commit: `feat: add migration 066 for CME calendar history`
   - [ ] Success: tests pass; commit made
   - [ ] Effort: 1
 
