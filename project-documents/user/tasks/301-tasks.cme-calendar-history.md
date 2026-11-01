@@ -116,7 +116,7 @@ revision_number: 2
 - [x] **4.3 Unit tests for extension**
   - [x] Segmentation: a range before the first era (raises `NoHoursEraError`; assert the message contains the calendar id and the date), a range starting on an era's first date, a range across a change, and a late-open exception overriding the era's open.
   - [x] A dated calendar with no era rows raises.
-  - [ ] `_is_dated` is false, without error, on a database lacking the `hours_dated` column. After setting the flag it is true for `CME_EQUITY` and `CME_METALS` and false for NYSE and NASDAQ.
+  - [x] `_is_dated` is false, without error, on a database lacking the `hours_dated` column. After setting the flag it is true for `CME_EQUITY` and `CME_METALS` and false for NYSE and NASDAQ.
     Note: True-after-flag half moves to 7.3 (needs the migration's column).
   - [x] NYSE, NASDAQ and the current CME hours produce output equal to the pre-change output.
   - [x] Success: tests pass and `test_058_059_fresh_output_unchanged` still passes.
@@ -184,35 +184,36 @@ revision_number: 2
 
 ### 7. The migration (D6)
 
-- [ ] **7.1 Add the migration**
-  - [ ] First read the last id in `MINUTE_MIGRATIONS` in `market/schema/migrations/minute.py` and migration 058's `python_fn` style. The new id is the next free one after what the file says.
-  - [ ] Implement the six steps of the design's Data Flow in one `python_fn`:
+- [x] **7.1 Add the migration**
+  - [x] First read the last id in `MINUTE_MIGRATIONS` in `market/schema/migrations/minute.py` and migration 058's `python_fn` style. The new id is the next free one after what the file says.
+  - [x] Implement the six steps of the design's Data Flow in one `python_fn`:
     1. Abort, naming the counts, if any `CME_EQUITY` or `CME_METALS` row exists before 2020-01-01 in `trading_holidays` or `trading_sessions`.
     2. Read every CME session dated 2020-01-01 or later into memory.
     3. Create `trading_calendar_hours` (columns as fixed in 1.3, including any Sunday-open column), add `trading_calendars.hours_dated boolean NOT NULL DEFAULT false`, set it true for both CME calendars, then plain `INSERT` (no `ON CONFLICT`) the eras and the pre-2020 exceptions.
     4. Abort if a calendar's latest era differs from its `trading_calendars` hours.
     5. `extend_calendar_sessions(conn, cal, start=CME_DATASET_START, end=date(2019, 12, 31))` for each calendar.
     6. Re-read the 2020-onward sessions and abort on any difference from step 2.
-  - [ ] Put the migration body in its own module if `minute.py` would grow past reason, and register it in `MINUTE_MIGRATIONS`.
-  - [ ] Success: the migration runs on a fresh test database through the full chain.
+  - [x] Put the migration body in its own module if `minute.py` would grow past reason, and register it in `MINUTE_MIGRATIONS`.
+  - [x] Success: the migration runs on a fresh test database through the full chain.
 
-- [ ] **7.2 Update chain tests that name the last id**
-  - [ ] Update `test_schema_migrations.py` and any other test that asserts the last migration id.
-  - [ ] Success: those tests pass.
+- [x] **7.2 Update chain tests that name the last id**
+  - [x] Update `test_schema_migrations.py` and any other test that asserts the last migration id.
+  - [x] Success: those tests pass.
+  - Note: Six existing integration tests that assumed CME history starts in 2020 now use pre-2010 dates or scope to 058/059's range.
 
-- [ ] **7.3 Integration tests: fresh database**
-  - [ ] Fresh full chain: both calendars' first session is the first one on or after `CME_DATASET_START`, eras present with sources, `hours_dated` true for both CME calendars and false for NYSE and NASDAQ.
-  - [ ] Session continuity (success criterion 1): for each calendar, consecutive pre-2020 session dates have no gap except weekends and dates with a `trading_holidays` closure row.
-  - [ ] Forward-extending a CME calendar after the migration produces exactly what it produced before.
-  - [ ] Boundary instants, in the pattern of `test/unit/data/base/test_cme_equity_boundaries.py` and its JSON fixture: `locate_sessions` places an instant inside a pre-2020 era's hours and refuses one in its daily break with `session_boundary`, for each calendar on both sides of each era change.
-  - [ ] Success: all pass.
+- [x] **7.3 Integration tests: fresh database**
+  - [x] Fresh full chain: both calendars' first session is the first one on or after `CME_DATASET_START`, eras present with sources, `hours_dated` true for both CME calendars and false for NYSE and NASDAQ.
+  - [x] Session continuity (success criterion 1): for each calendar, consecutive pre-2020 session dates have no gap except weekends and dates with a `trading_holidays` closure row.
+  - [x] Forward-extending a CME calendar after the migration produces exactly what it produced before.
+  - [x] Boundary instants, in the pattern of `test/unit/data/base/test_cme_equity_boundaries.py` and its JSON fixture: `locate_sessions` places an instant inside a pre-2020 era's hours and refuses one in its daily break with `session_boundary`, for each calendar on both sides of each era change.
+  - [x] Success: all pass.
 
-- [ ] **7.4 Integration tests: populated database and aborts**
-  - [ ] A database populated as production is (2020-onward CME sessions present): migration applies and the 2020-onward rows are identical afterwards.
-  - [ ] Each precondition aborts with a clear message: pre-2020 holiday row, pre-2020 session row.
-  - [ ] The 2020-onward comparison aborts when a 2020 session is changed during the migration (for example by seeding a deliberately wrong era).
-  - [ ] A latest era that differs from the calendar row aborts.
-  - [ ] Success: all pass. Re-run a failure in isolation before investigating (known flakes: see the integration-tier notes).
+- [x] **7.4 Integration tests: populated database and aborts**
+  - [x] A database populated as production is (2020-onward CME sessions present): migration applies and the 2020-onward rows are identical afterwards.
+  - [x] Each precondition aborts with a clear message: pre-2020 holiday row, pre-2020 session row.
+  - [x] The 2020-onward comparison aborts when a 2020 session is changed during the migration (for example by seeding a deliberately wrong era).
+  - [x] A latest era that differs from the calendar row aborts.
+  - [x] Success: all pass. Re-run a failure in isolation before investigating (known flakes: see the integration-tier notes).
 
 **Commit**: `feat: add CME calendar history migration with 2020-onward proof`
 

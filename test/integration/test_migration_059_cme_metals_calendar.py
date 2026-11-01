@@ -107,8 +107,8 @@ def test_exception_rows_equal_seed_table(conn: psycopg.Connection[Any]) -> None:
     rows = conn.execute(
         "SELECT holiday_date, holiday_name, market_status, early_close_time, "
         "late_open_time FROM trading_holidays WHERE calendar_id = %s "
-        "ORDER BY holiday_date",
-        (CME_METALS_CALENDAR_ID,),
+        "AND holiday_date >= %s ORDER BY holiday_date",  # 059's range; 066 adds history
+        (CME_METALS_CALENDAR_ID, CME_METALS_SEED_START),
     ).fetchall()
     expected = [
         (
@@ -135,8 +135,8 @@ def test_sessions_span_seed_start_to_bound(conn: psycopg.Connection[Any]) -> Non
         day += timedelta(days=1)
     count, first, last = conn.execute(
         "SELECT COUNT(*), MIN(session_date), MAX(session_date) FROM trading_sessions "
-        "WHERE calendar_id = %s",
-        (CME_METALS_CALENDAR_ID,),
+        "WHERE calendar_id = %s AND session_date >= %s",  # 059's range
+        (CME_METALS_CALENDAR_ID, CME_METALS_SEED_START),
     ).fetchone() or (None, None, None)
     assert count == expected
     assert first == date(2020, 1, 2)  # 2020-01-01 is closed
@@ -173,7 +173,8 @@ def test_other_calendars_unchanged_by_059(ephemeral_db: str) -> None:
     with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
         apply_migrations(pool, MINUTE_MIGRATIONS[:cut])
         before = _dump(ephemeral_db, _OTHERS)
-        apply_migrations(pool, MINUTE_MIGRATIONS)
+        # Through 059 only: 066 extends CME_EQUITY's history on purpose.
+        apply_migrations(pool, MINUTE_MIGRATIONS[: cut + 1])
     assert before["sessions"], "other calendars were not populated before 059"
     assert _dump(ephemeral_db, _OTHERS) == before
 

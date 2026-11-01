@@ -293,7 +293,7 @@ async def test_a_range_outside_the_calendar_is_a_storage_abort_naming_it(
     session_migrated_db: str,
     migrated_tick_db: str,
 ) -> None:
-    early = (date(2019, 12, 2), date(2019, 12, 3))  # before CME_EQUITY's span
+    early = (date(2010, 5, 3), date(2010, 5, 4))  # before CME_EQUITY's span
     await conn.execute("DELETE FROM tick_archive_unit")
     await conn.execute("DELETE FROM tick_request")
     await conn.execute("DELETE FROM tick_day_condition")

@@ -411,6 +411,15 @@ def _seed_cme_metals_calendar(conn: Any) -> None:
     )
 
 
+def _apply_cme_calendar_history(conn: Any) -> None:
+    """Python callable for migration 066 (slice 301); see its module."""
+    from manta_trading.market.schema.migrations.cme_calendar_history import (
+        apply_cme_calendar_history,
+    )
+
+    apply_cme_calendar_history(conn)
+
+
 def _history_horizon_disjunct() -> str:
     """Build the third disjunct of the symbols_x_granularity WHERE clause.
 
@@ -2782,5 +2791,19 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "next rebuild, and for a row EODHD lists without a name."
         ),
         "sql": "ALTER TABLE instruments ADD COLUMN IF NOT EXISTS name text;",
+    },
+    {
+        "id": "066_cme_calendar_history",
+        "description": (
+            "Fill CME_EQUITY and CME_METALS back to CME_DATASET_START (slice "
+            "301 D6): create trading_calendar_hours and "
+            "trading_calendars.hours_dated, insert the sourced hours eras and "
+            "pre-2020 exceptions, extend both calendars over 2010-06-06.."
+            "2019-12-31 through the dated extension path, and abort unless "
+            "every session dated 2020-01-01 or later is unchanged. Not "
+            "idempotent; a precondition refuses a database that already has "
+            "pre-2020 CME rows."
+        ),
+        "python_fn": _apply_cme_calendar_history,
     },
 ]

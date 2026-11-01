@@ -45,4 +45,4 @@ def test_christmas_is_touched_by_the_next_session(cme: TradingCalendar) -> None:
 
 def test_range_before_the_calendar_raises(cme: TradingCalendar) -> None:
     with pytest.raises(OutOfPopulatedRangeError):
-        session_days(cme, date(2019, 12, 1), date(2019, 12, 5))
+        session_days(cme, date(2010, 5, 3), date(2010, 5, 7))

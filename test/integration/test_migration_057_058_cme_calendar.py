@@ -125,8 +125,8 @@ def test_exception_rows_equal_seed_table(conn: psycopg.Connection[Any]) -> None:
     rows = conn.execute(
         "SELECT holiday_date, holiday_name, market_status, early_close_time, "
         "late_open_time FROM trading_holidays WHERE calendar_id = %s "
-        "ORDER BY holiday_date",
-        (CME_EQUITY_CALENDAR_ID,),
+        "AND holiday_date >= %s ORDER BY holiday_date",  # 058's range; 066 adds history
+        (CME_EQUITY_CALENDAR_ID, CME_EQUITY_SEED_START),
     ).fetchall()
     expected = [
         (
@@ -153,8 +153,8 @@ def test_session_count_is_weekdays_minus_closed(conn: psycopg.Connection[Any]) -
         day += timedelta(days=1)
     count, last = conn.execute(
         "SELECT COUNT(*), MAX(session_date) FROM trading_sessions "
-        "WHERE calendar_id = %s",
-        (CME_EQUITY_CALENDAR_ID,),
+        "WHERE calendar_id = %s AND session_date >= %s",  # 058's range
+        (CME_EQUITY_CALENDAR_ID, CME_EQUITY_SEED_START),
     ).fetchone() or (None, None)
     assert count == expected
     assert last == CME_EQUITY_HOLIDAYS_SEEDED_THROUGH

@@ -203,7 +203,7 @@ class TestCmeSessionLookup:
 
     def test_before_first_open_raises(self, cme: TradingCalendar) -> None:
         with pytest.raises(OutOfPopulatedRangeError, match="mt data extend"):
-            cme.session_containing(_ct(2020, 1, 1, 16, 59))
+            cme.session_containing(_ct(2010, 6, 6, 16, 59))
 
     def test_after_last_close_raises(self, cme: TradingCalendar) -> None:
         _, last_close = cme.populated_span()
