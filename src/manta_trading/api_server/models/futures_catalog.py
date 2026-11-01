@@ -16,7 +16,7 @@ from pydantic import BaseModel, PlainSerializer
 
 from manta_trading.api_server.models.futures import UnresolvedRecord
 from manta_trading.data.tick.catalog_reads import CatalogContract
-from manta_trading.data.tick.constants import calendar_for_product
+from manta_trading.data.tick.constants import calendar_for_product, name_for_product
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
 from manta_trading.data.tick.roll_types import (
     ActiveContract,
@@ -119,6 +119,7 @@ class ProductRecord(BaseModel):
     rule (``/futures/products``)."""
 
     product: str
+    name: str
     calendar: str
     active: list[ActiveLineRecord]
 
@@ -126,6 +127,7 @@ class ProductRecord(BaseModel):
     def from_lines(cls, product: str, lines: tuple[ActiveLine, ...]) -> ProductRecord:
         return cls(
             product=product,
+            name=name_for_product(product),
             calendar=calendar_for_product(product),
             active=[ActiveLineRecord.from_line(line) for line in lines],
         )

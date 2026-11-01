@@ -153,6 +153,47 @@ FUTURES_PRODUCT_CALENDAR: Final[Mapping[str, str]] = {
     "GC": CME_METALS_CALENDAR_ID,
 }
 
+#: Futures product → display name, served as ``name`` on ``/futures/products``
+#: (#64). Databento's definition records carry no product description (only
+#: the ``asset`` code and an exchange group), so the names live here, beside the
+#: calendars. There is no default: a product with a calendar and no name fails
+#: at import.
+FUTURES_PRODUCT_NAME: Final[Mapping[str, str]] = {
+    "ES": "E-mini S&P 500",
+    "GC": "Gold",
+}
+
+
+def require_same_products(
+    names: Mapping[str, str], calendars: Mapping[str, str]
+) -> None:
+    """Fail unless ``names`` and ``calendars`` cover exactly the same products."""
+    if names.keys() != calendars.keys():
+        unnamed = sorted(calendars.keys() - names.keys())
+        stray = sorted(names.keys() - calendars.keys())
+        raise ValueError(
+            "FUTURES_PRODUCT_NAME and FUTURES_PRODUCT_CALENDAR must name the same "
+            f"products (no name: {unnamed}, no calendar: {stray})"
+        )
+
+
+require_same_products(FUTURES_PRODUCT_NAME, FUTURES_PRODUCT_CALENDAR)
+
+
+def name_for_product(product: str) -> str:
+    """The display name for a futures product.
+
+    Raises:
+        KeyError: ``product`` has no name; the message names the known ones.
+    """
+    try:
+        return FUTURES_PRODUCT_NAME[product]
+    except KeyError:
+        known = ", ".join(sorted(FUTURES_PRODUCT_NAME))
+        raise KeyError(
+            f"futures product {product!r} has no display name (known: {known})"
+        ) from None
+
 
 def calendar_for_product(product: str) -> str:
     """The calendar id for a futures product.

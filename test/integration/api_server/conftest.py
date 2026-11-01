@@ -63,5 +63,10 @@ def two_products(migrated_tick_db: str, monkeypatch: pytest.MonkeyPatch) -> None
         SECOND.product,
         CME_EQUITY_CALENDAR_ID,
     )
+    monkeypatch.setitem(
+        constants.FUTURES_PRODUCT_NAME,  # type: ignore[arg-type]
+        SECOND.product,
+        "Second product",
+    )
     seed_september_roll(migrated_tick_db)
     seed_second_product(migrated_tick_db)

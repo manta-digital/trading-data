@@ -35,6 +35,8 @@ from manta_trading.data.tick.constants import (
     TickSchema,
     UnitState,
     calendar_for_product,
+    name_for_product,
+    require_same_products,
 )
 from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
 from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_CALENDAR_ID
@@ -85,6 +87,35 @@ def test_calendar_for_known_product() -> None:
 def test_calendar_for_unknown_product_names_known_ones() -> None:
     with pytest.raises(KeyError, match="'ZZ'.*known: ES, GC"):
         calendar_for_product("ZZ")
+
+
+def test_name_for_known_product() -> None:
+    assert name_for_product("ES") == "E-mini S&P 500"
+    assert name_for_product("GC") == "Gold"
+
+
+def test_name_for_unknown_product_names_known_ones() -> None:
+    with pytest.raises(KeyError, match="'ZZ'.*known: ES, GC"):
+        name_for_product("ZZ")
+
+
+def test_every_calendar_product_has_a_name_and_no_other() -> None:
+    from manta_trading.data.tick.constants import (
+        FUTURES_PRODUCT_CALENDAR,
+        FUTURES_PRODUCT_NAME,
+    )
+
+    assert FUTURES_PRODUCT_NAME.keys() == FUTURES_PRODUCT_CALENDAR.keys()
+
+
+def test_a_calendar_product_without_a_name_fails() -> None:
+    with pytest.raises(ValueError, match=r"no name: \['GC'\]"):
+        require_same_products({"ES": "E-mini S&P 500"}, {"ES": "x", "GC": "y"})
+
+
+def test_a_named_product_without_a_calendar_fails() -> None:
+    with pytest.raises(ValueError, match=r"no calendar: \['GC'\]"):
+        require_same_products({"ES": "a", "GC": "b"}, {"ES": "x"})
 
 
 def test_unit_state_values_in_lifecycle_order() -> None:

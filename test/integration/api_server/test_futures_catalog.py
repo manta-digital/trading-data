@@ -173,6 +173,7 @@ def test_products_matches_the_cli_active_lines(
     assert list(by_product) == [e.product for e in TICK_UNIVERSE]
     es = by_product["ES"]
     assert (es["product"], es["calendar"]) == ("ES", CME_EQUITY_CALENDAR_ID)
+    assert es["name"] == "E-mini S&P 500"
     assert [line["rule"] for line in es["active"]] == ["v.0", "c.0"]
     assert es["active"] == cli["lines"]
 

@@ -2718,6 +2718,10 @@
             "title": "Calendar",
             "type": "string"
           },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
           "product": {
             "title": "Product",
             "type": "string"
@@ -2725,6 +2729,7 @@
         },
         "required": [
           "product",
+          "name",
           "calendar",
           "active"
         ],

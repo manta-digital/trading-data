@@ -1511,13 +1511,14 @@ this API it is not declared in `openapi.json` (§9).
      params: -
      errors: 503, 504 -->
 
-Every configured product, its trading calendar, and the contract each status
+Every configured product, its display name, its trading calendar, and the contract each status
 rule names for the latest complete session held, with the next roll when it is
 known. No parameters.
 
 | Field | Type | Null? | Meaning |
 |---|---|---|---|
 | `products[].product` | string | no | Product code, e.g. `ES`. |
+| `products[].name` | string | no | Display name, e.g. `E-mini S&P 500`; search on it, not the code. |
 | `products[].calendar` | string | no | Trading calendar id the sessions come from. |
 | `products[].active[]` | array of object | no | One line per status rule (`v.0`, `c.0`). |
 | `active[].rule`, `is_default` | string, boolean | no | The rule; whether it is the default. |
@@ -1536,7 +1537,7 @@ curl 'http://127.0.0.1:8137/api/v1/futures/products'
 ```
 
 ```json
-{"products":[{"product":"ES","calendar":"CME_EQUITY","active":[
+{"products":[{"product":"ES","name":"E-mini S&P 500","calendar":"CME_EQUITY","active":[
   {"product":"ES","rule":"v.0","is_default":true,"session_date":"2024-12-31","instrument_id":5002,"raw_symbol":"ESH5","expiration":"2025-03-21T13:30:00+00:00",…,"next_roll":null,"known_through":"2025-01-03","roll_no_later_than":"2025-03-24","reason":null,"error":null},
   {"product":"ES","rule":"c.0","is_default":false,"session_date":"2024-12-31","raw_symbol":"ESH5",…,"next_roll":{"session_date":"2025-03-24","raw_symbol":"ESM5",…},"known_through":"2027-12-31",…}]}]}
 ```

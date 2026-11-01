@@ -297,7 +297,7 @@ you would poll `/api/v1/overview`.
 
 ### "What futures products and contracts are there, and which is active?"
 
-`GET /api/v1/futures/products` → `{products[{product, calendar, active[]}]}`:
+`GET /api/v1/futures/products` → `{products[{product, name, calendar, active[]}]}`:
 for each product, the contract each status rule (`v.0`, `c.0`) names for the
 latest complete session, and the next roll when known.
 
