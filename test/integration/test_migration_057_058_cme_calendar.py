@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -41,6 +42,10 @@ _EXIT_HORIZON_WARN = 4
 _FIRST_221_MIGRATION = "057_calendar_holidays_seeded_through"
 _CME_SEED_MIGRATION = "058_seed_cme_equity_calendar"
 _NYSE_NASDAQ = ("NASDAQ", "NYSE")
+_CME_METALS_SEED_MIGRATION = "059_seed_cme_metals_calendar"
+_CME_058_059_SNAPSHOT = (
+    Path(__file__).parents[1] / "fixtures" / "calendar" / "cme_sessions_058_059.json"
+)
 
 runner = CliRunner()
 
@@ -273,3 +278,40 @@ def test_calendar_sessions_thanksgiving_week_2024(session_migrated_db: str) -> N
     assert rows["2024-11-28"]["exception"] == "Thanksgiving Day"
     assert rows["2024-11-29"]["open_local"] == "2024-11-28T17:00:00-06:00"
     assert rows["2024-11-29"]["close_local"] == "2024-11-29T12:15:00-06:00"
+
+
+# ---------------------------------------------------------------------------
+# 058/059 pinned on a fresh database (301 D7)
+# ---------------------------------------------------------------------------
+
+
+def _iso(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).isoformat()
+    return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+def test_058_059_fresh_output_unchanged(ephemeral_db: str) -> None:
+    """Every CME session and holiday row 058/059 write equals the pre-301 capture."""
+    cut = next(
+        i
+        for i, m in enumerate(MINUTE_MIGRATIONS)
+        if m["id"] == _CME_METALS_SEED_MIGRATION
+    )
+    with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
+        apply_migrations(pool, MINUTE_MIGRATIONS[: cut + 1])
+    with psycopg.connect(ephemeral_db) as connection:
+        sessions = connection.execute(
+            "SELECT calendar_id, session_date, session_open_utc, session_close_utc "
+            "FROM trading_sessions WHERE calendar_id = ANY(%s) ORDER BY 1, 2",
+            ([CME_EQUITY_CALENDAR_ID, CME_METALS_CALENDAR_ID],),
+        ).fetchall()
+        holidays = connection.execute(
+            "SELECT calendar_id, holiday_date, holiday_name, market_status, "
+            "early_close_time, late_open_time FROM trading_holidays "
+            "WHERE calendar_id = ANY(%s) ORDER BY 1, 2",
+            ([CME_EQUITY_CALENDAR_ID, CME_METALS_CALENDAR_ID],),
+        ).fetchall()
+    snapshot = json.loads(_CME_058_059_SNAPSHOT.read_text())
+    assert [[_iso(v) for v in row] for row in sessions] == snapshot["sessions"]
+    assert [[_iso(v) for v in row] for row in holidays] == snapshot["holidays"]

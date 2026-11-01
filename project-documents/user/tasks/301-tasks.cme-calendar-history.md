@@ -87,13 +87,13 @@ revision_number: 2
 
 ### 3. Pin 058/059 output before touching extension (D7)
 
-- [ ] **3.1 Capture the snapshot**
-  - [ ] On the unmodified `session_extension.py`, apply the migration chain to 059 on a fresh test database and export every `CME_EQUITY` and `CME_METALS` row from `trading_sessions` and `trading_holidays` to a snapshot fixture file under the test fixtures directory.
-  - [ ] Success: fixture file committed, produced before any change to `session_extension.py`.
+- [x] **3.1 Capture the snapshot**
+  - [x] On the unmodified `session_extension.py`, apply the migration chain to 059 on a fresh test database and export every `CME_EQUITY` and `CME_METALS` row from `trading_sessions` and `trading_holidays` to a snapshot fixture file under the test fixtures directory.
+  - [x] Success: fixture file committed, produced before any change to `session_extension.py`.
 
-- [ ] **3.2 Add `test_058_059_fresh_output_unchanged`**
-  - [ ] Add it to `test/integration/test_migration_057_058_cme_calendar.py`. It applies the chain to 059 on a fresh database and compares all CME session and holiday rows to the snapshot.
-  - [ ] Success: passes on the current code.
+- [x] **3.2 Add `test_058_059_fresh_output_unchanged`**
+  - [x] Add it to `test/integration/test_migration_057_058_cme_calendar.py`. It applies the chain to 059 on a fresh database and compares all CME session and holiday rows to the snapshot.
+  - [x] Success: passes on the current code.
 
 **Commit**: `test: pin 058/059 fresh-database CME output before era extension`
 
