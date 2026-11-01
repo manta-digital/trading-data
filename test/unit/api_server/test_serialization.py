@@ -8,16 +8,22 @@ UTC offset, and None as null (design 188 D7).
 
 from __future__ import annotations
 
+import asyncio
+import gzip
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import msgpack
 import orjson
+import pytest
 from pydantic import BaseModel
+from starlette.requests import Request
 
 from manta_trading.api_server.serialization import (
     JSON_MEDIA_TYPE,
     MSGPACK_MEDIA_TYPE,
+    ResponseFormat,
+    send_timeseries,
     timeseries_response,
 )
 
@@ -80,3 +86,36 @@ def test_none_survives_as_null_on_both_branches() -> None:
 def test_branches_carry_identical_payloads() -> None:
     """The format parameter selects an encoding, never a different document."""
     assert _json_payload() == _msgpack_payload()
+
+
+# --- Response compression (API_GZIP_LEVEL) ---------------------------------
+
+
+def _request(accept_encoding: str | None) -> Request:
+    headers = (
+        []
+        if accept_encoding is None
+        else [(b"accept-encoding", accept_encoding.encode())]
+    )
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": headers})
+
+
+@pytest.mark.parametrize("fmt", ["json", "msgpack"])
+def test_send_timeseries_gzips_when_the_client_accepts_it(fmt: ResponseFormat) -> None:
+    """The compressed body decodes to exactly the uncompressed encoding."""
+    response = asyncio.run(send_timeseries(_request("gzip, deflate"), _MODEL, fmt))
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.headers["vary"] == "Accept-Encoding"
+    assert (
+        gzip.decompress(bytes(response.body)) == timeseries_response(_MODEL, fmt).body
+    )
+
+
+@pytest.mark.parametrize("accept_encoding", [None, "identity", "br"])
+def test_send_timeseries_sends_plain_without_gzip_in_accept_encoding(
+    accept_encoding: str | None,
+) -> None:
+    response = asyncio.run(send_timeseries(_request(accept_encoding), _MODEL, "json"))
+    assert "content-encoding" not in response.headers
+    assert response.headers["vary"] == "Accept-Encoding"
+    assert response.body == timeseries_response(_MODEL, "json").body

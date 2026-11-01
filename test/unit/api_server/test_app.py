@@ -389,3 +389,15 @@ def test_a_tick_startup_failure_still_closes_the_primary_resources(
 
     pool_cls.return_value.close.assert_called_once()
     assert app.state.credit_executor._shutdown is True
+
+
+def test_non_timeseries_responses_are_gzipped_by_middleware() -> None:
+    """Responses outside ``send_timeseries`` are compressed by the middleware."""
+    from fastapi.testclient import TestClient
+
+    response = TestClient(create_app()).get(
+        "/openapi.json", headers={"Accept-Encoding": "gzip"}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-encoding"] == "gzip"
+    assert response.json()["info"]["title"] == "Manta Trading API"

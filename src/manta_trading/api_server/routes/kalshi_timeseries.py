@@ -15,7 +15,7 @@ from datetime import date, datetime  # noqa: TC003 — FastAPI needs these
 from typing import Annotated, Any
 
 import psycopg
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from psycopg_pool import ConnectionPool
 
 # ``get_max_bars``: see the note in ``kalshi_catalog.py`` — the setting name
@@ -38,8 +38,8 @@ from manta_trading.api_server.models.responses import GATEWAY_TIMEOUT_RESPONSE
 from manta_trading.api_server.routes.windows import resolve_window
 from manta_trading.api_server.serialization import (
     ResponseFormat,
+    send_timeseries,
     timeseries_200,
-    timeseries_response,
 )
 from manta_trading.data.kalshi import serve_timeseries as series
 from manta_trading.data.kalshi.constants import COLLECTED_CANDLE_PERIOD
@@ -69,6 +69,7 @@ class _Read[Row]:
     responses=timeseries_200(CandlesResponse) | GATEWAY_TIMEOUT_RESPONSE,
 )
 async def get_candlesticks(
+    request: Request,
     ticker: str,
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     max_rows: Annotated[int, Depends(get_max_bars)],
@@ -107,7 +108,7 @@ async def get_candlesticks(
     read = await loop.run_in_executor(None, _read)
     admit_rows(read.count, max_rows, remedy=NARROW_WINDOW)
     response = CandlesResponse.build(read.context, _PERIOD_MINUTES, read.rows)
-    return timeseries_response(response, fmt)
+    return await send_timeseries(request, response, fmt)
 
 
 @router.get(
@@ -116,6 +117,7 @@ async def get_candlesticks(
     responses=timeseries_200(TradesResponse) | GATEWAY_TIMEOUT_RESPONSE,
 )
 async def get_trades(
+    request: Request,
     ticker: str,
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     max_rows: Annotated[int, Depends(get_max_bars)],
@@ -155,4 +157,4 @@ async def get_trades(
         filtered=series.tape_filtered(read.context.series_category, excluded),
         rows=read.rows,
     )
-    return timeseries_response(response, fmt)
+    return await send_timeseries(request, response, fmt)

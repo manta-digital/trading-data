@@ -1351,6 +1351,15 @@ universe-wide aggregation; a single-symbol windowed read sorts a bounded row
 set, for which 64 MB is ample. Not operator-settable (D9).
 """
 
+API_GZIP_LEVEL: Final[int] = 1
+"""gzip level for API responses, measured (2026-11-01) on a ceiling-sized ES
+tick response (14.3 MB msgpack): level 1 → 1.70 MB in 199 ms, 6 → 1.32 MB in
+441 ms, 9 (Starlette's default) → 1.17 MB in 1,112 ms. Level 1 takes most of
+the size cut at a fifth of the CPU. Time-series bodies are compressed off the
+event loop (``serialization.send_timeseries``); every other response goes
+through ``GZipMiddleware`` at this level.
+"""
+
 API_MAX_BARS_PER_REQUEST: Final[int] = 75_000
 """Default ceiling on the rows a single API response may carry (186 D4, 188 D8).
 

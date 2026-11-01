@@ -10,6 +10,7 @@ from functools import partial
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from psycopg_pool import ConnectionPool
 from starlette import status as http_status
@@ -43,7 +44,11 @@ from manta_trading.api_server.tick_access import (
     tick_unavailable_body,
 )
 from manta_trading.config import Settings
-from manta_trading.constants import API_SERVING_SESSION, DbSessionSettings
+from manta_trading.constants import (
+    API_GZIP_LEVEL,
+    API_SERVING_SESSION,
+    DbSessionSettings,
+)
 from manta_trading.logging import get_logger
 from manta_trading.market.db_session import make_configure_connection
 from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
@@ -186,6 +191,7 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(GZipMiddleware, compresslevel=API_GZIP_LEVEL)
     app.include_router(health_router)
     app.include_router(bars_router)
     app.include_router(symbols_router)

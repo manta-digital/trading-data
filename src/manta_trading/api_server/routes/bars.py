@@ -7,7 +7,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Annotated, Any
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi import status as http_status
 from psycopg_pool import ConnectionPool
 
@@ -28,8 +28,8 @@ from manta_trading.api_server.routes.windows import (
 )
 from manta_trading.api_server.serialization import (
     ResponseFormat,
+    send_timeseries,
     timeseries_200,
-    timeseries_response,
 )
 from manta_trading.constants import (
     BARS_PER_TRADING_DAY,
@@ -123,6 +123,7 @@ def _admit_range(
     responses=timeseries_200(BarsResponse) | GATEWAY_TIMEOUT_RESPONSE,
 )
 async def get_bars(
+    request: Request,
     symbol: str,
     granularity: Granularity,
     start: date,
@@ -240,4 +241,4 @@ async def get_bars(
         prints=prints,
     )
 
-    return timeseries_response(response, fmt)
+    return await send_timeseries(request, response, fmt)

@@ -3,7 +3,7 @@
 
 All four go through :func:`_serve`: one snapshot read (``read_series``) under
 the row ceiling, the one error mapping (``tick_errors``), then the model and
-``timeseries_response`` (JSON or msgpack). ``start``/``end`` are session dates
+``send_timeseries`` (JSON or msgpack). ``start``/``end`` are session dates
 with ``end`` exclusive; ticks also take half-open ``[from, until)`` instants.
 """
 
@@ -47,8 +47,8 @@ from manta_trading.api_server.routes.futures_params import (
 )
 from manta_trading.api_server.serialization import (
     ResponseFormat,
+    send_timeseries,
     timeseries_200,
-    timeseries_response,
 )
 from manta_trading.api_server.tick_access import tick_connection, tick_errors
 from manta_trading.constants import Granularity
@@ -149,7 +149,7 @@ async def _ticks(
         request, conn, plan_for, read_ticks, (limit, NARROW_TICKS), bounds.ns()
     )
     model = FuturesTicksResponse.from_plan(plan, rows, (bounds.lower, bounds.upper))
-    return timeseries_response(model, fmt)
+    return await send_timeseries(request, model, fmt)
 
 
 async def _bars(
@@ -163,7 +163,7 @@ async def _bars(
     reader = _bars_reader(granularity)
     plan, rows = await _serve(request, conn, plan_for, reader, (limit, NARROW_WINDOW))
     model = FuturesBarsResponse.from_plan(plan, granularity.value, rows)
-    return timeseries_response(model, fmt)
+    return await send_timeseries(request, model, fmt)
 
 
 @router.get(

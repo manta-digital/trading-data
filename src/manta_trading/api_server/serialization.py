@@ -7,11 +7,16 @@ and the accepted format values are spelled once (design 188 D7).
 
 from __future__ import annotations
 
+import asyncio
+import gzip
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 import msgpack
 import orjson
-from fastapi import Response
+from fastapi import Request, Response
+
+from manta_trading.constants import API_GZIP_LEVEL
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -67,3 +72,36 @@ def timeseries_response(model: BaseModel, fmt: ResponseFormat) -> Response:
             media_type=MSGPACK_MEDIA_TYPE,
         )
     return Response(content=orjson.dumps(payload), media_type=JSON_MEDIA_TYPE)
+
+
+def accepts_gzip(request: Request) -> bool:
+    """The same test ``GZipMiddleware`` applies, so both paths agree."""
+    return "gzip" in request.headers.get("accept-encoding", "")
+
+
+def _encode(model: BaseModel, fmt: ResponseFormat, compress: bool) -> Response:
+    response = timeseries_response(model, fmt)
+    response.headers["Vary"] = "Accept-Encoding"
+    if not compress:
+        return response
+    body = gzip.compress(bytes(response.body), compresslevel=API_GZIP_LEVEL, mtime=0)
+    return Response(
+        content=body,
+        media_type=response.media_type,
+        headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"},
+    )
+
+
+async def send_timeseries(
+    request: Request, model: BaseModel, fmt: ResponseFormat
+) -> Response:
+    """Encode, and gzip when the client accepts it, on a worker thread.
+
+    A ceiling-sized body takes hundreds of milliseconds to dump, pack and
+    compress (``API_GZIP_LEVEL``), which must not run on the event loop.
+    ``GZipMiddleware`` leaves a response that already carries
+    ``Content-Encoding`` untouched, so nothing is compressed twice.
+    """
+    loop = asyncio.get_running_loop()
+    work = partial(_encode, model, fmt, accepts_gzip(request))
+    return await loop.run_in_executor(None, work)
