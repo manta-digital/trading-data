@@ -151,7 +151,10 @@ symbol exists.
      params: search:string
      errors: 422, 504 -->
 
-`search` is a ticker prefix. An unfiltered call is allowed and returns the whole
+`search` matches the start of the ticker or anywhere in the company name,
+case-insensitive (`search=apple` finds AAPL); exact ticker first, then ticker
+prefixes, then name matches. Each row carries `name` (null when unknown). An
+unfiltered call is allowed and returns the whole
 registry (about 32,000 rows, 3 MB); there is no row ceiling on this route.
 
 ### "Where is data missing for this symbol?"

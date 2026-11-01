@@ -485,13 +485,13 @@ not carry it either.*
      params: search:string
      errors: 422, 504 -->
 
-List instruments, optionally filtered by ticker prefix.
+List instruments, optionally filtered by ticker prefix or company name.
 
 **Parameters**
 
 | Name | Type | Required | Meaning |
 |---|---|---|---|
-| `search` | string | no | Ticker prefix filter. Omit for the whole registry. |
+| `search` | string | no | Case-insensitive text matched against the start of the ticker or anywhere in the name. An exact ticker comes first, then other ticker-prefix matches, then name-only matches, each group by ticker. `%` and `_` match literally. Omit for the whole registry. |
 
 **Response**
 
@@ -503,6 +503,7 @@ List instruments, optionally filtered by ticker prefix.
 | `symbols[].type` | string | yes | Instrument type, e.g. `ETF`, `Common Stock`. |
 | `symbols[].asset_class` | string | yes | e.g. `equity`. |
 | `symbols[].active` | boolean | no | Whether the instrument is currently listed. |
+| `symbols[].name` | string | yes | Company or index name from EODHD's symbol list; null until the registry is rebuilt after migration 065. |
 
 ```sh
 curl 'http://127.0.0.1:8137/api/v1/symbols?search=SPY'
@@ -511,14 +512,14 @@ curl 'http://127.0.0.1:8137/api/v1/symbols?search=SPY'
 ```json
 {
   "symbols": [
-    {"symbol":"SPY","exchange":"NYSE ARCA","type":"ETF","asset_class":"equity","active":true},
-    {"symbol":"SPYA","exchange":"BATS","type":"ETF","asset_class":"equity","active":true}
+    {"symbol":"SPY","exchange":"NYSE ARCA","type":"ETF","asset_class":"equity","active":true,"name":"State Street® SPDR® S&P 500® ETF Trust"},
+    {"symbol":"SPYA","exchange":"BATS","type":"ETF","asset_class":"equity","active":true,"name":"Twin Oak Endure ETF"}
   ],
   "count": 17
 }
 ```
 
-*Captured 2026-09-16. Truncated: 17 instruments returned, 2 shown.*
+*Captured 2026-09-16; `name` values from EODHD's symbol list, 2026-11-01. Truncated: 17 instruments returned, 2 shown.*
 
 There is **no row ceiling** on this route: an unfiltered call returns the whole
 registry (about 32,000 rows, 3 MB, measured 0.31 s on production, 2026-10-03).
@@ -588,6 +589,7 @@ curl 'http://127.0.0.1:8137/api/v1/symbols/SPY'
   "type": "ETF",
   "asset_class": "equity",
   "active": true,
+  "name": "State Street® SPDR® S&P 500® ETF Trust",
   "available": {
     "1d": {"start":"1993-01-29","end":"2026-09-15"},
     "1m": {"start":"2013-08-13","end":"2026-09-12"}

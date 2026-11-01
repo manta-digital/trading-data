@@ -44,25 +44,40 @@ _DAILY_GRANULARITIES: tuple[Granularity, ...] = (
 
 _LIST_ALL_SQL = """
     SELECT symbol, eodhd_exchange, eodhd_type, asset_class,
-           NOT delisted_at_eodhd AS active
+           NOT delisted_at_eodhd AS active, name
     FROM instruments
     ORDER BY symbol
 """
 
+# Ticker prefix or any part of the name (#60). An exact ticker ranks first,
+# then other ticker-prefix matches, then name-only matches; ties by symbol.
 _LIST_FILTERED_SQL = """
     SELECT symbol, eodhd_exchange, eodhd_type, asset_class,
-           NOT delisted_at_eodhd AS active
+           NOT delisted_at_eodhd AS active, name
     FROM instruments
-    WHERE symbol ILIKE %s
-    ORDER BY symbol
+    WHERE symbol ILIKE %(prefix)s OR name ILIKE %(contains)s
+    ORDER BY upper(symbol) = upper(%(term)s) DESC,
+             symbol ILIKE %(prefix)s DESC,
+             symbol
 """
 
 _INSTRUMENT_SQL = """
     SELECT symbol, eodhd_exchange, eodhd_type, asset_class,
-           NOT delisted_at_eodhd AS active
+           NOT delisted_at_eodhd AS active, name
     FROM instruments
     WHERE symbol = %s
 """
+
+
+def _like_literal(term: str) -> str:
+    """Escape LIKE wildcards so the user's text matches literally."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _search_params(term: str) -> dict[str, str]:
+    literal = _like_literal(term)
+    return {"term": term, "prefix": f"{literal}%", "contains": f"%{literal}%"}
+
 
 _FAMILY_GRANULARITIES: dict[CycleGranularity, tuple[Granularity, ...]] = {
     CycleGranularity.MINUTE: _MINUTE_GRANULARITIES,
@@ -81,12 +96,14 @@ async def list_symbols(
     search: str | None = None,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)] = None,  # type: ignore[assignment]
 ) -> SymbolsResponse:
-    """Return instruments matching an optional prefix search."""
+    """Return instruments whose ticker starts with, or whose name contains,
+    the optional ``search`` text (case-insensitive). An exact ticker match
+    comes first, then ticker-prefix matches, then name matches."""
     loop = asyncio.get_running_loop()
 
     def _query() -> list[SymbolSummary]:
         if search is not None:
-            cursor = db.execute(_LIST_FILTERED_SQL, (search + "%",))
+            cursor = db.execute(_LIST_FILTERED_SQL, _search_params(search))
         else:
             cursor = db.execute(_LIST_ALL_SQL)
         rows = cursor.fetchall()
@@ -97,6 +114,7 @@ async def list_symbols(
                 type=row[2],
                 asset_class=row[3],
                 active=row[4],
+                name=row[5],
             )
             for row in rows
         ]
@@ -157,5 +175,6 @@ async def get_symbol(
         type=row[2],
         asset_class=row[3],
         active=row[4],
+        name=row[5],
         available=available,
     )

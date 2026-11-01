@@ -334,13 +334,13 @@ class InstrumentRegistry:
         """Idempotently upsert EODHD bulk-list rows into instruments.
 
         For existing rows (matched by canonical_id), only EODHD-sourced fields
-        are updated: eodhd_type, eodhd_exchange, delisted_at_eodhd, currency.
-        venue, trading_calendar_id, and canonical_id are NEVER overwritten.
+        are updated: eodhd_type, eodhd_exchange, delisted_at_eodhd, currency,
+        name. venue, trading_calendar_id, and canonical_id are NEVER overwritten.
 
         Args:
             symbols: List of dicts with keys: canonical_id, symbol, asset_class,
                 venue, currency, trading_calendar_id, eodhd_type, eodhd_exchange,
-                delisted_at_eodhd.
+                delisted_at_eodhd, name.
 
         Returns:
             Tuple of (inserted, updated, unchanged).
@@ -354,23 +354,26 @@ class InstrumentRegistry:
         sql = """
             INSERT INTO instruments (
                 canonical_id, symbol, asset_class, venue, currency,
-                trading_calendar_id, eodhd_type, eodhd_exchange, delisted_at_eodhd
+                trading_calendar_id, eodhd_type, eodhd_exchange, delisted_at_eodhd,
+                name
             ) VALUES (
                 %(canonical_id)s, %(symbol)s, %(asset_class)s, %(venue)s,
                 %(currency)s, %(trading_calendar_id)s, %(eodhd_type)s,
-                %(eodhd_exchange)s, %(delisted_at_eodhd)s
+                %(eodhd_exchange)s, %(delisted_at_eodhd)s, %(name)s
             )
             ON CONFLICT (canonical_id) DO UPDATE SET
                 eodhd_type        = EXCLUDED.eodhd_type,
                 eodhd_exchange    = EXCLUDED.eodhd_exchange,
                 delisted_at_eodhd = EXCLUDED.delisted_at_eodhd,
                 currency          = EXCLUDED.currency,
+                name              = EXCLUDED.name,
                 updated_at        = NOW()
             WHERE (
                 instruments.eodhd_type        IS DISTINCT FROM EXCLUDED.eodhd_type
                 OR instruments.eodhd_exchange  IS DISTINCT FROM EXCLUDED.eodhd_exchange
                 OR instruments.delisted_at_eodhd IS DISTINCT FROM EXCLUDED.delisted_at_eodhd
                 OR instruments.currency        IS DISTINCT FROM EXCLUDED.currency
+                OR instruments.name            IS DISTINCT FROM EXCLUDED.name
             )
             RETURNING (xmax = 0) AS was_inserted
         """

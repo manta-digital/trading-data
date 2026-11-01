@@ -229,7 +229,8 @@ class TestMigrationsListIntegrity:
         # 64 -> 65 with slice 171's 062 (minute_ohlcv.off_tape).
         # 65 -> 66 with slice 172's 063 (eligible _next rollups).
         # 66 -> 67 with slice 173's 064 (eligible rollup swap).
-        assert len(MIGRATIONS) == 67
+        # 67 -> 68 with 065 (instruments.name, issue #60).
+        assert len(MIGRATIONS) == 68
 
 
 # ---------------------------------------------------------------------------
@@ -1308,11 +1309,11 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_064() -> None:
+def test_chain_ends_at_065() -> None:
     """The newest migration must be last (slice 922 retargeted this from 054;
     slice 221 from 056; slice 232 from 058; slice 234 from 059; the weekly
     refresh-window fix from 060; slice 171 from 061; slice 172 from 062;
-    slice 173 from 063).
+    slice 173 from 063; issue #60 from 064).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
@@ -1323,7 +1324,7 @@ def test_chain_ends_at_064() -> None:
     (see ``POSITION_CRITICAL_IDS``), which is why the tip check names a later
     migration.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == "064_minute_eligible_rollup_swap"
+    assert MINUTE_MIGRATIONS[-1]["id"] == "065_instruments_name"
 
 
 class TestMigration061WeeklyRefreshWindow:

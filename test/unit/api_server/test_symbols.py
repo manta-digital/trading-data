@@ -35,17 +35,33 @@ def test_symbol_summary_nullable_fields() -> None:
         type=None,
         asset_class=None,
         active=True,
+        name=None,
     )
     data = summary.model_dump()
     assert data["exchange"] is None
     assert data["type"] is None
     assert data["asset_class"] is None
+    assert data["name"] is None
 
 
 def test_symbols_response_count() -> None:
     items = [
-        SymbolSummary(symbol="AAA", exchange="US", type="cs", asset_class="equity", active=True),
-        SymbolSummary(symbol="BBB", exchange=None, type=None, asset_class=None, active=False),
+        SymbolSummary(
+            symbol="AAA",
+            exchange="US",
+            type="cs",
+            asset_class="equity",
+            active=True,
+            name="Aaa Inc",
+        ),
+        SymbolSummary(
+            symbol="BBB",
+            exchange=None,
+            type=None,
+            asset_class=None,
+            active=False,
+            name=None,
+        ),
     ]
     resp = SymbolsResponse(symbols=items, count=2)
     assert resp.count == 2
@@ -59,6 +75,7 @@ def test_symbol_detail_available_empty() -> None:
         type="cs",
         asset_class="equity",
         active=True,
+        name="Apple Inc",
         available={},
     )
     assert detail.available == {}
@@ -96,7 +113,7 @@ _DAILY = CycleGranularity.DAILY
 _EDGE = date(2026, 6, 12)
 """Universe coverage edge the mocked head probe is bounded by."""
 
-_INSTRUMENT = ("AAPL", "US", "cs", "equity", True)
+_INSTRUMENT = ("AAPL", "US", "cs", "equity", True, "Apple Inc")
 
 
 def _mock_conn_for_list(rows: list[Any]) -> MagicMock:
@@ -149,8 +166,8 @@ def _mock_conn_for_detail(
 
 def test_list_symbols_no_filter(test_app: FastAPI) -> None:
     rows = [
-        ("AAPL", "US", "cs", "equity", True),
-        ("MSFT", "US", "cs", "equity", True),
+        ("AAPL", "US", "cs", "equity", True, "Apple Inc"),
+        ("MSFT", "US", "cs", "equity", True, None),
     ]
     mock_conn = _mock_conn_for_list(rows)
     test_app.dependency_overrides[get_db] = lambda: mock_conn
@@ -164,17 +181,28 @@ def test_list_symbols_no_filter(test_app: FastAPI) -> None:
 
 
 def test_list_symbols_search_filter(test_app: FastAPI) -> None:
-    rows = [("SPY", "US", "etf", "equity", True)]
+    rows = [("SPY", "US", "etf", "equity", True, "SPDR S&P 500 ETF Trust")]
     mock_conn = _mock_conn_for_list(rows)
     test_app.dependency_overrides[get_db] = lambda: mock_conn
 
     client = TestClient(test_app)
     response = client.get("/api/v1/symbols?search=SP")
     assert response.status_code == 200
-    # Verify the execute call received the search prefix pattern
-    call_args = mock_conn.execute.call_args
-    params = call_args[0][1]  # positional: (sql, params)
-    assert params[0] == "SP%"
+    # Ticker prefix, and anywhere in the name (#60)
+    params = mock_conn.execute.call_args[0][1]  # positional: (sql, params)
+    assert params == {"term": "SP", "prefix": "SP%", "contains": "%SP%"}
+    assert response.json()["symbols"][0]["name"] == "SPDR S&P 500 ETF Trust"
+
+
+def test_list_symbols_search_escapes_like_wildcards(test_app: FastAPI) -> None:
+    """``%`` and ``_`` in the search text match literally, not as wildcards."""
+    mock_conn = _mock_conn_for_list([])
+    test_app.dependency_overrides[get_db] = lambda: mock_conn
+
+    TestClient(test_app).get("/api/v1/symbols", params={"search": "B_F%"})
+    params = mock_conn.execute.call_args[0][1]
+    assert params["prefix"] == "B\\_F\\%%"
+    assert params["contains"] == "%B\\_F\\%%"
 
 
 def test_list_symbols_empty(test_app: FastAPI) -> None:

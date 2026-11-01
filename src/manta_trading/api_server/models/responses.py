@@ -129,6 +129,7 @@ class SymbolSummary(BaseModel):
     type: str | None
     asset_class: str | None
     active: bool
+    name: str | None  # company or index name from EODHD; null when not known
 
 
 class SymbolsResponse(BaseModel):
@@ -146,6 +147,7 @@ class SymbolDetail(BaseModel):
     type: str | None
     asset_class: str | None
     active: bool
+    name: str | None  # company or index name from EODHD; null when not known
     available: dict[str, AvailableRange]
 
 

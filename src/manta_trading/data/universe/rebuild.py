@@ -160,6 +160,7 @@ def _build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dic
         eodhd_type: str = row.get("Type", "")
         currency: str = row.get("Currency", "USD") or "USD"
         delisted_at_eodhd: bool = row.get("delisted_at_eodhd", False)
+        name: str | None = (row.get("Name") or "").strip() or None  # NULL = unnamed
 
         existing = existing_by_symbol.get(symbol)
         if existing:
@@ -186,6 +187,7 @@ def _build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dic
             "eodhd_type": eodhd_type,
             "eodhd_exchange": eodhd_exchange,
             "delisted_at_eodhd": delisted_at_eodhd,
+            "name": name,
         })
     return rows
 

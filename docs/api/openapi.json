@@ -3167,6 +3167,17 @@
             ],
             "title": "Exchange"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "symbol": {
             "title": "Symbol",
             "type": "string"
@@ -3189,6 +3200,7 @@
           "type",
           "asset_class",
           "active",
+          "name",
           "available"
         ],
         "title": "SymbolDetail",
@@ -3223,6 +3235,17 @@
             ],
             "title": "Exchange"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "symbol": {
             "title": "Symbol",
             "type": "string"
@@ -3244,7 +3267,8 @@
           "exchange",
           "type",
           "asset_class",
-          "active"
+          "active",
+          "name"
         ],
         "title": "SymbolSummary",
         "type": "object"
@@ -3736,7 +3760,7 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, gap status, the Kalshi prediction-market catalog and time series, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.24.2"
+    "version": "0.24.3"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5590,7 +5614,7 @@
     },
     "/api/v1/symbols": {
       "get": {
-        "description": "Return instruments matching an optional prefix search.",
+        "description": "Return instruments whose ticker starts with, or whose name contains,\nthe optional ``search`` text (case-insensitive). An exact ticker match\ncomes first, then ticker-prefix matches, then name matches.",
         "operationId": "list_symbols_api_v1_symbols_get",
         "parameters": [
           {

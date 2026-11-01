@@ -2773,4 +2773,14 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
         "requires_autocommit": True,
         "python_fn": _swap_eligible_rollups,
     },
+    {
+        "id": "065_instruments_name",
+        "description": (
+            "Add instruments.name (issue #60): the company or index name from "
+            "the EODHD symbol list, written by `mt data instruments rebuild`, "
+            "so /api/v1/symbols can search by name. Nullable: NULL until the "
+            "next rebuild, and for a row EODHD lists without a name."
+        ),
+        "sql": "ALTER TABLE instruments ADD COLUMN IF NOT EXISTS name text;",
+    },
 ]

@@ -17,6 +17,7 @@ import os
 import uuid
 from datetime import date, timedelta
 
+import psycopg
 import pytest
 
 from manta_trading.data.base.instrument_registry import Instrument, InstrumentRegistry
@@ -203,6 +204,7 @@ def _eodhd_row(
     eodhd_type: str = "Common Stock",
     trading_calendar_id: str = "NYSE",
     delisted: bool = False,
+    name: str | None = None,
 ) -> dict:
     return {
         "canonical_id": canonical_id,
@@ -214,6 +216,7 @@ def _eodhd_row(
         "eodhd_type": eodhd_type,
         "eodhd_exchange": eodhd_exchange,
         "delisted_at_eodhd": delisted,
+        "name": name,
     }
 
 
@@ -281,5 +284,22 @@ def test_upsert_eodhd_universe_get_by_symbol_works(instruments_clean_db):
         inst = registry.get_by_symbol("AAPL")
         assert inst is not None
         assert inst.symbol == "AAPL"
+    finally:
+        registry.close()
+
+
+@skip_no_db
+def test_upsert_eodhd_universe_writes_and_updates_name(instruments_clean_db):
+    """The EODHD name is stored, and a changed name counts as an update (#60)."""
+    registry = InstrumentRegistry(conninfo=instruments_clean_db)
+    try:
+        registry.upsert_eodhd_universe([_eodhd_row("XYZ", "XYZ.US", name="Xyz Corp")])
+        renamed = _eodhd_row("XYZ", "XYZ.US", name="Xyz Holdings Inc")
+        assert registry.upsert_eodhd_universe([renamed]) == (0, 1, 0)
+        with psycopg.connect(instruments_clean_db) as conn:
+            row = conn.execute(
+                "SELECT name FROM instruments WHERE canonical_id = 'XYZ.US'"
+            ).fetchone()
+        assert row == ("Xyz Holdings Inc",)
     finally:
         registry.close()
