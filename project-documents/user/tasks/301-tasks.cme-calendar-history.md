@@ -125,19 +125,20 @@ revision_number: 2
 
 ### 5. Free count check script (D8)
 
-- [ ] **5.1 Create `scripts/check_cme_history_counts.py`**
-  - [ ] First confirm from the databento-python source (not the docs site) the `metadata.get_record_count` window semantics (end exclusive, nanosecond precision) and its timeout setting, and read `data/tick/databento/adapter.py` for its `get_record_count` wrapper and API key loading. Write the semantics in the script's header comment.
-  - [ ] Connection: sessions come from `TradingCalendar.sessions_between` against the database `MT_TIMESCALE_DB_URL` points to, as in `scripts/verify_cme_sessions.py`. The Databento key is loaded the way the adapter loads it. The script only reads.
-  - [ ] Arguments: `--calendar`, `--parent`, optional `--start`, `--end`.
-  - [ ] Read the calendar's sessions in range. Per session make two calls on `GLBX.MDP3`, `ohlcv-1m`, `stype_in=parent`: inside `[open, close)` expecting more than 0, and in the gap `[close, next_open)` expecting 0.
-  - [ ] Print one line per finding with its window and count. Exit non-zero on any finding or failed call.
-  - [ ] A call that raises prints as a failed session with its error and is never counted as zero. Authentication and bad-request errors stop the run. Set the metadata timeout explicitly. No retry, no resume state, no concurrency.
-  - [ ] Keep the script plain: it is the record of how the evidence was gathered, not a tool.
-  - [ ] Success: `--help` works and the script runs against a few sessions.
+- [x] **5.1 Create `scripts/check_cme_history_counts.py`**
+  - [x] First confirm from the databento-python source (not the docs site) the `metadata.get_record_count` window semantics (end exclusive, nanosecond precision) and its timeout setting, and read `data/tick/databento/adapter.py` for its `get_record_count` wrapper and API key loading. Write the semantics in the script's header comment.
+  - [x] Connection: sessions come from `TradingCalendar.sessions_between` against the database `MT_TIMESCALE_DB_URL` points to, as in `scripts/verify_cme_sessions.py`. The Databento key is loaded the way the adapter loads it. The script only reads.
+  - [x] Arguments: `--calendar`, `--parent`, optional `--start`, `--end`.
+  - [x] Read the calendar's sessions in range. Per session make two calls on `GLBX.MDP3`, `ohlcv-1m`, `stype_in=parent`: inside `[open, close)` expecting more than 0, and in the gap `[close, next_open)` expecting 0.
+  - [x] Print one line per finding with its window and count. Exit non-zero on any finding or failed call.
+  - [x] A call that raises prints as a failed session with its error and is never counted as zero. Authentication and bad-request errors stop the run. Set the metadata timeout explicitly. No retry, no resume state, no concurrency.
+  - [x] Keep the script plain: it is the record of how the evidence was gathered, not a tool.
+  - [x] Success: `--help` works and the script runs against a few sessions.
 
-- [ ] **5.2 Calibration run on 2020-onward sessions**
-  - [ ] Using the database `MT_TIMESCALE_DB_URL` already points to (read-only), run the script for each calendar over a recent range of existing sessions (for example one year each, using `--start` and `--end`).
-  - [ ] Success: no findings expected. If findings appear, record each in the Findings section of the slice design with date, window and count, and decide whether the script or the window semantics is wrong before continuing.
+- [x] **5.2 Calibration run on 2020-onward sessions**
+  - [x] Using the database `MT_TIMESCALE_DB_URL` already points to (read-only), run the script for each calendar over a recent range of existing sessions (for example one year each, using `--start` and `--end`).
+  - Calibration 2024: CME_EQUITY and CME_METALS 259 sessions each, 0 findings.
+  - [x] Success: no findings expected. If findings appear, record each in the Findings section of the slice design with date, window and count, and decide whether the script or the window semantics is wrong before continuing.
 
 **Commit**: `feat: add free CME history count check script`
 
