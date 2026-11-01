@@ -60,10 +60,10 @@ Nothing is bought and no tier changes. Sessions from 2020-01-01 on stay byte-ide
 
 - `CME_DATASET_START = date(2010, 6, 6)`, defined once (D5).
 - `trading_calendar_hours`: dated eras (open, close, source) for `CME_EQUITY` and `CME_METALS`. The latest era of each equals today's `trading_calendars` hours (D1, D2).
-- Session generation uses the era in force on each session's date. A dated calendar asked for a date before its first era raises an error naming the calendar and the date (D3).
+- Session extension uses the era in force on each session's date, by splitting a requested range at era boundaries and populating each segment with that era's hours. A dated calendar asked for a date before its first era raises an error naming the calendar and the date (D3).
 - Pre-2020 exception rows for both calendars, each citing a dated CME document, in new seed modules (D4).
 - One primary-track migration that checks its preconditions, creates the table, inserts eras and exceptions with a plain `INSERT`, fills the pre-2020 sessions and proves that 2020 onward is unchanged (D6).
-- Migrations 058 and 059 keep producing exactly what they produce today on a fresh database (D7).
+- Migrations 058 and 059 are not edited and keep producing exactly what they produce today on a fresh database, pinned by a regression test (D7).
 - `scripts/check_cme_history_counts.py`, a one-off free metadata check of every pre-2020 session (D8).
 - A cutover script that puts the migration into production (D9).
 
@@ -86,9 +86,8 @@ Nothing is bought and no tier changes. Sessions from 2020-01-01 on stay byte-ide
 
 ### Interfaces Required
 
-- `session_population.populate_trading_sessions` and `session_interval`, changed here to take an hours schedule (D3).
-- `session_extension.extend_calendar_sessions` and `_read_calendar`, changed here to read eras for dated calendars.
-- The callers of `populate_trading_sessions` and `extend_calendar_sessions`: migration 026 (`minute.py`, NYSE and NASDAQ), migrations 058 and 059, `mt data extend` (`cli/commands/data.py`), `auto_extend`, and `TradingCalendar._build_trading_hours`. Each is updated to pass or build a schedule, and each keeps its behaviour.
+- `session_population.populate_trading_sessions` and `session_interval`, unchanged. They keep taking one fixed open and close.
+- `session_extension.extend_calendar_sessions` and `_read_calendar`, changed here to read eras for dated calendars and populate one segment per era (D3). Its callers (migrations 058 and 059, `mt data extend`, `auto_extend`) are not edited.
 - `CmeCalendarSeed`, `closed_day` and `early_close_day` in `seed_cme_calendar.py`.
 - `MINUTE_MIGRATIONS` and the migration runner. Each migration runs in its own transaction, so a raised check rolls the whole migration back.
 - `scripts/cutover_common.py` (`preflight`, timer hold, `install`, `migrate`).
@@ -102,13 +101,11 @@ market/schema/seed_cme_hours.py              CME_DATASET_START,
                                              the eras for both calendars, each with its source
 market/schema/seed_cme_equity_history.py     CME_EQUITY exceptions 2010-06-06..2019-12-31
 market/schema/seed_cme_metals_history.py     CME_METALS exceptions 2010-06-06..2019-12-31
-data/base/session_hours.py                   HoursEra, HoursSchedule (era in force on a date;
-                                             NoHoursEraError)
-data/base/session_population.py              takes an HoursSchedule instead of fixed open/close
-data/base/session_extension.py               builds the schedule: eras for a dated calendar,
-                                             the trading_calendars row for any other
-market/schema/migrations/minute.py           next free id: the calendar-history migration;
-                                             058/059 pin their own hours (D7)
+data/base/session_extension.py               for a dated calendar, reads the eras, splits the range
+                                             at era boundaries and populates each segment with the
+                                             era's hours; NoHoursEraError
+market/schema/migrations/minute.py           next free id: the calendar-history migration
+                                             (058/059 unchanged)
 scripts/check_cme_history_counts.py          one-off free ohlcv-1m count check (D8)
 scripts/cutover_301_calendar_history.py      production rollout (D9)
 ```
@@ -128,7 +125,7 @@ The two history seed modules are data. They are kept out of `seed_cme_calendar.p
 5. `extend_calendar_sessions(conn, cal, start=CME_DATASET_START, end=date(2019, 12, 31))` for each calendar.
 6. Read the 2020-onward sessions again and compare them with step 2. Abort on any difference.
 
-**After the migration:** every population call (forward extension by `mt data extend` and `auto_extend`, a repair) builds the calendar's schedule from `trading_calendar_hours` and uses the era in force on each session date. Forward extension always lands in the latest era, so it writes what it writes today. Readers (`TradingCalendar.sessions_between`, `get_trading_hours`, `SessionIndex`, `locate_sessions`) read `trading_sessions` and are unchanged. They see sessions from 2010-06-07 on, the first session, which opens on the evening of Sunday 2010-06-06.
+**After the migration:** every extension call (forward extension by `mt data extend` and `auto_extend`, a repair) reads the calendar's eras from `trading_calendar_hours` and populates each era's segment of the range with that era's hours. Forward extension always lands in the latest era, so it writes what it writes today. Readers (`TradingCalendar.sessions_between`, `get_trading_hours`, `SessionIndex`, `locate_sessions`) read `trading_sessions` and are unchanged. They see sessions from 2010-06-07 on, the first session, which opens on the evening of Sunday 2010-06-06.
 
 ### State Management
 
@@ -174,16 +171,18 @@ Status: decided
 - An era is entered only from a dated CME document: a notice, a Special Executive Report, or a contract-specification page on Wayback whose snapshot date bounds the change. The report that the ES close moved from 16:15 CT to 16:00 CT around September 2015 is a forum lead, not a source. ES and GC are sourced independently.
 - If no dated document can be found for an era, the fill stops there (D5) and the slice says so. A plausible value is never entered.
 
-### D3 — Population takes an hours schedule; no era is an error
+### D3 — Extension splits the range at era boundaries; no era is an error
 Status: decided
 
-`session_hours.py` holds `HoursEra(effective_from, market_open, market_close)` and `HoursSchedule`, an ordered tuple of eras with one method: the era in force on a date. `populate_trading_sessions(calendar_id, start, end, timezone, schedule, holidays_rows)` replaces the fixed open and close pair with the schedule. `session_interval` is unchanged and still the one place the open-after-close rule lives.
+`populate_trading_sessions` and `session_interval` are unchanged: they take one fixed open and close, and `session_interval` stays the one place the open-after-close rule lives. Sessions are keyed by the date they close, and eras are keyed the same way (D1), so a range split at an era's `effective_from` has no session spanning two segments. `extend_calendar_sessions` does the splitting: for a dated calendar it reads the eras, cuts `[start, effective_end]` at each `effective_from`, and calls `populate_trading_sessions` once per segment with a calendar row carrying that era's open and close.
 
-- **Dated calendars.** A calendar is dated when its `trading_calendars.hours_dated` is true, which the migration sets for `CME_EQUITY` and `CME_METALS`. `_read_calendar` already reads that row, so the runtime code in `data/base` imports nothing from `market/schema` (the dependency runs the other way today). For these, `_read_calendar` builds the schedule from `trading_calendar_hours` only. If the calendar has no era rows, it raises. A session date before the first era raises `NoHoursEraError` naming the calendar and the date. There is never a fallback to the `trading_calendars` hours.
-- **Every other calendar** gets `HoursSchedule.undated(open, close)`, built from its `trading_calendars` row: one era that covers every date. NYSE and NASDAQ output is unchanged, and a unit test compares it to the current output.
-- Callers that pass hours they already hold (`TradingCalendar._build_trading_hours`, migration 026) build an undated schedule from those hours, which keeps their behaviour.
+- **Dated calendars.** A calendar is dated when `trading_calendars.hours_dated` is true, which the migration sets for `CME_EQUITY` and `CME_METALS`. A database that does not yet have the column has no dated calendars, and extension behaves exactly as today. That is a schema-version fact, not a fallback. For a dated calendar the eras come from `trading_calendar_hours` only. If it has no era rows, extension raises. A session date before the first era raises `NoHoursEraError` naming the calendar and the date. There is never a fallback to the `trading_calendars` hours.
+- **Every other calendar** is not dated and takes the existing single-segment path. NYSE and NASDAQ output is unchanged, and a unit test compares it to the current output.
+- **No caller changes.** `mt data extend`, `auto_extend`, migrations 026, 058 and 059 and `TradingCalendar._build_trading_hours` keep calling what they call today.
 
 Whether a calendar is dated is stated explicitly, not inferred from whether era rows exist. If rows went missing, inferring would silently revert the pre-2020 sessions to today's hours. `CME_DATASET_START` stays in `seed_cme_hours.py`. Its consumer, 302, is tick code, which already imports the CME seed modules (`data/tick/constants.py`).
+
+- *Rejected: an hours schedule object passed into `populate_trading_sessions`.* It changes a shared signature and every caller, including the NYSE and NASDAQ paths this slice must leave unchanged, for a need that only dated calendars have (slice review).
 
 ### D4 — Pre-2020 exceptions are sourced rows
 Status: decided
@@ -215,26 +214,26 @@ One primary-track migration, `python_fn` style like 058, takes the next free id.
 - The migration is not idempotent by design. It records itself as applied, and a re-run is refused by the runner. The fresh-database and populated-database paths are both tested.
 - Migration chain tests that name the last id are updated, as every primary migration does.
 
-### D7 — Migrations 058 and 059 pin their own hours
+### D7 — Migrations 058 and 059 are unchanged and pinned by a test
 Status: decided
 
-On a fresh database, 058 and 059 run before `trading_calendar_hours` exists, and the CME calendars are dated (D3). If they still called `extend_calendar_sessions`, it would fail for lack of eras. Instead, they build an undated schedule from their own seed constants (`CME_EQUITY_CALENDAR`, `CME_METALS_CALENDAR`, 17:00 to 16:00) and write sessions through the same population function and upsert helper. That is exactly what they produce today. Their output still depends on `populate_trading_sessions`, as 058's does now, so a regression test pins it: `test_058_059_fresh_output_unchanged` (in `test_migration_057_058_cme_calendar.py`) applies the chain to 059 on a fresh database and compares every CME session and holiday row with a snapshot captured before this slice's code change. A later change to `populate_trading_sessions` or the upsert helper must keep it passing. The new migration's step 5 has the same dependency, and its integration tests cover it. The upsert statement and the holiday-bound clamp are factored out of `extend_calendar_sessions` so that 058 and 059 reuse them rather than copy them.
+On a fresh database, 058 and 059 run before `trading_calendars.hours_dated` and `trading_calendar_hours` exist, so extension takes the undated path (D3) and writes exactly what it writes today. They need no edit. A regression test pins it: `test_058_059_fresh_output_unchanged` (in `test_migration_057_058_cme_calendar.py`) applies the chain to 059 on a fresh database and compares every CME session and holiday row with a snapshot captured before this slice's code change. The new migration's step 5 goes through the dated path, and its integration tests cover it.
 
-On a live database where the new code is installed but the migration is not yet applied, extending a CME calendar fails loudly and names the missing eras. The cutover (D9) holds the timers across install and migrate, and they stay held if migrate fails, so this window is not reached in production.
+On a live database where the new code is installed but the migration is not yet applied, extension of a CME calendar takes the undated path and produces what it produces today, which is correct for forward extension because the latest era equals those hours.
 
 ### D8 — A free count check against provider data
 Status: decided
 
-A one-off verification run, kept in `scripts/` as the record of how the evidence was gathered (like `verify_cme_sessions.py`). No later slice uses it: 305 builds its own completeness verdicts from the manifest and ledger. `scripts/check_cme_history_counts.py --calendar CME_EQUITY --parent ES.FUT [--start] [--end]` reads the calendar's sessions in the range and makes two metadata calls per session through the adapter's `get_record_count` on `GLBX.MDP3`, `ohlcv-1m`, `stype_in=parent`:
+A throwaway verification run, kept in `scripts/` only as the record of how the evidence was gathered (like `verify_cme_sessions.py`), and deliberately not polished. No later slice uses it: 305 builds its own completeness verdicts from the manifest and ledger. `scripts/check_cme_history_counts.py --calendar CME_EQUITY --parent ES.FUT [--start] [--end]` reads the calendar's sessions in the range and makes two metadata calls per session through the adapter's `get_record_count` on `GLBX.MDP3`, `ohlcv-1m`, `stype_in=parent`:
 
 - **Inside the session** `[open, close)`: expected greater than 0. A zero is a finding: either an undocumented closure or a provider data gap.
 - **In the gap to the next session** `[close, next_open)`: expected 0. A non-zero count is a finding: either a wrong boundary (an hours era, an early close, a missed late open) or a provider anomaly. Every bar in such a gap would fail `session_boundary` at ingest.
 
 `ohlcv-1m` stamps a bar at its minute's open, so a bar inside the session never starts at or after the close.
 
-Volume: about 2,400 sessions per calendar from 2010-06-07 to 2019-12-31, so about 4,800 calls per calendar and 9,600 in total. Calls are made one at a time, with no concurrency, which is enough for a one-off run. A Databento rate limit shows up as a 429 and is paced by the backoff below. A run can be split by year with `--start` and `--end`. The script prints one line per finding with its window and count, and exits non-zero if there was any finding or failed call.
+Volume: about 2,400 sessions per calendar from 2010-06-07 to 2019-12-31, so about 4,800 calls per calendar and 9,600 in total. Calls are made one at a time, with no concurrency and no pacing logic, which is enough for a one-off run. A run can be split by year with `--start` and `--end`. The script prints one line per finding with its window and count, and exits non-zero if there was any finding or failed call.
 
-Failure handling: each call has a timeout (the SDK's metadata timeout, confirmed from its source and set explicitly). A call that raises the adapter's `ProviderTransientError` (429, 5xx, connection, timeout) is retried a bounded number of times with backoff. A call that still fails is printed as a failed session and is never counted as zero. Any other provider error (auth, bad request) stops the run. There is no resume state: `--start` and `--end` rerun only the failed or remaining range. Metadata calls are free (the architecture's cost table was measured the same way), so the check buys nothing. Counts are evidence, never a source. A finding is resolved by a sourced row (D4, D2) or recorded as unresolved in the implementation notes, naming the date, the window and the count.
+Failure handling: each call has a timeout (the SDK's metadata timeout, confirmed from its source and set explicitly). A call that raises is printed as a failed session with its error and is never counted as zero. An authentication or bad-request error stops the run. There is no retry and no resume state: `--start` and `--end` rerun only the failed or remaining range. Metadata calls are free (the architecture's cost table was measured the same way), so the check buys nothing. Counts are evidence, never a source. A finding is resolved by a sourced row (D4, D2) or recorded as unresolved in the implementation notes, naming the date, the window and the count.
 
 Window semantics (end exclusive, nanosecond precision) are confirmed against the databento-python SDK source, not the client-rendered docs site.
 
@@ -244,7 +243,7 @@ Window semantics (end exclusive, nanosecond precision) are confirmed against the
 ### D9 — Production rollout is a cutover script
 Status: decided
 
-`upgrade_production.py` cannot carry this release: it is for code-only releases and stops when an install brings a new migration. The project's convention is a cutover script per release that has a migration (922, 0244). So the release that ships 301 gets one, assembled from the `cutover_common` and `upgrade_production` helpers with no new mechanism. If the release carries other migrations, the same script applies them, as 0244 did. `scripts/cutover_301_calendar_history.py`, in the pattern of `cutover_0244_symbol_names.py` and built on `cutover_common`, runs these steps: preflight, hold timers, install the release, migrate the primary track to the new id with the target verified, verify, release timers. As in 0244, timers are released as found after a failed verify, and stay held after a failed migrate, because extending a CME calendar fails until the migration is applied (D7). The narration says so, and a rerun after the fix releases them. Verify means: both CME calendars' first session is dated 2010-06-07 (or the moved `CME_DATASET_START`), `sudo mt-run data health` passes, and `mt data overview` exits 0. Claude runs it after merge. No root step and no PM host step is needed.
+`upgrade_production.py` cannot carry this release: it is for code-only releases and stops when an install brings a new migration. The project's convention is a cutover script per release that has a migration (922, 0244). So the release that ships 301 gets one, assembled from the `cutover_common` and `upgrade_production` helpers with no new mechanism. If the release carries other migrations, the same script applies them, as 0244 did. `scripts/cutover_301_calendar_history.py`, in the pattern of `cutover_0244_symbol_names.py` and built on `cutover_common`, runs these steps: preflight, hold timers, install the release, migrate the primary track to the new id with the target verified, verify, release timers. As in 0244, timers are released as found after a failed verify, and stay held after a failed migrate, so no extension runs against a half-migrated database. The narration says so, and a rerun after the fix releases them. Verify means: both CME calendars' first session is dated 2010-06-07 (or the moved `CME_DATASET_START`), `sudo mt-run data health` passes, and `mt data overview` exits 0. Claude runs it after merge. No root step and no PM host step is needed.
 
 ## Implementation Details
 
@@ -274,7 +273,7 @@ Status: decided
 2. Every CME session dated 2020-01-01 or later is identical before and after the migration. This is checked inside the migration and in an integration test.
 3. Every era and every pre-2020 exception row cites a dated source.
 4. Each calendar's latest era equals its `trading_calendars` hours. No era starts on or after 2020-01-01 except the current era, when the last pre-2020 change takes effect on the first 2020 session.
-5. A session inside an earlier era carries that era's open and close. For a dated calendar, a date before the first era raises `NoHoursEraError` naming the calendar and the date.
+5. A session inside an earlier era carries that era's open and close, including across an era change inside one extension call. For a dated calendar, a date before the first era raises `NoHoursEraError` naming the calendar and the date.
 6. `locate_sessions` places an instant inside a pre-2020 era's hours and refuses one in that era's daily break with `session_boundary`, on both sides of each era change.
 7. NYSE and NASDAQ sessions are unchanged. Migrations 058 and 059 produce today's rows on a fresh database.
 8. `check_cme_history_counts.py` has been run over the full pre-2020 range for both calendars. Every finding is resolved by a sourced row or recorded as unresolved, with date, window and count.
@@ -282,12 +281,11 @@ Status: decided
 ### Technical Requirements
 
 - Unit tests:
-  - schedule lookup: before the first era, on an era's first date, across a change, and a late-open exception overriding the era's open;
-  - undated schedule output equal to today's for NYSE, NASDAQ and the current CME hours;
+  - era segmentation in `extend_calendar_sessions`: a range before the first era, a range starting on an era's first date, a range across a change, and a late-open exception overriding the era's open;
+  - output for NYSE, NASDAQ and the current CME hours equal to today's;
   - sources present, exception dates inside the range, `CME_DATASET_START` not after any calendar's first era, latest era equal to the calendar row;
   - a dated calendar with no eras raises;
   - pre-2020 era-boundary instants, in the pattern of `test_cme_equity_boundaries.py` and its JSON fixture;
-  - the count-check window logic against a stubbed adapter.
 - Integration tests:
   - the migration on a fresh database (the full chain, 058 and 059 before it) and on a database populated as production is;
   - each precondition and the 2020-onward comparison abort with a clear message;
@@ -359,7 +357,7 @@ Run from the checkout root, with the test database URL exported from `.env` (the
 Relative effort 3/5. Suggested order, committing at each section:
 
 1. Source the hours eras for ES and GC (D2), first establishing for each era whether the Sunday open differs from the daily reopen (D1). This fixes the table's columns before any code is written.
-2. `session_hours.py`, the schedule-taking `populate_trading_sessions`, the dated-calendar reader in `session_extension.py`, the caller updates, and 058 and 059 pinned (D3, D7), with `test_058_059_fresh_output_unchanged` and unit tests that prove NYSE, NASDAQ and current CME output are unchanged.
+2. The dated-calendar reader and era segmentation in `session_extension.py` (D3), with `test_058_059_fresh_output_unchanged` (D7) and unit tests that prove NYSE, NASDAQ and current CME output are unchanged.
 3. `check_cme_history_counts.py` (D8). Running it against the current 2020-onward sessions first is a free calibration: it should report no findings there, since those days were already checked against trade counts in 221 and 232.
 4. Each calendar's pre-2020 exceptions (D4), with the source tests.
 5. The migration (D6) and its integration tests. Then run the count check over the pre-2020 range on a migrated test database and resolve or record every finding.
