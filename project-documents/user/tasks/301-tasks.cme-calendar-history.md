@@ -84,6 +84,16 @@ revision_number: 1
   A calendar with an earlier supported start is trimmed to match, and the trim
   is recorded in the slice's Implementation Notes. Every stop rule below moves
   the constant by this rule only.
+- **Unrelated uncommitted work.** The tree holds other changes in files this
+  slice edits (`migrations/minute.py`, `test/unit/test_schema_migrations.py`):
+  issue #60's `065_instruments_name` migration and its pin updates. Never
+  revert, reformat or stage them. Stage only your own hunks (`git add -p`, or
+  explicit paths for files only you touched) and check `git diff --cached`
+  before each commit.
+- **Migration number.** Issue #60 has taken `065`. Before 4.1, read the last id
+  in `MINUTE_MIGRATIONS` and use the next number wherever this file says `065`
+  or `064` for the chain tip; `grep` for the real ids rather than trusting the
+  numbers written here.
 - **Effort scale:** 1 (trivial) to 5 (hard).
 
 ---
@@ -159,7 +169,8 @@ revision_number: 1
 
 - [ ] **1.6 Tests for the eras**
   - [ ] New `test/unit/market/test_seed_cme_hours.py`.
-  - [ ] Cases: every era has a non-empty `source` (D1); eras are strictly
+  - [ ] Cases: every era's `source` is non-empty and contains a URL (`http`)
+        (D1); eras are strictly
         ascending and unique by date; no `effective_from` is on or after
         2020-01-01; the first `effective_from` is on or before
         `CME_DATASET_START`; the last era of each calendar equals its
@@ -221,10 +232,10 @@ revision_number: 1
   - [ ] Extend `test/integration/test_calendar_extension.py` (same fixtures as
         today). Create `trading_calendar_hours` by hand in the throwaway
         database and insert two eras for a calendar.
-  - [ ] Cases: an extension over a range spanning the change stores each side's
-        hours; with the table absent, the extension behaves as before; a
-        calendar with no rows in the table behaves as before; a range before
-        the first era raises.
+  - [ ] Cases not covered by 4.3 and 4.4: with the table absent, the extension
+        behaves as before; a calendar with no rows in the table behaves as
+        before; a range before the first era raises. (Hours on each side of a
+        change are checked in 4.3.)
   - [ ] Success: the file passes
   - [ ] Effort: 2
 
@@ -422,7 +433,7 @@ CME holiday row exists before the seed start.
   - [ ] Effort: 2
 
 - [ ] **4.5 Update chain pins and migration docs**
-  - [ ] Run `grep -rn "064_minute_eligible_rollup_swap" test src scripts` and
+  - [ ] Run `grep -rn` for the id that was the chain tip before 4.1 (`064_minute_eligible_rollup_swap`, or `065_instruments_name` if issue #60 has landed) over `test src scripts` and
         update every pin that names the *last* migration id (the one in
         `test/unit/test_schema_migrations.py` near line 1326 and the migration
         count comment near line 225), as every primary migration does. Do not
@@ -487,7 +498,11 @@ CME holiday row exists before the seed start.
   - [ ] Run steps 1 to 4 of the design's Verification Walkthrough against a
         throwaway migrated database (steps 1 and 4 are the test commands; step
         2 is the SQL; step 3 is the held-job command if the directory exists).
-        Step 5 is the production apply; it is not part of this task list.
+        Step 5 is the production apply; it is not part of this task list. The
+        walkthrough's `test/integration/data` path does not hold this slice's
+        tests (they sit directly under `test/integration`); run
+        `uv run pytest test/integration -q -k "calendar or session or cme_calendar_history"`
+        instead.
   - [ ] Check every Success Criterion 1 to 8 in the design against a test that
         covers it; add a missing test rather than skipping the criterion.
   - [ ] Success: all pass; each criterion maps to a test
