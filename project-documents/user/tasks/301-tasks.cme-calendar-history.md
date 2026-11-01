@@ -5,16 +5,37 @@ project: trading-data
 lld: user/slices/301-slice.cme-calendar-history.md
 parent: user/architecture/300-slices.futures-historical-bars-statistics-and-tick-aggregation.md
 dependencies: []
-interfaces: [302, 303, 304, 305, 306, 307]
-projectState: >
-  Slice design committed and revised after slice review (67b477c is the
-  latest). CME_EQUITY and CME_METALS hold sessions from 2020-01-01 only,
-  seeded by minute-track migrations 058 and 059 from CME_EQUITY_SEED_START and
-  CME_METALS_SEED_START. The minute chain ends at 064. Regular hours are one
-  fixed pair per calendar in trading_calendars (17:00 -> 16:00 America/Chicago).
+interfaces:
+- 302
+- 303
+- 304
+- 305
+- 306
+- 307
+projectState: 'Slice design committed and revised after slice review (67b477c is the
+  latest). CME_EQUITY and CME_METALS hold sessions from 2020-01-01 only, seeded by
+  minute-track migrations 058 and 059 from CME_EQUITY_SEED_START and CME_METALS_SEED_START.
+  The minute chain ends at 064. Regular hours are one fixed pair per calendar in trading_calendars
+  (17:00 -> 16:00 America/Chicago).
+
+  '
 dateCreated: 20261101
 dateUpdated: 20261101
 status: not_started
+turns: 15
+promptTokens: 723339
+cachedTokens: 648925
+cacheWriteTokens: 74390
+completionTokens: 17170
+durationSeconds: 129.0
+costUsd: 0.534481
+usageRounds: 1
+pricedRounds: 1
+usageByModel:
+  claude-sonnet-5-5:
+    rounds: 1
+    costUsd: 0.5344812999999999
+    completionTokens: 17170
 ---
 
 # Tasks: CME Calendar History
