@@ -50,7 +50,7 @@ Nothing is bought here. The production universe wants no bar or history days aft
 - `ohlcv-1s` (future work). Provider `ohlcv-1h` and `ohlcv-1d` are not archived here. They are never served, and whether to archive them is decided only at the architecture's recorded revisit (PM, 2026-10-28).
 - Serving bars through `/api/v1/futures/*` or `mt data tick get` (306). Neither changes here (D11).
 - `health`, `accounting`, `overview` and the status coverage aggregates (305).
-- Tick-derived-versus-provider bar parity. It needs provider bars over a window where ticks are held, and that first exists after 304. It is measured in 306, where the source rule is applied.
+- Tick-derived-versus-provider bar parity. It needs provider bars over a window where ticks are held, and that first exists after 304. It is measured in 306, which then retires the read-time tick bars. Time bars are provider-only (journal ADR 20261101), so there is no tick-derived fallback.
 - The CME calendars' pre-2020 sessions, dated regular hours and holiday history (301).
 - Renaming the `tick` track, `MT_TICK_*` or `mt data tick` (architecture).
 
@@ -225,7 +225,7 @@ Status: decided
 ### D11 — No API change in this slice
 Status: decided
 
-The API question is answered in 306, which applies the source rule (provider `ohlcv-1m` is the default for 1m and coarser). Serving bars here would ship a second bars path before the rule that chooses between them. `/api/v1/futures/*` and `mt data tick get` are unchanged.
+The API question is answered in 306, which serves bars from provider `ohlcv-1m` (1m and coarser) and retires the read-time tick bars. Serving bars here would ship a second bars path before that retirement. `/api/v1/futures/*` and `mt data tick get` are unchanged.
 
 ### D12 — Definition history: size and failure shape
 Status: decided
