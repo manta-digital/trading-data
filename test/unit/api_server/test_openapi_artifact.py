@@ -123,7 +123,7 @@ one status (the four futures time series since 231)."""
 
 PUBLISHED_MEDIA_TYPES = ("application/json", "application/x-msgpack")
 
-EXPECTED_ARTIFACT_PATH_COUNT = 24
+EXPECTED_ARTIFACT_PATH_COUNT = 25
 
 
 def _committed_artifact() -> dict[str, Any]:
@@ -198,7 +198,8 @@ def test_field_descriptions_reach_the_artifact(model: type[BaseModel]) -> None:
 
 def test_artifact_declares_the_expected_path_count() -> None:
     """A gate on the assumption the rest of slice 190 rests on: the documented
-    surface is these paths and no others (seventeen, plus 231's seven)."""
+    surface is these paths and no others (seventeen, plus 231's seven, plus the
+    #63 search)."""
     paths = _committed_artifact()["paths"]
     assert len(paths) == EXPECTED_ARTIFACT_PATH_COUNT, (
         f"{ARTIFACT_PATH} declares {len(paths)} paths, expected "

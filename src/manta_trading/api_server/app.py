@@ -28,6 +28,9 @@ from manta_trading.api_server.routes.health import router as health_router
 from manta_trading.api_server.routes.kalshi_catalog import (
     router as kalshi_catalog_router,
 )
+from manta_trading.api_server.routes.kalshi_search import (
+    router as kalshi_search_router,
+)
 from manta_trading.api_server.routes.kalshi_timeseries import (
     router as kalshi_timeseries_router,
 )
@@ -199,6 +202,7 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
     app.include_router(status_router)
     app.include_router(operations_router)
     app.include_router(kalshi_catalog_router)
+    app.include_router(kalshi_search_router)
     app.include_router(kalshi_timeseries_router)
     app.include_router(futures_catalog_router)
     app.include_router(futures_series_router)

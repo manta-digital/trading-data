@@ -39,6 +39,12 @@ from manta_trading.data.kalshi.constants import (
     MarketStatus,
     Surface,
 )
+from manta_trading.data.kalshi.search_expr import (
+    EVENT_DOC,
+    MARKET_DOC,
+    OPEN_MARKET_PREDICATE,
+    SERIES_DOC,
+)
 
 #: DML-only application role (slice 913 role split). Never TRUNCATE/DDL.
 APP_ROLE = "trading_app"
@@ -526,6 +532,38 @@ KALSHI_MIGRATIONS: list[dict[str, str]] = [
                 DROP CONSTRAINT IF EXISTS markets_status_check;
             ALTER TABLE kalshi.markets
                 ADD CONSTRAINT markets_status_check {_status_check_sql()};
+        """,
+    },
+    {
+        "id": "kalshi_009_search",
+        "description": (
+            "Title search indexes (issue #63): pg_trgm, and full-text plus "
+            "trigram GIN indexes over series, events and open markets"
+        ),
+        # Open markets only: the markets table is 45 GB, and a partial index
+        # over ``status = 'active'`` covers the ~2% a user can still trade.
+        # The expressions come from search_expr so the reader's queries spell
+        # them exactly as the indexes do. pg_trgm is a trusted extension, so
+        # the migrating role needs CREATE on the database, not superuser.
+        "sql": f"""
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+            CREATE INDEX IF NOT EXISTS series_search_idx
+                ON kalshi.series USING gin (({SERIES_DOC}));
+            CREATE INDEX IF NOT EXISTS series_title_trgm_idx
+                ON kalshi.series USING gin (title gin_trgm_ops);
+
+            CREATE INDEX IF NOT EXISTS events_search_idx
+                ON kalshi.events USING gin (({EVENT_DOC}));
+            CREATE INDEX IF NOT EXISTS events_title_trgm_idx
+                ON kalshi.events USING gin (title gin_trgm_ops);
+
+            CREATE INDEX IF NOT EXISTS markets_open_search_idx
+                ON kalshi.markets USING gin (({MARKET_DOC}))
+                WHERE {OPEN_MARKET_PREDICATE};
+            CREATE INDEX IF NOT EXISTS markets_open_title_trgm_idx
+                ON kalshi.markets USING gin (title gin_trgm_ops)
+                WHERE {OPEN_MARKET_PREDICATE};
         """,
     },
 ]

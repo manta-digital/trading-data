@@ -342,3 +342,13 @@ HISTORICAL_ARCHIVE_STOP_MARGIN = timedelta(days=1)
 #: Decision 4: one market's candle fetch-and-write taking longer than this is
 #: logged as slow — the signal to reach for runbook 100's manual lever.
 HISTORICAL_SLOW_MARKET_SECONDS = 30
+
+
+#: Search hits returned per group (series, events, markets) when the caller
+#: names no ``limit``, and the most a caller may ask for (#63).
+SEARCH_DEFAULT_LIMIT = 10
+SEARCH_MAX_LIMIT = 50
+
+#: Trigram typo tolerance: the lowest ``word_similarity`` that still counts as
+#: a match. 0.5 admits "bitcon" for "bitcoin"; pg_trgm's default of 0.6 does not.
+SEARCH_TYPO_THRESHOLD = 0.5

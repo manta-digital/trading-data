@@ -801,8 +801,9 @@ granularity; `504` on statement timeout.
 
 ## 4. Endpoints: Kalshi catalog
 
-Seven routes over the prediction-market catalog: categories, series, events and
-markets, in that containment order.
+Eight routes over the prediction-market catalog: categories, series, events and
+markets, in that containment order, plus a plain-language search across all
+three levels (§4.8).
 
 **Field names are Kalshi's, verbatim.** Catalog records use the DB/Kalshi
 column names unchanged, so Kalshi's own field documentation applies to them
@@ -865,7 +866,7 @@ Series matching a filter.
 | Name | Type | Required | Meaning |
 |---|---|---|---|
 | `category` | string | no | Exact category match; get valid values from §4.1. |
-| `search` | string | no | Ticker prefix filter. |
+| `search` | string | no | Ticker prefix filter. To search by title, use §4.8. |
 
 **Response**
 
@@ -1102,6 +1103,62 @@ is terminal, so re-running this example returns the same shape rather than a
 `404` as a live market ages out.*
 
 **Errors**: `404` if the market ticker is unknown (undeclared, see §2.7); `504`
+on statement timeout.
+
+### 4.8 `GET /api/v1/kalshi/search`
+
+<!-- endpoint: /api/v1/kalshi/search
+     params: q:string, limit:integer
+     errors: 422, 504 -->
+
+Plain-language search over series, events and open markets: "fed rate",
+"bitcoin", "CPI".
+
+**Use this to find a ticker from words.** Each group is ranked, best first,
+and every hit names its parents, so a client can go straight to §4.4 or §4.7.
+Matching is stemmed ("rates" finds "rate"), needs every word, tolerates a
+misspelling ("bitcon"), and finds a series by the start of its ticker. It reads
+titles, subtitles and side labels; settlement rules are not searched. Only
+**open** markets are searched (status `active`); a closed or settled market is
+reached through its event (§4.6) instead. Series and events are searched in
+full.
+
+**It does not understand synonyms.** "rate cut" will not find "funds rate", and
+"100k" will not find "$100,000". Search the words the title uses.
+
+| Name | Type | Required | Meaning |
+|---|---|---|---|
+| `q` | string | yes | The words to find. Not empty or blank. |
+| `limit` | integer | no | Most hits per group; 1 to 50, default 10. |
+
+The ceiling on `limit` is 50.
+<!-- from: manta_trading.data.kalshi.constants.SEARCH_MAX_LIMIT -->
+
+This is a top-N, not a listing: there is no row ceiling and no `422` for a broad
+query. Narrow the words, or follow a hit down the hierarchy, to see more.
+
+**Response**
+
+| Field | Type | Null? | Meaning |
+|---|---|---|---|
+| `query` | string | no | The `q` that was searched. |
+| `series[].ticker` / `title` / `category` | string | `title`, `category` yes | A matching series. |
+| `events[].event_ticker` / `series_ticker` | string | no | A matching event and its series. |
+| `events[].title` / `sub_title` | string | yes | Event text. |
+| `events[].strike_date` | string | yes | UTC. |
+| `markets[].ticker` / `event_ticker` / `series_ticker` | string | no | A matching open market and its parents. |
+| `markets[].title` / `yes_sub_title` / `no_sub_title` | string | yes | Market text. |
+| `markets[].close_time` | string | no | UTC. |
+
+Each group is an empty list, never absent, when nothing at that level matched.
+Among equally good text matches, events rank the nearest upcoming strike date
+first and markets the soonest close.
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/kalshi/search?q=bitcoin&limit=2'
+```
+
+**Errors**: `422` for a missing or blank `q` or a `limit` outside 1 to 50; `504`
 on statement timeout.
 
 ## 5. Endpoints: Kalshi time series and operations

@@ -42,6 +42,7 @@ KALSHI_IDS = [
     "kalshi_006_trades",
     "kalshi_007_historical_surface",
     "kalshi_008_amended_status",
+    "kalshi_009_search",
 ]
 BOOTSTRAP_ID = "001_schema_migrations"
 TABLES = {
@@ -58,6 +59,15 @@ CANDLES_ID = "kalshi_005_candlesticks"
 TRADES_ID = "kalshi_006_trades"
 HISTORICAL_ID = "kalshi_007_historical_surface"
 AMENDED_ID = "kalshi_008_amended_status"
+SEARCH_ID = "kalshi_009_search"
+SEARCH_INDEXES = {
+    "series_search_idx",
+    "series_title_trgm_idx",
+    "events_search_idx",
+    "events_title_trgm_idx",
+    "markets_open_search_idx",
+    "markets_open_title_trgm_idx",
+}
 
 
 @pytest.fixture
@@ -681,6 +691,38 @@ class TestHistoricalSurface:
                 )
 
 
+class TestSearchIndexes:
+    """``kalshi_009`` (#63): pg_trgm and the six title-search indexes."""
+
+    def test_creates_extension_and_indexes_and_reapplies(
+        self, applied: list[str], pool: ConnectionPool[Any], ephemeral_db: str
+    ):
+        assert SEARCH_ID in applied
+        with psycopg.connect(ephemeral_db) as conn:
+            extensions = {
+                r[0] for r in conn.execute("SELECT extname FROM pg_extension")
+            }
+            indexes = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT indexname FROM pg_indexes WHERE schemaname = 'kalshi'"
+                )
+            }
+        assert "pg_trgm" in extensions
+        assert SEARCH_INDEXES <= indexes
+        assert apply_migrations(pool, TRACKS["kalshi"]) == []
+
+    def test_rerun_after_ledger_loss_is_a_no_op(
+        self, applied: list[str], pool: ConnectionPool[Any], ephemeral_db: str
+    ):
+        with psycopg.connect(ephemeral_db) as conn:
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = %s", (SEARCH_ID,)
+            )
+            conn.commit()
+        assert apply_migrations(pool, TRACKS["kalshi"]) == [SEARCH_ID]
+
+
 class TestAmendedStatus:
     """``kalshi_008``: the markets CHECK admits ``amended`` — on a fresh
     database (kalshi_002 renders the current enum) and on the production
@@ -796,10 +838,10 @@ class TestLedgerPreflight:
         assert "mt data migrate apply --track kalshi" in str(exc.value)
 
     async def test_missing_last_migration_named(self, kalshi_db: str):
-        """The last id on the track (``kalshi_008`` since the amended-status
-        fix) is covered by the preflight — read from the definition."""
+        """The last id on the track (``kalshi_009`` since the title search)
+        is covered by the preflight — read from the definition."""
         last_id = TRACKS["kalshi"][-1]["id"]
-        assert last_id == AMENDED_ID
+        assert last_id == SEARCH_ID
         with psycopg.connect(kalshi_db) as conn:
             conn.execute(
                 "DELETE FROM schema_migrations WHERE migration_id = %s", (last_id,)

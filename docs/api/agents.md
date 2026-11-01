@@ -175,8 +175,27 @@ window-semantics exception in the API — and the response echoes the storage
 
 ### "What prediction markets exist?"
 
-Four routes, in containment order. Start at the top unless you already have a
+Start with search if you have words ("fed rate", "bitcoin"); start at the
+categories if you are browsing; start at the series if you already have a
 ticker.
+
+`GET /api/v1/kalshi/search?q=…&limit=…` → ranked series, events and open
+markets whose titles match the words, grouped in that order; each hit carries
+its parent tickers.
+
+<!-- endpoint: /api/v1/kalshi/search
+     params: q:string, limit:integer
+     errors: 422, 504 -->
+
+Search the words a title would use: it stems and tolerates a typo, but has **no
+synonyms** ("rate cut" will not find "funds rate"). Only open markets are
+searched; reach a closed one through its event. It returns at most `limit`
+(default 10, maximum 50) hits per group, best first, and never `422`s for a
+broad query: add a word or follow a hit down instead. An empty group means
+nothing matched at that level. A `422` means `q` was blank or `limit` was out
+of range, so fix the request rather than retry.
+
+Then, in containment order:
 
 `GET /api/v1/kalshi/categories` → every category with its series count.
 

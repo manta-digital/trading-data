@@ -958,6 +958,62 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "EventHit": {
+        "description": "A matching event and the series it belongs to.",
+        "properties": {
+          "event_ticker": {
+            "title": "Event Ticker",
+            "type": "string"
+          },
+          "series_ticker": {
+            "title": "Series Ticker",
+            "type": "string"
+          },
+          "strike_date": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strike Date"
+          },
+          "sub_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Title"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "event_ticker",
+          "series_ticker",
+          "title",
+          "sub_title",
+          "strike_date"
+        ],
+        "title": "EventHit",
+        "type": "object"
+      },
       "EventListResponse": {
         "description": "Events of one series, complete \u2014 never truncated (D4).",
         "properties": {
@@ -2088,6 +2144,72 @@
         "title": "MarketEconomics",
         "type": "object"
       },
+      "MarketHit": {
+        "description": "A matching open market and the event and series above it.",
+        "properties": {
+          "close_time": {
+            "format": "date-time",
+            "title": "Close Time",
+            "type": "string"
+          },
+          "event_ticker": {
+            "title": "Event Ticker",
+            "type": "string"
+          },
+          "no_sub_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Sub Title"
+          },
+          "series_ticker": {
+            "title": "Series Ticker",
+            "type": "string"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "yes_sub_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yes Sub Title"
+          }
+        },
+        "required": [
+          "ticker",
+          "event_ticker",
+          "series_ticker",
+          "title",
+          "yes_sub_title",
+          "no_sub_title",
+          "close_time"
+        ],
+        "title": "MarketHit",
+        "type": "object"
+      },
       "MarketLifecycle": {
         "description": "Kalshi's own timestamps for a market's progression.",
         "properties": {
@@ -2719,6 +2841,44 @@
         "title": "ScheduleSegmentRecord",
         "type": "object"
       },
+      "SearchResponse": {
+        "description": "Ranked hits, grouped series, then events, then markets.\n\nEach group holds at most ``limit`` hits, best first. A group is empty, not\nabsent, when nothing at that level matched.",
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventHit"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "markets": {
+            "items": {
+              "$ref": "#/components/schemas/MarketHit"
+            },
+            "title": "Markets",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesHit"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "query",
+          "series",
+          "events",
+          "markets"
+        ],
+        "title": "SearchResponse",
+        "type": "object"
+      },
       "SegmentRecord": {
         "description": "A run of consecutive served sessions from one contract (time series).",
         "properties": {
@@ -2748,6 +2908,44 @@
           "instrument_id"
         ],
         "title": "SegmentRecord",
+        "type": "object"
+      },
+      "SeriesHit": {
+        "description": "A matching series: the top of the hierarchy.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "ticker",
+          "title",
+          "category"
+        ],
+        "title": "SeriesHit",
         "type": "object"
       },
       "SeriesListResponse": {
@@ -3760,7 +3958,7 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, gap status, the Kalshi prediction-market catalog and time series, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.24.3"
+    "version": "0.24.4"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5271,6 +5469,70 @@
           }
         },
         "summary": "Get Trades"
+      }
+    },
+    "/api/v1/kalshi/search": {
+      "get": {
+        "description": "Search series, events and open markets by plain-language title.\n\nReturns the best ``limit`` hits at each level, grouped series, then events,\nthen markets; every hit carries its parent tickers. Words are stemmed\n(\"rates\" finds \"rate\"), all words must appear, and a close misspelling\nstill matches. A series is also found by the start of its ticker. Only open\nmarkets are searched. Synonyms are not understood: \"rate cut\" does not find\n\"funds rate\". Unlike the list routes this is a top-N, not a complete\nlisting, and has no row ceiling.",
+        "operationId": "search_api_v1_kalshi_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "pattern": "\\S",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Search"
       }
     },
     "/api/v1/kalshi/series": {
