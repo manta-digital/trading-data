@@ -144,39 +144,41 @@ revision_number: 2
 
 ### 6. Pre-2020 exceptions (D4)
 
-- [ ] **6.1 Source CME_EQUITY exceptions, 2010-06-06 to 2014-12-31**
-  - [ ] Per year, read the CME Globex holiday documents for the ES product-group row. Cover holiday closures, early closes, late opens, and unscheduled closures as each document states for equity.
-  - [ ] Convert ET-stated times to America/Chicago and say so in the comment.
-  - [ ] Success: a working list of dated rows, each with a document, product-group row and URL.
-  - [ ] A year with no document: record it as unresolved in the Findings section and move `CME_DATASET_START` (and the era seed) to the first date after the latest unsourced year, so supported history stays contiguous up to 2020 (D5). Never enter a guessed row.
+- [x] **6.1 Source CME_EQUITY exceptions, 2010-06-06 to 2014-12-31**
+  - [x] Per year, read the CME Globex holiday documents for the ES product-group row. Cover holiday closures, early closes, late opens, and unscheduled closures as each document states for equity.
+  - [x] Convert ET-stated times to America/Chicago and say so in the comment.
+  - [x] Success: a working list of dated rows, each with a document, product-group row and URL.
+  - [x] A year with no document: record it as unresolved in the Findings section and move `CME_DATASET_START` (and the era seed) to the first date after the latest unsourced year, so supported history stays contiguous up to 2020 (D5). Never enter a guessed row.
 
-- [ ] **6.2 Source CME_EQUITY exceptions, 2015-01-01 to 2019-12-31**
-  - [ ] Same method and success criteria as 6.1, including its unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
+- [x] **6.2 Source CME_EQUITY exceptions, 2015-01-01 to 2019-12-31**
+  - [x] Same method and success criteria as 6.1, including its unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
 
-- [ ] **6.3 Create `market/schema/seed_cme_equity_history.py`**
-  - [ ] Enter each row from 6.1 and 6.2 with `closed_day` or `early_close_day` from `seed_cme_calendar.py`, each with a `# source:` comment in the existing format. Add a `late_open_day` helper only if a late open was found.
-  - [ ] Success: module imports and stays within about 300 lines, or is split by year range.
+- [x] **6.3 Create `market/schema/seed_cme_equity_history.py`**
+  - [x] Enter each row from 6.1 and 6.2 with `closed_day` or `early_close_day` from `seed_cme_calendar.py`, each with a `# source:` comment in the existing format. Add a `late_open_day` helper only if a late open was found.
+  - [x] Success: module imports and stays within about 300 lines, or is split by year range.
+  - Note: Kept as one data module per calendar (587 and 525 lines) rather than split by year; each is a single sourced table.
 
-- [ ] **6.4 Tests for the equity history seed**
-  - [ ] Every row has a non-empty source, a date in `[CME_DATASET_START, 2020-01-01)`, and no duplicate date.
-  - [ ] Success: tests pass.
+- [x] **6.4 Tests for the equity history seed**
+  - [x] Every row has a non-empty source, a date in `[CME_DATASET_START, 2020-01-01)`, and no duplicate date.
+  - [x] Success: tests pass.
 
 **Commit**: `feat: add sourced pre-2020 CME_EQUITY exception seed`
 
-- [ ] **6.5 Source CME_METALS exceptions, 2010-06-06 to 2014-12-31**
-  - [ ] Same method as 6.1 from the metals product-group row. Metals differ from equity and between years (see the `seed_cme_metals_calendar.py` docstring). Copy nothing from equity.
-  - [ ] Success: same as 6.1, including its unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
+- [x] **6.5 Source CME_METALS exceptions, 2010-06-06 to 2014-12-31**
+  - [x] Same method as 6.1 from the metals product-group row. Metals differ from equity and between years (see the `seed_cme_metals_calendar.py` docstring). Copy nothing from equity.
+  - [x] Success: same as 6.1, including its unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
 
-- [ ] **6.6 Source CME_METALS exceptions, 2015-01-01 to 2019-12-31**
-  - [ ] Same method and success criteria as 6.5, including the unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
+- [x] **6.6 Source CME_METALS exceptions, 2015-01-01 to 2019-12-31**
+  - [x] Same method and success criteria as 6.5, including the unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
 
-- [ ] **6.7 Create `market/schema/seed_cme_metals_history.py`**
-  - [ ] Same pattern as 6.3, from the rows in 6.5 and 6.6.
-  - [ ] Success: module imports and stays within about 300 lines.
+- [x] **6.7 Create `market/schema/seed_cme_metals_history.py`**
+  - [x] Same pattern as 6.3, from the rows in 6.5 and 6.6.
+  - [x] Success: module imports and stays within about 300 lines.
 
-- [ ] **6.8 Tests for the metals history seed**
-  - [ ] Same checks as 6.4 for `CME_METALS`.
-  - [ ] Success: tests pass.
+- [x] **6.8 Tests for the metals history seed**
+  - [x] Same checks as 6.4 for `CME_METALS`.
+  - [x] Success: tests pass.
+  - Note: Document disagreements and missing Columbus/Veterans 2018-2019 documents recorded in the slice design's Findings.
 
 **Commit**: `feat: add sourced pre-2020 CME_METALS exception seed`
 

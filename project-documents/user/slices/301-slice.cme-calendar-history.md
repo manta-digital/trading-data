@@ -397,5 +397,10 @@ The forum lead (ES close 16:15 to 16:00 around September 2015) is now dated by t
 
 - **Hours changes from 2020 on (D2):** none found. The 2021 removal of the 15:15-15:30 CT equity halt (SER-8776) is inside a session.
 - **Unsourced eras (D5):** none. `CME_DATASET_START` stays 2010-06-06.
+- **Documents that disagree (D4):**
+  - GC 2011-05-27 (Friday before Memorial Day): `2011-memorial-day-done.pdf` gives a regular 16:15 close; `Book1.xls` in the same 2011 zip gives an early 15:15 close. Free `ohlcv-1m` count for [15:15, 16:15) CT that day: 145 bars, so the PDF is right and no row is entered.
+  - ES MLK 2013: `2013-martin-luther-king-done.docx` (2012 zip) gives 15:15 regular closes, written before the 2012-11-19 hours change; the 2013 zip's PDF and XLS give 16:15. The 2013 documents are used (no extra row).
+- **Documents missing (D4):** no Globex trading-hours document for Columbus and Veterans Day 2018 and 2019, only settlement notices saying "All products will settle at their normal times". No rows (regular days); the count check confirms. The 2014 Presidents Day and Good Friday PDFs are corrupt; the matching XLS files were used.
+- **Unscheduled closures (D4):** Hurricane Sandy ES rows 2012-10-29 (close 08:15), 2012-10-30 (open 17:00, close 08:15), 2012-10-31 (open 17:00) cite CME's 2012-10-28 media alert, clearing advisory 12-464 and the 2012-10-30 press release; metals traded normally (12-464, "All other CME Group futures ... remain open"). 2018-12-05: ES closes 08:30 (SER-8289); metals normal hours (same SER).
 - **Count check findings (D8):** filled in by tasks 5 and 8.
 
