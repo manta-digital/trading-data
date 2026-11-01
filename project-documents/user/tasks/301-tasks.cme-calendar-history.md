@@ -78,6 +78,11 @@ usageByModel:
   comments in `seed_cme_calendar.py`). A forum post is a lead, never a source.
   If no dated CME document can be found for a row or era, do not enter a
   plausible value: follow the stop rule in task 1.3 (eras) or 3.4 (exceptions).
+- **One dataset start.** `CME_DATASET_START` is the latest of the supported
+  starts across both calendars and both kinds of data (eras and exceptions).
+  A calendar with an earlier supported start is trimmed to match, and the trim
+  is recorded in the slice's Implementation Notes. Every stop rule below moves
+  the constant by this rule only.
 - **Effort scale:** 1 (trivial) to 5 (hard).
 
 ---
@@ -115,14 +120,16 @@ usageByModel:
         stretch of the range, and the date each change took effect. Start with
         the lead in the design (a close of 16:15 CT moving to 16:00 CT in
         September 2015) and confirm or refute it from CME documents only.
-  - [ ] Keep, per era: effective date, open, close, document title, document
-        date and URL. Hold them as a scratch note in the working tree (not
-        committed); the next task turns them into rows.
+  - [ ] Write each era straight into the new `market/schema/seed_cme_hours.py`
+        as it is found (create the module with `CME_EQUITY_HOURS_ERAS` here):
+        a `HoursEra` whose `source` is the document title, date and URL. No
+        separate note file.
   - [ ] Stop rule: if an era's start or hours cannot be shown by a dated CME
         document, do not enter it. Set the first era's `effective_from` to the
-        earliest date that is documented, set `CME_DATASET_START` to that date
-        (1.1), and write the unsupported range, and why, into the "Implementation
-        Notes" of the slice design. Continue with the rest of the slice.
+        earliest date that is documented, move `CME_DATASET_START` (1.1) by the
+        Working Rules, and write the unsupported range, and why, into the
+        "Implementation Notes" of the slice design. Continue with the rest of
+        the slice.
   - [ ] Eras are only for 2010-06-06 to 2019-12-31. A documented change on or
         after 2020-01-01 is not entered; write it into the slice's
         Implementation Notes as a finding instead.
@@ -131,16 +138,14 @@ usageByModel:
   - [ ] Effort: 3
 
 - [ ] **1.4 Find the dated sources for GC regular hours, 2010-06-06 to 2019-12-31**
-  - [ ] Same method and stop rule as 1.3, for GC independently. Do not assume
-        GC changed on ES's dates.
+  - [ ] Same method and stop rule as 1.3, for GC independently, entering
+        `CME_METALS_HOURS_ERAS` in `seed_cme_hours.py`. Do not assume GC
+        changed on ES's dates.
   - [ ] Success: every era boundary has a cited document, or the stop rule is
         applied and recorded
   - [ ] Effort: 3
 
-- [ ] **1.5 Create `seed_cme_hours.py` with the eras**
-  - [ ] New `market/schema/seed_cme_hours.py` with one tuple of `HoursEra` per
-        calendar (`CME_EQUITY_HOURS_ERAS`, `CME_METALS_HOURS_ERAS`), each era's
-        `source` the cited document, its date and URL.
+- [ ] **1.5 Finish `seed_cme_hours.py`**
   - [ ] The last era of each tuple is the current hours; its open and close
         equal the calendar's current values (reference them from
         `CME_EQUITY_CALENDAR` and `CME_METALS_SEED`, not retyped).
@@ -277,18 +282,19 @@ CME holiday row exists before the seed start.
   - [ ] Effort: 3
 
 - [ ] **3.4 Tests for the ES exceptions**
-  - [ ] New `test/unit/market/test_seed_cme_equity_history.py`, reusing the
-        shared helper from 3.1.
+  - [ ] New `test/unit/market/test_seed_cme_history.py`, reusing the shared
+        helper from 3.1 and parametrised by calendar (the ES case here; 3.7 adds
+        GC).
   - [ ] Cases: every entry has a `# source:` comment; dates are unique weekdays
         between `CME_DATASET_START` and 2019-12-31; statuses and times are
         consistent (closed rows carry no times, early closes carry a close
         time); every year 2010 to 2019 has at least one entry (2010 from
         its start date); no entry duplicates a date in `CME_EQUITY_EXCEPTIONS`.
   - [ ] Stop rule: if a year's schedule cannot be found, enter nothing for it.
-        Move `CME_DATASET_START` to the first date after the unsupported range
-        (only if the unsupported range is the start of the dataset), write the
-        gap and its reason into the slice's Implementation Notes, and set the
-        test's covered-year expectation to match. A gap in the middle of the
+        If the unsupported range is the start of the dataset, move
+        `CME_DATASET_START` to the first date after it by the Working Rules,
+        write the gap and its reason into the slice's Implementation Notes, and
+        set the test's covered-year expectation to match. A gap in the middle of the
         range is not allowed to stand: search again or, if no document exists,
         record it in the notes and mark that year in the test as unsupported by
         name so the gap is visible in code.
@@ -309,20 +315,25 @@ CME holiday row exists before the seed start.
   - [ ] Effort: 3
 
 - [ ] **3.7 Tests for the GC exceptions**
-  - [ ] New `test/unit/market/test_seed_cme_metals_history.py`, the same cases
-        as 3.4 against `CME_METALS_PRE2020_EXCEPTIONS` and
-        `CME_METALS_EXCEPTIONS`, with the same stop-rule handling.
+  - [ ] Add the GC parameter to `test_seed_cme_history.py`
+        (`CME_METALS_PRE2020_EXCEPTIONS` against `CME_METALS_EXCEPTIONS`), with
+        the same stop-rule handling. No second copy of the cases.
   - [ ] Success: the file passes
   - [ ] Effort: 1
 
 - [ ] **3.8 Insert builders for the exception tuples**
   - [ ] Add one builder per module that returns the `trading_holidays` insert
-        for its tuple. Reuse `cme_holidays_insert`'s column contract rather than
-        writing a second one; the SQL must be a plain `INSERT` with no
-        `ON CONFLICT` (D3), so a conflicting stored row is an error.
-  - [ ] Test in the two history test files: the insert's columns match
-        `trading_holidays` and the row count equals the tuple length.
-  - [ ] Success: those test files pass; mypy clean
+        for its tuple. `cme_holidays_insert` takes a `CmeCalendarSeed`, so pass
+        it the calendar's seed through `dataclasses.replace(seed,
+        exceptions=<pre-2020 tuple>)`, reusing its column contract. The seed
+        module's `_insert_sql` ends in `ON CONFLICT DO NOTHING`; the pre-2020
+        insert must be a plain `INSERT` with no `ON CONFLICT` (D3), so a
+        conflicting stored row is an error. Give `_insert_sql` a keyword to omit
+        the clause rather than writing a second SQL builder.
+  - [ ] Test in `test_seed_cme_history.py`: the insert's SQL has no
+        `ON CONFLICT` and its columns match `trading_holidays`. Row counts are
+        covered end to end in 4.3.
+  - [ ] Success: that test file passes; mypy clean
   - [ ] Effort: 2
 
 - [ ] **3.9 Commit checkpoint**
@@ -380,9 +391,10 @@ CME holiday row exists before the seed start.
         session-scoped migrated database).
   - [ ] Cases:
     - [ ] On an empty database migrated through 065: both calendars' first
-          session is on or before `CME_DATASET_START` plus its first weekday,
-          and the sessions have no gaps except weekends and the sourced
-          exceptions.
+          session is the first weekday on or after `CME_DATASET_START` that is
+          not a sourced closure, none is dated earlier, and the sessions have
+          no gaps except weekends and the sourced exceptions. The pre-2020
+          `trading_holidays` row count per calendar equals its tuple length.
     - [ ] `test_cme_history_2020_unchanged`: sessions from 2020-01-01 on, for
           all four calendars, are identical to a database migrated through 064
           only (dump both, compare). NYSE and NASDAQ untouched.
@@ -393,10 +405,6 @@ CME holiday row exists before the seed start.
     - [ ] The precondition aborts: a stray `trading_holidays` row before the
           seed start makes 065 fail and leaves no `trading_calendar_hours` rows
           and no new sessions.
-    - [ ] The last era of each calendar equals its `trading_calendars` row in
-          the migrated database.
-    - [ ] `CME_DATASET_START` equals the earliest session date's lower bound:
-          no session is dated before the first weekday on or after it.
   - [ ] Success: the file passes
   - [ ] Effort: 3
 
