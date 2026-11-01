@@ -14,61 +14,56 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261101
 dateUpdated: 20261101
-reviewedSha: a2f95b1d43beeb207b00f8d5a4af38f67bca6e0e
-revision_number: 1
+reviewedSha: c183ceabc211a655b4ab0388fbf94d1d923f1c7e
+revision_number: 2
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 6
-turns: 7
-promptTokens: 179770
-cachedTokens: 90260
-cacheWriteTokens: 89504
-completionTokens: 5288
-durationSeconds: 44.7
-costUsd: 0.420683
+toolCallsMade: 3
+turns: 4
+promptTokens: 180776
+cachedTokens: 90753
+cacheWriteTokens: 90017
+completionTokens: 5350
+durationSeconds: 47.2
+costUsd: 0.423402
 costBasis: provider
 runId: run-20261101-p5-3ef67db9
 squadronVersion: 0.24.10
 findings:
   - id: F001
-    severity: pass
-    category: coverage
-    summary: "Success criteria coverage"
-    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md"
-  - id: F002
-    severity: pass
-    category: sequencing
-    summary: "Sequencing and test-with pattern"
-    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md"
-  - id: F003
     severity: concern
     category: sequencing
-    summary: "Verification walkthrough test path does not match where the new integration tests live"
-    location: "project-documents/user/slices/301-slice.cme-calendar-history.md:195-199"
+    summary: "Task 2.4 integration test breaks once Section 4 lands"
+    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md:231-240"
+  - id: F002
+    severity: concern
+    category: clarity
+    summary: "Migration id hard-coded in names while the Working Rules say it will change"
+    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md:93-96"
+  - id: F003
+    severity: concern
+    category: process
+    summary: "Commit cadence is per section, not per task"
+    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md:66"
   - id: F004
     severity: concern
     category: proportionality
-    summary: "Task 2.4 overlaps with 4.3 and 4.4"
-    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md:220-229"
+    summary: "Test tasks are heavier than the criteria need"
+    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md:231-240"
   - id: F005
-    severity: concern
-    category: source-control
-    summary: "Unrelated uncommitted edits sit in files this slice will modify"
-    location: "src/manta_trading/market/schema/migrations/minute.py"
-  - id: F006
-    severity: note
-    category: testing
-    summary: "Source tests only check that `source` is non-empty"
-    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md:160-169"
-  - id: F007
-    severity: note
-    category: proportionality
-    summary: "Task granularity is high but justified"
-    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md"
-  - id: F008
     severity: note
     category: coverage
-    summary: "No load-test or CI-wiring task needed"
-    location: "project-documents/user/slices/301-slice.cme-calendar-history.md"
+    summary: "Criteria 3 and 4 are checked more narrowly than written"
+    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md:170-181"
+  - id: F006
+    severity: note
+    category: scope
+    summary: "Pre-2020 exceptions live in new modules, not the existing seed modules"
+    location: "project-documents/user/slices/301-slice.cme-calendar-history.md:119"
+  - id: F007
+    severity: pass
+    category: coverage
+    summary: "Success criteria coverage and dependency order"
+    location: "project-documents/user/tasks/301-tasks.cme-calendar-history.md:101-521"
 ---
 
 # Review: tasks — slice 301
@@ -78,58 +73,51 @@ findings:
 
 ## Findings
 
-### [PASS] Success criteria coverage
+### [CONCERN] Task 2.4 integration test breaks once Section 4 lands
 
-Every criterion maps to a task.
-- **SC1:** 4.3 (first session, no gaps, holiday row counts).
-- **SC2:** the 4.2 before/after comparison and `test_cme_history_2020_unchanged` in 4.3.
-- **SC3:** the source tests in 1.6, 3.4 and 3.7.
-- **SC4:** 1.6.
-- **SC5:** 1.2, 2.2 and 4.3.
-- **SC6:** 4.4.
-- **SC7:** 5.1 and 5.2.
-- **SC8:** 4.3 (all four calendars).
+Task 2.4 hand-creates `trading_calendar_hours` in the throwaway database and tests the "table absent" case. It is committed at 2.5, before migration 065 exists. After 4.1 the shared fixtures migrate through the new migration, so the table is already there. The hand-made `CREATE TABLE` then collides. The "table absent" case can no longer be reached either. The test would pass at 2.5 and fail at 4.6, and nothing in the file says how to build the pre-065 state. Name the mechanism. Either build the database with the chain stopped at the pre-065 tip, as 4.3 does for its "through 064" comparison. Or have the test drop the table, which is allowed because the database is throwaway. Alternatively, move the absent-table case into 4.3.
 
-Task 6.1 then re-checks the mapping.
+### [CONCERN] Migration id hard-coded in names while the Working Rules say it will change
 
-### [PASS] Sequencing and test-with pattern
+`src/manta_trading/market/schema/migrations/minute.py:2777` shows `065_instruments_name` already registered. The Working Rules therefore say to use the next number and not to trust the `065` written in the file. But `065` is baked into the migration id (4.1), the `test_migration_065_cme_calendar_history.py` filename (4.3), the `-k migration_065` filter (4.6), the commit message (4.6) and the Section 3 prose. A junior following those names literally collides with #60's id. Define the id once, for example as a note at the top: "N = next id after the current tip, read at 4.1". Then refer to `{N}` everywhere else. This matches the project rule against scattered values.
 
-Dependencies run in order and none are circular.
-- The `HoursEra` type (1.1) comes before the code that reads it (2.1, 2.3).
-- The era and exception builders (1.5, 3.8) come before migration 065 (Section 4).
-- The `to_regclass` guard in 2.3 covers migrations 058 and 059 running before the table exists.
-- The pre-2020 exceptions are kept in separate tuples so the 065 precondition does not abort on a fresh database.
-- Stop-rule handling is explicit and is tied to the single `CME_DATASET_START` definition.
+### [CONCERN] Commit cadence is per section, not per task
 
-### [CONCERN] Verification walkthrough test path does not match where the new integration tests live
+The project rule is "Git add and commit from project root at least once per task". Working Rules say "Commit at each section's checkpoint". Section 3 holds eight tasks, including four archive-research tasks (3.2, 3.3, 3.5, 3.6), and commits only at 3.9. Section 1 has two such tasks (1.3, 1.4) and commits at 1.7. The data entry is slow, sourced work, so batching it risks losing it and makes the diff hard to review. Either commit after each research task, or state that the section checkpoints replace the per-task rule. The latter would need Project Manager sign-off, because it overrides a CLAUDE.md rule.
 
-The design's walkthrough step 1 runs `uv run pytest test/integration/data -q -k "calendar or session"`. Task 4.3 puts the migration tests in `test/integration/test_migration_065_cme_calendar_history.py`, and 5.2 and 2.4 also use `test/integration/`. A glob for `test/integration/data/*calendar*` returned no files. So walkthrough step 1 would not collect the new tests, and 6.1 says it runs that step. Have 6.1 run the `test/integration` form that 4.6 already uses. Alternatively, record in the 6.1 task that the design's path is stale. Do not move the files.
+### [CONCERN] Test tasks are heavier than the criteria need
 
-### [CONCERN] Task 2.4 overlaps with 4.3 and 4.4
+The same behaviour is tested up to three times. Hours on each side of an era change are checked in 2.2 (unit), 2.4 (integration) and 4.3 (migrated database). Task 2.4 exists mainly to cover the absent-table guard from 2.3, which the slice does not require, and 4.3 already states that it covers hours on both sides of a change. Task 4.4 is a separate task but is a case list on the same migrated database as 4.3. Task 3.7 is a one-line parametrisation (effort 1) that could be folded into 3.4. Suggested cuts:
+- Fold 2.4's three cases into a single case on the pre-migration database, or drop it in favour of 4.3.
+- Merge 4.4 into 4.3.
+- Merge 3.7 into 3.4 by parametrising by calendar from the start.
 
-Task 2.4 hand-builds `trading_calendar_hours` in a throwaway database. It tests a range spanning an era change, a range before the first era, and the table being absent. Task 4.3 then tests the same behaviour through the real migration: sessions on each side of an era change, and the empty database migrated through 058 and 059 before 065. The only case unique to 2.4 is the `to_regclass` guard when the table is absent, and the empty-database path in 4.3 exercises it implicitly. The "calendar with no rows" case adds a little. Reduce 2.4 to the guard cases (table absent, no rows). Leave the era-change and before-first-era assertions to 2.2 (unit) and 4.3 (end to end).
+### [NOTE] Criteria 3 and 4 are checked more narrowly than written
 
-### [CONCERN] Unrelated uncommitted edits sit in files this slice will modify
+Criterion 3 says every era and exception names "a source document and its date". Task 1.6 only checks that the source is non-empty and contains `http`. The `# source:` comment test for exceptions has a similar gap. Criterion 4 says the latest era equals the `trading_calendars` row. Task 1.6 compares against seed constants, not the stored row. Task 4.3 does not add a database check for this. Both are acceptable if you treat the seed constants as the definition. Say so in 6.1's criterion-to-test mapping, or add a one-line assertion on the migrated database in 4.3.
 
-Git status at the start of the session shows uncommitted changes in `market/schema/migrations/minute.py` and `test/unit/test_schema_migrations.py`. Tasks 4.1 and 4.5 edit both files. They also leave the checkout on `main` with a dirty tree. The Working Rules say to check `git diff` for swept lines, but nothing says what to do with pre-existing unrelated edits. Those edits could end up in the 065 commit. Add a first step to Section 4 (or to the Working Rules) that stages only this slice's hunks. Alternatively, require the working tree to be clean before the slice branch starts.
+### [NOTE] Pre-2020 exceptions live in new modules, not the existing seed modules
 
-### [NOTE] Source tests only check that `source` is non-empty
+The slice design says the pre-2020 rows go "in the existing seed modules". The tasks (3.1) create `seed_cme_equity_history.py` and `seed_cme_metals_history.py`, and the Working Rules justify this by the 300-line limit. The slice's Technical Requirements allow a separate module when the seed modules would pass that size, so this is consistent. The tasks also add the `_insert_sql` keyword in 3.8 and the shared test helper in 3.1. Both trace to D3 and DRY, so they are not scope creep.
 
-SC3 requires a source document "and its date". Task 1.6 only asserts a non-empty `source` string, and 3.4 only checks that a `# source:` comment is present. This matches the slice's own "fails a unit test without a source" wording and the 221 precedent. A stricter check such as a URL or a year pattern would be more than the criteria require, so I'm not asking for it. The review of the source list stays the real control.
+### [PASS] Success criteria coverage and dependency order
 
-### [NOTE] Task granularity is high but justified
+Each criterion maps to at least one task:
+- **Criterion 1:** 4.3.
+- **Criterion 2:** the 4.2 check and 4.3 `test_cme_history_2020_unchanged`.
+- **Criteria 3 and 4:** 1.6, 3.4 and 3.7.
+- **Criterion 5:** 2.2 and 4.3.
+- **Criterion 6:** 4.4.
+- **Criterion 7:** 5.1 and 5.2.
+- **Criterion 8:** 4.3, which compares all four calendars.
 
-The file has about 33 tasks in one document for a slice rated 3/5. Four research tasks (1.3, 1.4, 3.2, 3.5) and the two year-range splits (3.3, 3.6) mirror the real ES/GC and year-range structure of the work. Merging them would produce overweight research tasks, so I would keep them. The five commit-checkpoint tasks could be folded into the last task of each section. They are cheap and enforce the commit cadence, so this is optional. The step-level detail in 2.3 (`to_regclass`) and 3.8 (`dataclasses.replace`, the `_insert_sql` keyword) goes beyond the slice design. Each item addresses a concrete constraint, though: migrations 058 and 059 run before the table exists, and D3 needs a plain `INSERT` with no `ON CONFLICT`.
-
-### [NOTE] No load-test or CI-wiring task needed
-
-The slice states no NFR, so there is no `tests/load/` requirement. Existing CI runs the new unit and integration tests, so no separate wiring task is needed.
+The order is acyclic: eras, then population, then exceptions, then migration, then script, then validation. Test tasks sit next to the code they test. The slice states no NFR, so no load test or CI-gating task is needed. The stop rules for unsourced eras and exceptions are explicit and tied back to the single `CME_DATASET_START`.
 
 ### Run Digest
 
-- Response length: 5698 chars
+- Response length: 6006 chars
 - Response is newline-free: no
-- Tool calls made: 6
+- Tool calls made: 3
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -137,13 +125,13 @@ The slice states no NFR, so there is no `tests/load/` requirement. Existing CI r
 - Settings sources: project
 - Reasoning characters: 0
 - Effort: backend default
-- Turns: 7
-- Tokens — prompt / cached / cache write / completion / reasoning: 179770 / 90260 / 89504 / 5288 / not computed
-- Duration: 44.7 s
+- Turns: 4
+- Tokens — prompt / cached / cache write / completion / reasoning: 180776 / 90753 / 90017 / 5350 / not computed
+- Duration: 47.2 s
 - Cost: $0.42 (provider)
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 8
+- Finding-shaped matches — whole response: 7
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 8
-- Finding-shaped matches — surviving validation: 8
+- Finding-shaped matches — in findings section: 7
+- Finding-shaped matches — surviving validation: 7
