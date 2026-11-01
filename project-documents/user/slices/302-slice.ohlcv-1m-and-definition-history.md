@@ -312,7 +312,7 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 ### Technical Requirements
 
 - Unit tests:
-  - families total and disjoint; `BAR_1M` holds `ohlcv-1m` only; `FAMILY_LEDGER` covers every family that has a projector;
+  - families total and disjoint; `BAR_1M` holds `ohlcv-1m` only; `FAMILY_LEDGER` has a key for every family that appears as a key of `INGEST_PROJECTORS` (`TICK_TIER` and `BAR_1M`), and the `DEFINITION` family is deliberately absent because definitions are projected by the acquisition pass, not by ingest;
   - plan table total over `TickSchema`;
   - the reader decodes the v1 and v3 DBN samples, with bar-open `ts_event`;
   - `HistoryWant` validation, one test per rule;
