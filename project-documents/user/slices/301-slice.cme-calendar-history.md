@@ -138,9 +138,9 @@ The two history seed modules are data. They are kept out of `seed_cme_calendar.p
 ## Technical Decisions
 
 ### D1 — Regular hours become dated eras
-Status: decided
+Status: decided (Sunday-open column added after sourcing, see Era sources)
 
-The columns below assume no era's Sunday open differs from its daily reopen. Step 1 of the Implementation Notes sources that before any code is written. If a dated document shows a difference, D1 is reopened: the schema change goes into this document and passes review before code is written against it.
+Sourcing found an era whose Sunday open differs from its daily reopen: before 2012-11-19 the ES trading day began at 15:30 CT Monday to Thursday but at 17:00 CT on Sunday (SER-6465). So the table carries `sunday_open`, as this decision provided for.
 
 A new table:
 
@@ -150,6 +150,7 @@ CREATE TABLE trading_calendar_hours (
     effective_from  date NOT NULL,   -- first session date (the date it closes) in the era
     market_open     time NOT NULL,   -- previous day when after close
     market_close    time NOT NULL,
+    sunday_open     time NOT NULL,   -- open of a session whose open falls on a Sunday
     source          text NOT NULL,
     PRIMARY KEY (calendar_id, effective_from)
 );
@@ -157,11 +158,12 @@ CREATE TABLE trading_calendar_hours (
 
 An era is in force from its `effective_from` until the next era's. Eras are keyed by session date, the date a session closes, which matches how `trading_sessions` dates sessions. When CME announces a change "effective Sunday X for trade date X+1", `effective_from` is X+1.
 
-An era carries one open time, used for every session including the one that opens on Sunday. The forum lead for the pre-2015 ES schedule suggests a daily reopen that differed from the Sunday open, but a lead is not a source (D2). Whether any era's Sunday open differs from its daily reopen is the first thing sourced (Implementation Notes, step 1). If a dated document confirms a difference, a Sunday-open column is added to this table in the same migration, before any code is written against it. Otherwise there is no such column. An exception row's `late_open_time` still overrides an era's open, as today.
+An era carries a daily open and a Sunday open. `sunday_open` is used for a session whose open falls on a Sunday (for an open-after-close era, the Monday session); every other session uses `market_open`. It is always stated, equal to `market_open` where the documents show no difference, so there is no null meaning "same as daily". An exception row's `late_open_time` still overrides both, as today. Extension applies `sunday_open` by passing it as the late open of each such session to `populate_trading_sessions`, which stays unchanged (D3).
 
 - *Rejected: era hours as exception rows.* An exception models one day's closure, early close or late open. A different regular close for five years is none of those, and entering it that way would make every pre-2015 weekday an exception.
 - *Rejected: hours known only to a CME routine, with no table.* `mt data extend` and the repair paths rebuild from the tables, so hours held outside them would be overwritten by the first rebuild.
-- *Rejected: a Sunday open or Friday close distinct from the daily times, built now.* No document read so far shows one. If the sourcing finds one, it is added then, as above, not built speculatively now.
+- *Rejected: a Friday close distinct from the daily close.* No document read shows one.
+- *Rejected: every pre-2012-11-19 Monday as a late-open exception row.* That is the era-as-exception shape rejected above, about 125 rows per calendar standing in for one fact.
 
 ### D2 — Which eras are entered
 Status: decided
@@ -174,7 +176,7 @@ Status: decided
 ### D3 — Extension splits the range at era boundaries; no era is an error
 Status: decided
 
-`populate_trading_sessions` and `session_interval` are unchanged: they take one fixed open and close, and `session_interval` stays the one place the open-after-close rule lives. Sessions are keyed by the date they close, and eras are keyed the same way (D1), so a range split at an era's `effective_from` has no session spanning two segments. `extend_calendar_sessions` does the splitting: for a dated calendar it reads the eras, cuts `[start, effective_end]` at each `effective_from`, and calls `populate_trading_sessions` once per segment with a calendar row carrying that era's open and close.
+`populate_trading_sessions` and `session_interval` are unchanged: they take one fixed open and close, and `session_interval` stays the one place the open-after-close rule lives. Sessions are keyed by the date they close, and eras are keyed the same way (D1), so a range split at an era's `effective_from` has no session spanning two segments. `extend_calendar_sessions` does the splitting: for a dated calendar it reads the eras, cuts `[start, effective_end]` at each `effective_from`, and calls `populate_trading_sessions` once per segment with a calendar row carrying that era's open and close. Where an era's `sunday_open` differs from its `market_open`, each session in the segment whose open falls on a Sunday is given `sunday_open` as its late open, unless its exception row already carries one (D1).
 
 - **Dated calendars.** A calendar is dated when `trading_calendars.hours_dated` is true, which the migration sets for `CME_EQUITY` and `CME_METALS`. How dated is read matters because migrations 058 and 059 call `extend_calendar_sessions(conn, calendar_id, start=..., end=...)` directly (`minute.py`, `_seed_cme_equity_calendar` and `_seed_cme_metals_calendar`), and on a fresh database they run before `hours_dated` exists. Adding the column to `_read_calendar`'s existing `SELECT` would fail there with an undefined-column error. So a small helper, `_is_dated(conn, calendar_id)`, first asks `information_schema.columns` whether `trading_calendars.hours_dated` exists (the same introspection `minute.py` already uses, for example in the migration near line 2408). If the column is absent it returns false without reading it. If present, it returns the row's flag. A database without the column cannot have eras, so "not dated" is a schema-version fact, not a fallback, and extension behaves exactly as today. In the new migration, step 3 adds the column and sets the flag inside the same transaction as step 5, so step 5 sees them and takes the dated path. For a dated calendar the eras come from `trading_calendar_hours` only. If it has no era rows, extension raises. A session date before the first era raises `NoHoursEraError` naming the calendar and the date. There is never a fallback to the `trading_calendars` hours.
 - **Every other calendar** is not dated and takes the existing single-segment path. NYSE and NASDAQ output is unchanged, and a unit test compares it to the current output.
@@ -369,3 +371,31 @@ Relative effort 3/5. Suggested order, committing at each section:
 - Run `ruff format` on touched files only, and check `git diff` for swept lines before each commit.
 - Findings to record for the PM, in a section of this document added at implementation: any documented hours change from 2020 on (D2), any unsourced era and the resulting `CME_DATASET_START` (D5), and every unresolved count finding (D8).
 - If the sources for an era or a day cannot be found, stop and say so rather than entering a plausible value.
+
+## Era sources
+
+Read 2026-11-01. All times America/Chicago. Each era is in force from its `effective_from` (a session date, the date the session closes) until the next era's.
+
+### CME_EQUITY (ES)
+
+| effective_from | market_open | market_close | sunday_open | Source |
+|---|---|---|---|---|
+| 2010-06-06 | 15:30 | 15:15 | 17:00 | ES contract specifications, "MON-THURS: 5:00 p.m.-3:15 p.m. & 3:30 p.m.-4:30 p.m. (Daily maintenance shutdown 4:30 p.m.-5:00 p.m.) SUN: 5:00 p.m.-3:15 p.m.", Central Time, identical in Wayback snapshots 2010-04-16, 2011-07-08, 2011-11-09, 2012-06-16, 2012-10-06: https://web.archive.org/web/20100416105946/http://www.cmegroup.com/trading/equity-index/us-index/e-mini-sandp500_contract_specifications.html . SER-6465 confirms the trading day started at 3:30 p.m. CT until 2012-11-18 ("Moving the start of the ... trading day from 3:30 p.m. to 5:00 p.m."). The 16:30-17:00 maintenance shutdown lies inside the session (15:30 previous day to 15:15) and is not modelled, like the later 15:15-15:30 halt. |
+| 2012-11-19 | 17:00 | 16:15 | 17:00 | CME Special Executive Report S-6465, 2012-11-14, "New Trading Hours: Equity Index Futures & Options on Equity Index Futures on Monday, November 19, 2012": trading begins Sunday 5:00 p.m. CT, continues to 4:15 p.m. CT, halt 3:15-3:30 p.m., closed 4:15-5:00 p.m., re-opens 5:00 p.m. Monday-Thursday for the new trade date, Friday session to 4:15 p.m. https://web.archive.org/web/20130412064716/http://www.cmegroup.com/rulebook/files/ser-6465_Equity_Index_Futures_Options_on_Equity_Index_Futures_20121114.pdf |
+| 2015-09-21 | 17:00 | 16:00 | 17:00 | CME Globex Notice 2015-09-07, "Changes to Daily Maintenance Period for CME Globex": "Effective Monday, September 21 ... the closing times for the following markets will now occur 15 minutes earlier Monday through Friday at 16:00 CT. CME Equity, CBOT Equity, COMEX, NYMEX, DME. All products will continue to open at their normally scheduled times." https://web.archive.org/web/20150912161604/http://www.cmegroup.com/tools-information/lookups/advisories/electronic-trading/20150907.html . Bounded by ES contract specifications at 16:15 (Wayback 2015-09-06) and 16:00 (Wayback 2015-10-08). This is the current era, equal to the `trading_calendars` row. |
+
+### CME_METALS (GC)
+
+| effective_from | market_open | market_close | sunday_open | Source |
+|---|---|---|---|---|
+| 2010-06-06 | 17:00 | 16:15 | 17:00 | Gold futures contract specifications, "CME Globex: Sunday – Friday 6:00 p.m. – 5:15 p.m. (5:00 p.m. – 4:15 p.m. Chicago Time/CT) with a 45-minute break each day beginning at 5:15 p.m. (4:15 p.m. CT)", identical in Wayback snapshots 2010-04-02, 2011-07-28, 2012-10-10, 2013-01-16, 2014-09-24, 2015-09-06: https://web.archive.org/web/20100402122213/http://www.cmegroup.com/trading/metals/precious/gold_contract_specifications.html . Sunday open equals the daily open. |
+| 2015-09-21 | 17:00 | 16:00 | 17:00 | CME Globex Notice 2015-09-07 (COMEX listed), as for ES above. Bounded by gold contract specifications at 16:15 (Wayback 2015-09-06) and 16:00 with a 60-minute break (Wayback 2015-10-09). This is the current era, equal to the `trading_calendars` row. |
+
+The forum lead (ES close 16:15 to 16:00 around September 2015) is now dated by the 2015-09-07 notice. It also moved GC, which the lead did not mention.
+
+## Findings
+
+- **Hours changes from 2020 on (D2):** none found. The 2021 removal of the 15:15-15:30 CT equity halt (SER-8776) is inside a session.
+- **Unsourced eras (D5):** none. `CME_DATASET_START` stays 2010-06-06.
+- **Count check findings (D8):** filled in by tasks 5 and 8.
+

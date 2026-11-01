@@ -8,7 +8,7 @@ projectState: CME_EQUITY and CME_METALS sessions start 2020-01-01; last primary 
   is 065_instruments_name; 058/059 seed the 2020 range through extend_calendar_sessions
 dateCreated: 20261101
 dateUpdated: 20261101
-status: not_started
+status: in_progress
 turns: 15
 promptTokens: 826489
 cachedTokens: 753110
@@ -41,26 +41,28 @@ revision_number: 2
 
 ### 1. Source the hours eras (D1, D2)
 
-- [ ] **1.1 Source ES regular-hours eras, 2010-06-06 to 2019-12-31**
-  - [ ] Write everything sourced here into a new "Era sources" section of the slice design as you go (one row per era: `effective_from`, open, close, Sunday open if different, citation URL and snapshot date). Task 2.1 enters the seed from that section only, so it must be complete enough to work from in a fresh session.
-  - [ ] First read `src/manta_trading/market/schema/seed_cme_calendar.py` and `seed_cme_metals_calendar.py` (docstrings, `CmeCalendarSeed`, `closed_day`, `early_close_day`, the `# source:` comment format) and how 221 and 232 cited Wayback snapshots. Reuse that citation format. Today's hours live in the `trading_calendars` rows seeded by migrations 058 and 059.
-  - [ ] Find dated CME documents (notice, Special Executive Report, or a contract-spec page on Wayback whose snapshot date bounds the change) giving ES open and close in each era.
-  - [ ] For each era, establish whether the Sunday open differs from the daily reopen. Record the answer with its source.
-  - [ ] Record each era as: `effective_from` (the session date the era first closes on), open, close (America/Chicago), source citation.
-  - [ ] A forum post or other undated lead about an hours change is not a source. Enter a change only if a dated document confirms it.
-  - [ ] Note any documented hours change on or after 2020-01-01 as a finding. Do not enter it.
-  - [ ] Success: the "Era sources" section lists every ES era with a dated document. Any era with no document is listed there as unsourced.
+- [x] **1.1 Source ES regular-hours eras, 2010-06-06 to 2019-12-31**
+  - [x] Write everything sourced here into a new "Era sources" section of the slice design as you go (one row per era: `effective_from`, open, close, Sunday open if different, citation URL and snapshot date). Task 2.1 enters the seed from that section only, so it must be complete enough to work from in a fresh session.
+  - [x] First read `src/manta_trading/market/schema/seed_cme_calendar.py` and `seed_cme_metals_calendar.py` (docstrings, `CmeCalendarSeed`, `closed_day`, `early_close_day`, the `# source:` comment format) and how 221 and 232 cited Wayback snapshots. Reuse that citation format. Today's hours live in the `trading_calendars` rows seeded by migrations 058 and 059.
+  - [x] Find dated CME documents (notice, Special Executive Report, or a contract-spec page on Wayback whose snapshot date bounds the change) giving ES open and close in each era.
+  - [x] For each era, establish whether the Sunday open differs from the daily reopen. Record the answer with its source.
+  - [x] Record each era as: `effective_from` (the session date the era first closes on), open, close (America/Chicago), source citation.
+  - [x] A forum post or other undated lead about an hours change is not a source. Enter a change only if a dated document confirms it.
+  - [x] Note any documented hours change on or after 2020-01-01 as a finding. Do not enter it.
+  - [x] Success: the "Era sources" section lists every ES era with a dated document. Any era with no document is listed there as unsourced.
 
-- [ ] **1.2 Source GC regular-hours eras, 2010-06-06 to 2019-12-31**
-  - [ ] Same method as 1.1, from the metals product-group documents, written into the same "Era sources" section. Do not copy from ES.
-  - [ ] Success: the "Era sources" section lists every GC era with its source and the Sunday-open answer, or lists the era as unsourced.
+- [x] **1.2 Source GC regular-hours eras, 2010-06-06 to 2019-12-31**
+  - [x] Same method as 1.1, from the metals product-group documents, written into the same "Era sources" section. Do not copy from ES.
+  - [x] Success: the "Era sources" section lists every GC era with its source and the Sunday-open answer, or lists the era as unsourced.
 
-- [ ] **1.3 Decide the table shape and `CME_DATASET_START`**
-  - [ ] If 1.1 or 1.2 found an era whose Sunday open differs from its daily reopen, D1 is reopened: add the Sunday-open column to the D1 schema in the slice design and note it in the slice document. Stop coding against the table until that edit is in the document.
-  - [ ] If no difference was found, the table keeps the D1 columns.
-  - [ ] If any era is unsourced, `CME_DATASET_START` moves later to the `effective_from` of the earliest sourced era (D5). Write the unsupported range in a new "Findings" section of the slice design.
-  - [ ] Write the Findings section header now, with entries for: hours changes from 2020 on (D2), unsourced eras and the resulting start (D5), and unresolved count findings (D8, filled in later).
-  - [ ] Success: the table columns and `CME_DATASET_START` are fixed and written down in the slice design.
+- [x] **1.3 Decide the table shape and `CME_DATASET_START`**
+  - [x] If 1.1 or 1.2 found an era whose Sunday open differs from its daily reopen, D1 is reopened: add the Sunday-open column to the D1 schema in the slice design and note it in the slice document. Stop coding against the table until that edit is in the document.
+  - [x] If no difference was found, the table keeps the D1 columns.
+  - [x] If any era is unsourced, `CME_DATASET_START` moves later to the `effective_from` of the earliest sourced era (D5). Write the unsupported range in a new "Findings" section of the slice design.
+  - [x] Write the Findings section header now, with entries for: hours changes from 2020 on (D2), unsourced eras and the resulting start (D5), and unresolved count findings (D8, filled in later).
+  - [x] Success: the table columns and `CME_DATASET_START` are fixed and written down in the slice design.
+
+  Sunday open differs for ES before 2012-11-19 (SER-6465); `sunday_open time NOT NULL` added to D1. `CME_DATASET_START` stays 2010-06-06.
 
 **Commit**: `docs: record 301 sourced CME hours eras and table shape`
 
