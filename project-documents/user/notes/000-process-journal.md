@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20260901
+dateUpdated: 20261101
 status: in_progress
 ---
 
@@ -19,6 +19,25 @@ that drift. When the file exceeds the standard size limit, split per
 file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
+
+## 20261101 — ADR: what futures ticks are for — time bars come from Databento, tick bars take any N, one incremental rollup, compact raw ticks
+
+**Context.** The futures bars routes build 1m–1d bars from `tick_trade` with `time_bucket`. That throws away what makes a tick worth more than a bar (aggressor side, the quote at the trade, exact order), and it duplicates bars Databento sells and the Standard plan includes. trading-ui needs futures charts and asked whether trading-data would serve N-tick bars. The 300 architecture named a bars source rule but never said what ticks are for.
+
+**Decision.**
+1. **Time bars come from Databento.** `ohlcv-1s` and `ohlcv-1m` are stored and coarser intervals are rolled up from them on the CME session. Ticks never produce served time bars. Tick-derived time bars are kept only as the parity check against provider bars. No 5s/15s intervals. Provider `ohlcv-1h`/`1d` stay unserved (PM, 2026-10-28).
+2. **`ohlcv-1s` has a purpose.** The plan includes it, and it is wanted for more of the universe than the instruments we hold ticks for. Ticks (`tbbo`/`trades`) are bought for a few critical instruments (ES, GC). The rolling 12-month window is top-of-book data; `mbp-1`, `bbo` and depth are not bought (PM, 2026-11-01: `trades` + `tbbo` suffice).
+3. **Tick bars take any N.** N trades per bar, N any positive integer, set per request by the user or the engine. There is no fixed menu of N, and that is not negotiable.
+4. **One rollup rule.** One tick is one trade record: a print as time-and-sales shows it, so a sweep through three prices is three ticks. About 2% of ES records share an exchange event with another. The count restarts at each session open. The last bar of a session is kept and marked partial. A bar carries open and close times (first and last trade), OHLC, volume, trade count, buy and sell volume by aggressor side, the bid/ask at close, and its identity (session date, index within the session).
+5. **One implementation, incremental.** The rule lives in one module that takes one trade at a time and returns closed bars plus the current partial bar. History is the same module fed stored trades in a loop. There is no SQL second implementation. The module is checked against fixtures built from real `tbbo` sessions.
+6. **The engine and the chart get identical bars.** trading-data cuts tick bars now. Consumers do not re-implement the rule (the browser never cuts bars). A per-client engine may run the same module later.
+7. **Raw ticks stay served** for event-level views and for consumers that want events. They go out in a compact columnar encoding: integer nanosecond timestamps as deltas, integer prices, symbol and session once per segment. Historical responses and the future live stream use the same encoding, and every message carries its stream key (`ts_event`, `sequence`, `sequence_ordinal`) so a client can stitch history to live with no gap or duplicate.
+8. **One shared store.** trading-data's database is the organized local store every chart and engine install reads. Installs keep no copies of their own and never pull from providers.
+9. **Scaling, accepted limit.** Server-side cutting and fan-out are known not to scale past a handful of clients. At scale, each client runs its own engine with its own Databento feed (the Sierra Chart / NinjaTrader model) and the same rollup module, and trading-data becomes the history and record service. Data is not redistributed (Standard plan: 10 live sessions per dataset per account, and redistribution needs a different licence).
+
+**Rationale.** Databento already sells every time interval worth having, so ticks are worth holding only for what bars cannot give: activity-based bars at a user-chosen N and event-level views. Identical bars come from one implementation, not from one server: an incremental module serves history and live alike, so responsibility can move to a per-client engine later without a rewrite. Measured on prod (ES front month, 2024-12-02): a median ES session is about 393k trades (max 691k; GC about 84k). Today's row msgpack is about 200 B/tick (about 80 MB per ES session); gzip cuts it to 18.5 B/tick, and the columnar encoding to 24 B/tick raw and 9.5 B/tick gzipped. Gzip shipped (`feat: gzip API responses`).
+
+**Follow-ups.** The 300 architecture is amended ("Which source serves bars", "What 1-second bars are for", and "Tick bars and raw ticks" replacing the conditional tick-derived continuous aggregates). The 300 slice plan gains slice 308, Tick Bars and Compact Tick Serving. The `ohlcv-1s` future-work trigger (a stated purpose) is met. Issue #62 carries trading-ui's requirements. The 280 architecture's live design inherits points 5, 7 and 9.
 
 ## 20260831 — 265 cut over: the trades drain runs at the rehearsal's pace on production, and a host section is a script, not a checklist
 
