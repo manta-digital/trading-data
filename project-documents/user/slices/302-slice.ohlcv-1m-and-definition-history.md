@@ -47,7 +47,7 @@ Nothing is bought here. The production universe wants no bar or history days aft
 
 - Any purchase, or any change to the production universe's ranges (304, 307).
 - `statistics`, the cross-tier volume check against it, and the open-interest roll (303).
-- `ohlcv-1s` (future work). Provider `ohlcv-1h` and `ohlcv-1d` are never archived.
+- `ohlcv-1s` (future work). Provider `ohlcv-1h` and `ohlcv-1d` are not archived here. They are never served, and whether to archive them is decided only at the architecture's recorded revisit (PM, 2026-10-28).
 - Serving bars through `/api/v1/futures/*` or `mt data tick get` (306). Neither changes here (D11).
 - `health`, `accounting`, `overview` and the status coverage aggregates (305).
 - Tick-derived-versus-provider bar parity. It needs provider bars over a window where ticks are held, and that first exists after 304. It is measured in 306, where the source rule is applied.
