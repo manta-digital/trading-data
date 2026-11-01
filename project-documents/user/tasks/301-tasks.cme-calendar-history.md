@@ -117,7 +117,6 @@ revision_number: 2
   - [x] Segmentation: a range before the first era (raises `NoHoursEraError`; assert the message contains the calendar id and the date), a range starting on an era's first date, a range across a change, and a late-open exception overriding the era's open.
   - [x] A dated calendar with no era rows raises.
   - [x] `_is_dated` is false, without error, on a database lacking the `hours_dated` column. After setting the flag it is true for `CME_EQUITY` and `CME_METALS` and false for NYSE and NASDAQ.
-    Note: True-after-flag half moves to 7.3 (needs the migration's column).
   - [x] NYSE, NASDAQ and the current CME hours produce output equal to the pre-change output.
   - [x] Success: tests pass and `test_058_059_fresh_output_unchanged` still passes.
 
@@ -235,17 +234,17 @@ revision_number: 2
 
 ### 9. Cutover script (D9)
 
-- [ ] **9.1 Create `scripts/cutover_301_calendar_history.py`**
-  - [ ] First read `scripts/cutover_0244_symbol_names.py`, `scripts/cutover_common.py` (`preflight`, timer hold, `install`, `migrate`) and the `upgrade_production.py` helpers.
-  - [ ] Steps: preflight, hold timers, install the release, migrate the primary track to the new migration id with the target verified, verify, release timers.
-  - [ ] Timers are released as found after a failed verify and stay held after a failed migrate. The narration says so, and a rerun after the fix releases them.
-  - [ ] Verify: both CME calendars' first session is dated (or the first session on or after the final `CME_DATASET_START`), `sudo mt-run data health` passes, and `mt data overview` exits 0.
-  - [ ] No new mechanism and no root or PM host step beyond what `cutover_common` already uses.
-  - [ ] Success: `--help` works and the script type-checks.
+- [x] **9.1 Create `scripts/cutover_301_calendar_history.py`**
+  - [x] First read `scripts/cutover_0244_symbol_names.py`, `scripts/cutover_common.py` (`preflight`, timer hold, `install`, `migrate`) and the `upgrade_production.py` helpers.
+  - [x] Steps: preflight, hold timers, install the release, migrate the primary track to the new migration id with the target verified, verify, release timers.
+  - [x] Timers are released as found after a failed verify and stay held after a failed migrate. The narration says so, and a rerun after the fix releases them.
+  - [x] Verify: both CME calendars' first session is dated (or the first session on or after the final `CME_DATASET_START`), `sudo mt-run data health` passes, and `mt data overview` exits 0.
+  - [x] No new mechanism and no root or PM host step beyond what `cutover_common` already uses.
+  - [x] Success: `--help` works and the script type-checks.
 
-- [ ] **9.2 Test the script's decision logic**
-  - [ ] Add `test/unit/test_cutover_301.py` in the pattern of `test/unit/test_cutover_234.py` (every cutover script ships one; `cutover_common` does not test timer release). Cover: verify fails when a CME calendar's first session is not the expected date, and timers are released when verify fails and stay held when migrate fails.
-  - [ ] Success: tests pass.
+- [x] **9.2 Test the script's decision logic**
+  - [x] Add `test/unit/test_cutover_301.py` in the pattern of `test/unit/test_cutover_234.py` (every cutover script ships one; `cutover_common` does not test timer release). Cover: verify fails when a CME calendar's first session is not the expected date, and timers are released when verify fails and stay held when migrate fails.
+  - [x] Success: tests pass.
 
 **Commit**: `feat: add 301 calendar history cutover script`
 
