@@ -42,17 +42,18 @@ revision_number: 2
 ### 1. Source the hours eras (D1, D2)
 
 - [ ] **1.1 Source ES regular-hours eras, 2010-06-06 to 2019-12-31**
+  - [ ] Write everything sourced here into a new "Era sources" section of the slice design as you go (one row per era: `effective_from`, open, close, Sunday open if different, citation URL and snapshot date). Task 2.1 enters the seed from that section only, so it must be complete enough to work from in a fresh session.
   - [ ] First read `src/manta_trading/market/schema/seed_cme_calendar.py` and `seed_cme_metals_calendar.py` (docstrings, `CmeCalendarSeed`, `closed_day`, `early_close_day`, the `# source:` comment format) and how 221 and 232 cited Wayback snapshots. Reuse that citation format. Today's hours live in the `trading_calendars` rows seeded by migrations 058 and 059.
   - [ ] Find dated CME documents (notice, Special Executive Report, or a contract-spec page on Wayback whose snapshot date bounds the change) giving ES open and close in each era.
   - [ ] For each era, establish whether the Sunday open differs from the daily reopen. Record the answer with its source.
   - [ ] Record each era as: `effective_from` (the session date the era first closes on), open, close (America/Chicago), source citation.
   - [ ] A forum post or other undated lead about an hours change is not a source. Enter a change only if a dated document confirms it.
   - [ ] Note any documented hours change on or after 2020-01-01 as a finding. Do not enter it.
-  - [ ] Success: a working list of ES eras, each with a dated document. Any era with no document is written down as unsourced.
+  - [ ] Success: the "Era sources" section lists every ES era with a dated document. Any era with no document is listed there as unsourced.
 
 - [ ] **1.2 Source GC regular-hours eras, 2010-06-06 to 2019-12-31**
-  - [ ] Same method as 1.1, from the metals product-group documents. Do not copy from ES.
-  - [ ] Success: a working list of GC eras with sources, plus the Sunday-open answer, or unsourced eras written down.
+  - [ ] Same method as 1.1, from the metals product-group documents, written into the same "Era sources" section. Do not copy from ES.
+  - [ ] Success: the "Era sources" section lists every GC era with its source and the Sunday-open answer, or lists the era as unsourced.
 
 - [ ] **1.3 Decide the table shape and `CME_DATASET_START`**
   - [ ] If 1.1 or 1.2 found an era whose Sunday open differs from its daily reopen, D1 is reopened: add the Sunday-open column to the D1 schema in the slice design and note it in the slice document. Stop coding against the table until that edit is in the document.
@@ -67,7 +68,7 @@ revision_number: 2
 
 - [ ] **2.1 Create `market/schema/seed_cme_hours.py`**
   - [ ] Define `CME_DATASET_START` once, with the value fixed in 1.3.
-  - [ ] Define an era dataclass (calendar id, `effective_from`, open, close, source) and the era tuples for `CME_EQUITY` and `CME_METALS`. The latest era of each carries today's hours.
+  - [ ] Define an era dataclass (calendar id, `effective_from`, open, close, source) and the era tuples for `CME_EQUITY` and `CME_METALS`, entered from the slice design's "Era sources" section. The latest era of each carries today's hours.
   - [ ] Every era has a non-empty `source` citing its document.
   - [ ] If 1.3 added a Sunday-open column, the era dataclass carries it too.
   - [ ] Success: module imports, under about 300 lines, contains no hours that lack a source.
@@ -111,7 +112,7 @@ revision_number: 2
   - [ ] Success: code written, mypy clean on the touched file.
 
 - [ ] **4.3 Unit tests for extension**
-  - [ ] Segmentation: a range before the first era (raises), a range starting on an era's first date, a range across a change, and a late-open exception overriding the era's open.
+  - [ ] Segmentation: a range before the first era (raises `NoHoursEraError`; assert the message contains the calendar id and the date), a range starting on an era's first date, a range across a change, and a late-open exception overriding the era's open.
   - [ ] A dated calendar with no era rows raises.
   - [ ] `_is_dated` is false, without error, on a database lacking the `hours_dated` column. After setting the flag it is true for `CME_EQUITY` and `CME_METALS` and false for NYSE and NASDAQ.
   - [ ] NYSE, NASDAQ and the current CME hours produce output equal to the pre-change output.
@@ -146,7 +147,7 @@ revision_number: 2
   - [ ] A year with no document: record it as unresolved in the Findings section and move `CME_DATASET_START` (and the era seed) to the first date after the latest unsourced year, so supported history stays contiguous up to 2020 (D5). Never enter a guessed row.
 
 - [ ] **6.2 Source CME_EQUITY exceptions, 2015-01-01 to 2019-12-31**
-  - [ ] Same method and success criteria as 6.1.
+  - [ ] Same method and success criteria as 6.1, including its unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
 
 - [ ] **6.3 Create `market/schema/seed_cme_equity_history.py`**
   - [ ] Enter each row from 6.1 and 6.2 with `closed_day` or `early_close_day` from `seed_cme_calendar.py`, each with a `# source:` comment in the existing format. Add a `late_open_day` helper only if a late open was found.
@@ -160,10 +161,10 @@ revision_number: 2
 
 - [ ] **6.5 Source CME_METALS exceptions, 2010-06-06 to 2014-12-31**
   - [ ] Same method as 6.1 from the metals product-group row. Metals differ from equity and between years (see the `seed_cme_metals_calendar.py` docstring). Copy nothing from equity.
-  - [ ] Success: same as 6.1, including its unsourced-year resolution.
+  - [ ] Success: same as 6.1, including its unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
 
 - [ ] **6.6 Source CME_METALS exceptions, 2015-01-01 to 2019-12-31**
-  - [ ] Same method and success criteria as 6.5.
+  - [ ] Same method and success criteria as 6.5, including the unsourced-year rule: a year with no document moves `CME_DATASET_START` and updates the era seed and its task 2 tests.
 
 - [ ] **6.7 Create `market/schema/seed_cme_metals_history.py`**
   - [ ] Same pattern as 6.3, from the rows in 6.5 and 6.6.
@@ -205,7 +206,6 @@ revision_number: 2
   - [ ] Each precondition aborts with a clear message: pre-2020 holiday row, pre-2020 session row.
   - [ ] The 2020-onward comparison aborts when a 2020 session is changed during the migration (for example by seeding a deliberately wrong era).
   - [ ] A latest era that differs from the calendar row aborts.
-  - [ ] The runner refuses a second application.
   - [ ] Success: all pass. Re-run a failure in isolation before investigating (known flakes: see the integration-tier notes).
 
 **Commit**: `feat: add CME calendar history migration with 2020-onward proof`
@@ -221,11 +221,8 @@ revision_number: 2
   - [ ] For each finding, look for a dated CME document. If found, add the sourced row (equity or metals history seed) or era, extend the tests, and rerun that window.
   - [ ] If no document resolves it, record it in the slice design's Findings section as unresolved, with date, window and count. Never add a row that counts alone suggest.
   - [ ] If a finding leaves a whole early era unsourceable, move `CME_DATASET_START` later per D5 and update the era seed, the migration inputs and the tests.
+  - [ ] After any seed change, rerun the unit and integration tests from tasks 2, 6 and 7; all pass.
   - [ ] Success: the script exits 0, or every remaining finding has an entry in the Findings section. The Findings section also states any 2020-onward hours change (D2) and the final `CME_DATASET_START`.
-
-- [ ] **8.3 Rerun the affected tests**
-  - [ ] Run the unit and integration tests from tasks 2, 6 and 7 after any seed change in 8.2.
-  - [ ] Success: all pass.
 
 **Commit**: `feat: apply count-check findings to CME history seeds and record unresolved ones`
 
@@ -240,7 +237,7 @@ revision_number: 2
   - [ ] Success: `--help` works and the script type-checks.
 
 - [ ] **9.2 Test the script's decision logic**
-  - [ ] Unit test the verify step and the timer-release behaviour on failed migrate and failed verify using the same fakes 0244's tests use. If 0244 has no tests for this, test the verify function directly.
+  - [ ] Add `test/unit/test_cutover_301.py` in the pattern of `test/unit/test_cutover_234.py` (every cutover script ships one; `cutover_common` does not test timer release). Cover: verify fails when a CME calendar's first session is not the expected date, and timers are released when verify fails and stay held when migrate fails.
   - [ ] Success: tests pass.
 
 **Commit**: `feat: add 301 calendar history cutover script`
@@ -248,7 +245,7 @@ revision_number: 2
 ### 10. Final validation
 
 - [ ] **10.1 Quality gates**
-  - [ ] `ruff check` and `ruff format` on touched files only. Run `git diff main` and check for swept or deleted pre-existing lines.
+  - [ ] `ruff check` and `ruff format` on touched files only. Run `git diff` against the target (`cf config get git.integration_branch`, or `main` if empty) and check for swept or deleted pre-existing lines.
   - [ ] mypy in one invocation with the kalshi src paths and tests.
   - [ ] Success: all clean. No touched code module exceeds about 300 lines.
 
