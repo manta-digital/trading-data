@@ -4,7 +4,7 @@ slice: cme-calendar-history
 project: trading
 parent: user/architecture/300-slices.futures-historical-bars-statistics-and-tick-aggregation.md
 dependencies: []
-interfaces: [302, 303, 304, 306, 307]
+interfaces: [302, 303, 304, 305, 306, 307]
 dateCreated: 20261101
 dateUpdated: 20261101
 status: not_started
@@ -36,7 +36,7 @@ This slice was split out of the `ohlcv-1m` design (302). That design found the g
 
 **Included**
 
-- `CME_DATASET_START = 2010-06-06`, defined once.
+- `CME_DATASET_START = 2010-06-06`, defined once. It is the first populated session date, so it moves later only if an era cannot be sourced (D1).
 - A primary-track migration that creates `trading_calendar_hours`, inserts the dated hours eras, inserts the pre-2020 holiday and early-close rows, and extends sessions from `CME_DATASET_START` to the day before each calendar's current seed start (D1 to D3).
 - `populate_trading_sessions` (and so `extend_calendar_sessions`) uses the hours era in force on each session's date, for calendars that have eras.
 - Sources: a dated CME document cited for every era and every exception row (D2).
@@ -84,7 +84,7 @@ The migration runs once on a primary database:
 
 1. Create `trading_calendar_hours`.
 2. Insert the eras for `CME_EQUITY` and `CME_METALS`.
-3. Insert the pre-2020 rows into `trading_holidays` (`ON CONFLICT DO NOTHING`).
+3. Insert the pre-2020 rows into `trading_holidays` with a plain `INSERT`. The migration first checks that no CME row exists before the seed start, and aborts if one does (D3).
 4. Call `extend_calendar_sessions` for each calendar from `CME_DATASET_START` to its seed start minus one day.
 
 From then on, `populate_trading_sessions` reads `trading_calendar_hours` for these two calendars and uses the era in force on each date. A bar arriving at ingest is placed by `locate_sessions` against the stored sessions, exactly as today.
@@ -106,6 +106,10 @@ The latest era of each CME calendar must equal its `trading_calendars` row, and 
 
 This is needed because the Globex close moved. An unofficial forum report puts the CME equity daily maintenance moving to start at 16:00 CT on a Monday, 21 September (consistent with 2015). Before that, ES closed at 16:15 CT. A bar at 16:05 CT in 2014 would otherwise fail `session_boundary`. The forum report is a lead, not a source. Eras are entered only from dated CME documents (notices, contract specification pages on Wayback), one `source` per era, for ES and GC independently. If no dated document can be found for a change, the slice stops at that era and says so, instead of entering a guess.
 
+**Era range.** Eras are searched for and entered only for 2010-06-06 to 2019-12-31. A documented regular-hours change on or after 2020-01-01 is not entered, because 2020 onward is declared untouched and the stored sessions follow the `trading_calendars` row. It is recorded as a finding for the PM instead.
+
+**No era in force.** For a calendar that has eras, a session date before its first era is an error, not a fallback: `populate_trading_sessions` raises, naming the calendar and the date. It never falls back to the `trading_calendars` hours (no silent defaults). This also covers a fill that stopped early for lack of a source: the first era's `effective_from` is then the supported start, `CME_DATASET_START` is set to that date (the constant never runs ahead of the populated data, so 302's `HistoryWant` refuses anything earlier), and the unsupported range is written into the slice's implementation notes.
+
 - *Rejected: era hours as exception rows.* An exception models a closure or an early close. A later regular close is neither, and stretching the vocabulary would make every pre-2015 weekday an "exception".
 - *Rejected: populating pre-2020 sessions in a CME-only routine with no table.* `mt data extend` and the session repair paths rebuild from the tables. Hours known only to one routine would be overwritten the first time either ran.
 
@@ -119,7 +123,7 @@ Status: decided
 
 `CME_EQUITY_SEED_START` and `CME_METALS_SEED_START` stay at 2020-01-01. The existing minute-track migration seeds from them, and moving them would change what that migration produces on a fresh database. Instead, `CME_DATASET_START = 2010-06-06` is a new constant, and the new primary-track migration fills `[CME_DATASET_START, SEED_START)` for each calendar.
 
-The migration checks that sessions from 2020-01-01 on are identical before and after, by comparing them, and aborts if not. Migration chain pins that name the last id are updated, as every primary migration does. It is applied by `mt data migrate apply`.
+Before inserting, the migration checks that no CME holiday row and no CME session exists before the seed start, and aborts if one does, so a stored row can never be kept silently over a different seed row. It then checks that sessions from 2020-01-01 on are identical before and after, by comparing them, and aborts if not. Migration chain pins that name the last id are updated, as every primary migration does. It is applied by `mt data migrate apply`.
 
 ### D4 — Verification: loud failure and a held-file check
 Status: decided
@@ -130,7 +134,7 @@ A mis-seeded day cannot pass silently. Ingest fails any bar outside a session wi
 
 ### Database / Storage Schema
 
-Primary-track migration: `CREATE TABLE trading_calendar_hours` with the primary key above; insert the eras; insert the 2010-06-06 to 2019-12-31 exceptions (`ON CONFLICT DO NOTHING`); extend sessions over that range. It touches only `CME_EQUITY` and `CME_METALS`. The migration is applied in production with `mt data migrate apply`. No root step is needed.
+Primary-track migration: `CREATE TABLE trading_calendar_hours` with the primary key above; insert the eras; insert the 2010-06-06 to 2019-12-31 exceptions with a plain `INSERT`, after the precondition check in D3; extend sessions over that range. It touches only `CME_EQUITY` and `CME_METALS`. The migration is applied in production with `mt data migrate apply`. No root step is needed.
 
 ### Sources
 
@@ -142,6 +146,7 @@ For each calendar, a short list in the seed module: the document, its date and i
 
 - **302:** sessions from 2010-06-06, so a 2010 to 2019 bar is placed. 302's `HistoryWant` refuses a start before `CME_DATASET_START`, so this constant is the single definition of the dataset start.
 - **303:** the same sessions, for placing a statistics record by reference time and trading date.
+- **305:** the pre-2020 sessions its per-session completeness verdicts read over the 2010 to 2019 range.
 - **304 and 307:** the check that a bought pre-2020 day is placed (`verify_cme_sessions.py`).
 - **306:** session open and close per calendar and date, queryable, for the 1d bar and for clipping roll-ups to the session open. The tick-bar count also restarts at each session open, and reads the same facts.
 
@@ -157,7 +162,7 @@ For each calendar, a short list in the seed module: the document, its date and i
 2. Sessions from 2020-01-01 on are byte-identical to the sessions before the migration.
 3. Every era and every pre-2020 exception row names a source document and its date.
 4. The latest hours era of each CME calendar equals its `trading_calendars` row.
-5. A session on a date inside an earlier era carries that era's open and close. A date after the era change carries the later pair.
+5. A session on a date inside an earlier era carries that era's open and close. A date after the era change carries the later pair. A date before a calendar's first era raises an error naming the calendar and the date.
 6. A bar in a pre-2020 daily break fails `session_boundary`. A bar inside the era's regular hours is placed.
 7. `scripts/verify_cme_sessions.py` accepts a pre-2020 date and exits 0 for a placed day and non-zero for an unplaced one.
 8. NYSE and NASDAQ sessions are unchanged.
@@ -165,7 +170,8 @@ For each calendar, a short list in the seed module: the document, its date and i
 ### Technical Requirements
 
 - Unit tests:
-  - era lookup by date (before, on and after a change);
+  - era lookup by date (before the first era, on and after a change);
+  - no era entered on or after 2020-01-01;
   - latest era equals `trading_calendars`;
   - every era and exception row cites a source;
   - `CME_DATASET_START` is the start of the sessions the migration creates.
