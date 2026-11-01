@@ -99,26 +99,27 @@ revision_number: 2
 
 ### 4. Era-aware extension (D3)
 
-- [ ] **4.1 Add `_is_dated` and `NoHoursEraError`**
-  - [ ] First read `src/manta_trading/data/base/session_extension.py` (`extend_calendar_sessions`, `_read_calendar`), `session_population.py` (`populate_trading_sessions`, `session_interval`), and how `minute.py` introspects `information_schema.columns`. Confirm no caller of `extend_calendar_sessions` needs an edit.
-  - [ ] `_is_dated(conn, calendar_id)` first asks `information_schema.columns` whether `trading_calendars.hours_dated` exists. If absent, return false without reading it. If present, return the row's flag.
-  - [ ] Define `NoHoursEraError`, whose message names the calendar and the date.
-  - [ ] Success: no change to the existing `_read_calendar` `SELECT`, so 058 and 059 on a fresh database still run.
+- [x] **4.1 Add `_is_dated` and `NoHoursEraError`**
+  - [x] First read `src/manta_trading/data/base/session_extension.py` (`extend_calendar_sessions`, `_read_calendar`), `session_population.py` (`populate_trading_sessions`, `session_interval`), and how `minute.py` introspects `information_schema.columns`. Confirm no caller of `extend_calendar_sessions` needs an edit.
+  - [x] `_is_dated(conn, calendar_id)` first asks `information_schema.columns` whether `trading_calendars.hours_dated` exists. If absent, return false without reading it. If present, return the row's flag.
+  - [x] Define `NoHoursEraError`, whose message names the calendar and the date.
+  - [x] Success: no change to the existing `_read_calendar` `SELECT`, so 058 and 059 on a fresh database still run.
 
-- [ ] **4.2 Era reader and segmentation**
-  - [ ] For a dated calendar, read eras from `trading_calendar_hours` only. No era rows raises. A session date before the first era raises `NoHoursEraError`. There is no fallback to `trading_calendars` hours.
-  - [ ] Cut `[start, effective_end]` at each era `effective_from` and call `populate_trading_sessions` once per segment with a calendar row carrying that era's open and close.
-  - [ ] If 1.3 added a Sunday-open column, read it with the era and use it for the session that opens on Sunday, with a unit test in 4.3.
-  - [ ] Non-dated calendars take the existing single-segment path unchanged. `populate_trading_sessions` and `session_interval` are not edited.
-  - [ ] Keep the module within about 300 lines. Extract a helper module if it does not fit.
-  - [ ] Success: code written, mypy clean on the touched file.
+- [x] **4.2 Era reader and segmentation**
+  - [x] For a dated calendar, read eras from `trading_calendar_hours` only. No era rows raises. A session date before the first era raises `NoHoursEraError`. There is no fallback to `trading_calendars` hours.
+  - [x] Cut `[start, effective_end]` at each era `effective_from` and call `populate_trading_sessions` once per segment with a calendar row carrying that era's open and close.
+  - [x] If 1.3 added a Sunday-open column, read it with the era and use it for the session that opens on Sunday, with a unit test in 4.3.
+  - [x] Non-dated calendars take the existing single-segment path unchanged. `populate_trading_sessions` and `session_interval` are not edited.
+  - [x] Keep the module within about 300 lines. Extract a helper module if it does not fit.
+  - [x] Success: code written, mypy clean on the touched file.
 
-- [ ] **4.3 Unit tests for extension**
-  - [ ] Segmentation: a range before the first era (raises `NoHoursEraError`; assert the message contains the calendar id and the date), a range starting on an era's first date, a range across a change, and a late-open exception overriding the era's open.
-  - [ ] A dated calendar with no era rows raises.
+- [x] **4.3 Unit tests for extension**
+  - [x] Segmentation: a range before the first era (raises `NoHoursEraError`; assert the message contains the calendar id and the date), a range starting on an era's first date, a range across a change, and a late-open exception overriding the era's open.
+  - [x] A dated calendar with no era rows raises.
   - [ ] `_is_dated` is false, without error, on a database lacking the `hours_dated` column. After setting the flag it is true for `CME_EQUITY` and `CME_METALS` and false for NYSE and NASDAQ.
-  - [ ] NYSE, NASDAQ and the current CME hours produce output equal to the pre-change output.
-  - [ ] Success: tests pass and `test_058_059_fresh_output_unchanged` still passes.
+    Note: True-after-flag half moves to 7.3 (needs the migration's column).
+  - [x] NYSE, NASDAQ and the current CME hours produce output equal to the pre-change output.
+  - [x] Success: tests pass and `test_058_059_fresh_output_unchanged` still passes.
 
 **Commit**: `feat: split session extension at dated hours era boundaries`
 

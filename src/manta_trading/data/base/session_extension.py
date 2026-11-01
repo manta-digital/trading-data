@@ -16,6 +16,12 @@ from typing import TYPE_CHECKING, Any
 
 from psycopg.rows import dict_row
 
+from manta_trading.data.base.session_eras import (
+    is_dated,
+    plan_segments,
+    read_eras,
+    with_sunday_opens,
+)
 from manta_trading.data.base.session_population import populate_trading_sessions
 
 if TYPE_CHECKING:
@@ -68,8 +74,12 @@ def extend_calendar_sessions(
     ``clamped_by_holiday_bound`` reports whether the clamp applied. The caller
     owns the transaction — nothing is committed here.
 
+    A dated calendar (301 D3) is populated one era segment at a time with each
+    era's hours; every other calendar with its ``trading_calendars`` hours.
+
     Raises:
         ValueError: ``calendar_id`` is not in ``trading_calendars``.
+        NoHoursEraError: the calendar is dated and has no era for ``start``.
     """
     calendars_row, seeded_through = _read_calendar(conn, calendar_id)
     clamped = end > seeded_through
@@ -77,13 +87,7 @@ def extend_calendar_sessions(
 
     rows_upserted = 0
     if start <= effective_end:
-        rows = populate_trading_sessions(
-            calendar_id,
-            start,
-            effective_end,
-            calendars_row,
-            _read_holidays(conn, calendar_id),
-        )
+        rows = _populate(conn, calendar_id, start, effective_end, calendars_row)
         if rows:
             with conn.cursor() as cur:
                 cur.executemany(_UPSERT_SESSIONS_SQL, rows)
@@ -96,6 +100,36 @@ def extend_calendar_sessions(
         holidays_seeded_through=seeded_through,
         clamped_by_holiday_bound=clamped,
     )
+
+
+def _populate(
+    conn: psycopg.Connection[Any],
+    calendar_id: str,
+    start: date,
+    end: date,
+    calendars_row: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Session rows for ``[start, end]``, split at era boundaries when dated."""
+    holidays = _read_holidays(conn, calendar_id)
+    if not is_dated(conn, calendar_id):
+        return populate_trading_sessions(
+            calendar_id, start, end, calendars_row, holidays
+        )
+    rows: list[dict[str, Any]] = []
+    for segment in plan_segments(calendar_id, start, end, read_eras(conn, calendar_id)):
+        era_row = {
+            **calendars_row,
+            "market_open": segment.era.market_open,
+            "market_close": segment.era.market_close,
+        }
+        rows += populate_trading_sessions(
+            calendar_id,
+            segment.start,
+            segment.end,
+            era_row,
+            with_sunday_opens(holidays, segment),
+        )
+    return rows
 
 
 def _read_calendar(
