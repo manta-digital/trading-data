@@ -22,20 +22,21 @@ projectState: 'Slice design committed and revised after slice review (67b477c is
 dateCreated: 20261101
 dateUpdated: 20261101
 status: not_started
-turns: 15
-promptTokens: 723339
-cachedTokens: 648925
-cacheWriteTokens: 74390
-completionTokens: 17170
-durationSeconds: 129.0
-costUsd: 0.534481
-usageRounds: 1
-pricedRounds: 1
+turns: 34
+promptTokens: 1415242
+cachedTokens: 1318819
+cacheWriteTokens: 96385
+completionTokens: 23566
+durationSeconds: 171.3
+costUsd: 0.753438
+usageRounds: 2
+pricedRounds: 2
 usageByModel:
   claude-sonnet-5-5:
-    rounds: 1
-    costUsd: 0.5344812999999999
-    completionTokens: 17170
+    rounds: 2
+    costUsd: 0.7534386999999999
+    completionTokens: 23566
+revision_number: 1
 ---
 
 # Tasks: CME Calendar History
