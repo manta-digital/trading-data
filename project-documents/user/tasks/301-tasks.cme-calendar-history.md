@@ -68,20 +68,20 @@ revision_number: 2
 
 ### 2. Era seed module (D1, D2, D5)
 
-- [ ] **2.1 Create `market/schema/seed_cme_hours.py`**
-  - [ ] Define `CME_DATASET_START` once, with the value fixed in 1.3.
-  - [ ] Define an era dataclass (calendar id, `effective_from`, open, close, source) and the era tuples for `CME_EQUITY` and `CME_METALS`, entered from the slice design's "Era sources" section. The latest era of each carries today's hours.
-  - [ ] Every era has a non-empty `source` citing its document.
-  - [ ] If 1.3 added a Sunday-open column, the era dataclass carries it too.
-  - [ ] Success: module imports, under about 300 lines, contains no hours that lack a source.
+- [x] **2.1 Create `market/schema/seed_cme_hours.py`**
+  - [x] Define `CME_DATASET_START` once, with the value fixed in 1.3.
+  - [x] Define an era dataclass (calendar id, `effective_from`, open, close, source) and the era tuples for `CME_EQUITY` and `CME_METALS`, entered from the slice design's "Era sources" section. The latest era of each carries today's hours.
+  - [x] Every era has a non-empty `source` citing its document.
+  - [x] If 1.3 added a Sunday-open column, the era dataclass carries it too.
+  - [x] Success: module imports, under about 300 lines, contains no hours that lack a source.
 
-- [ ] **2.2 Tests for the era seed**
-  - [ ] Add `test/unit/test_seed_cme_hours.py`.
-  - [ ] Every era has a non-empty source that names a URL.
-  - [ ] Each calendar's earliest era starts on or before `CME_DATASET_START`.
-  - [ ] Each calendar's latest era equals today's `trading_calendars` hours (the values the 058 and 059 seeds insert).
-  - [ ] No era starts on or after 2020-01-01 except the current era when the last pre-2020 change took effect on the first 2020 session.
-  - [ ] Success: tests pass.
+- [x] **2.2 Tests for the era seed**
+  - [x] Add `test/unit/test_seed_cme_hours.py`.
+  - [x] Every era has a non-empty source that names a URL.
+  - [x] Each calendar's earliest era starts on or before `CME_DATASET_START`.
+  - [x] Each calendar's latest era equals today's `trading_calendars` hours (the values the 058 and 059 seeds insert).
+  - [x] No era starts on or after 2020-01-01 except the current era when the last pre-2020 change took effect on the first 2020 session.
+  - [x] Success: tests pass.
 
 **Commit**: `feat: add CME hours era seed and dataset start constant`
 
