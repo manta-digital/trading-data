@@ -393,6 +393,28 @@ class InstrumentRegistry:
         self._invalidate_cache()
         return (inserted, updated, unchanged)
 
+    def update_names(self, names: dict[str, str | None]) -> int:
+        """Set ``name`` per canonical_id; return how many rows changed.
+
+        Touches nothing but ``name`` and ``updated_at``. A canonical_id not in
+        the registry is ignored; an unchanged name is not rewritten.
+        """
+        if not names:
+            return 0
+        sql = """
+            UPDATE instruments AS i
+            SET name = v.name, updated_at = NOW()
+            FROM unnest(%s::text[], %s::text[]) AS v(canonical_id, name)
+            WHERE i.canonical_id = v.canonical_id
+              AND i.name IS DISTINCT FROM v.name
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (list(names), list(names.values())))
+                changed: int = cur.rowcount
+        self._invalidate_cache()
+        return changed
+
     def list_instruments(
         self,
         *,

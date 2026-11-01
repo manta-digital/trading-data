@@ -214,14 +214,23 @@ def _url_identity(url: str) -> tuple[str, str, str]:
     return host, str(parsed.port or 5432), parsed.path.lstrip("/")
 
 
-def verify_migrate_target(checkout_env: str, production_env: str) -> str:
+PRIMARY_URL_KEYS = ("MT_TIMESCALE_MAINTENANCE_URL", "MT_TIMESCALE_DB_URL")
+"""(checkout maintenance key, production application key) for the primary."""
+TICK_URL_KEYS = ("MT_TICK_MAINTENANCE_URL", "MT_TICK_DB_URL")
+"""The same pair for the tick database (``--track tick``)."""
+
+
+def verify_migrate_target(
+    checkout_env: str,
+    production_env: str,
+    keys: tuple[str, str] = PRIMARY_URL_KEYS,
+) -> str:
     """Refuse to migrate unless the checkout's maintenance URL targets the
     database the production units use (267 code review; sql.md: verify the
     target before destructive/DDL work). Returns the database name."""
-    maintenance = _url_identity(
-        env_value(checkout_env, "MT_TIMESCALE_MAINTENANCE_URL")
-    )
-    application = _url_identity(env_value(production_env, "MT_TIMESCALE_DB_URL"))
+    maintenance_key, application_key = keys
+    maintenance = _url_identity(env_value(checkout_env, maintenance_key))
+    application = _url_identity(env_value(production_env, application_key))
     if maintenance != application:
         raise CutoverError(
             "the checkout .env maintenance URL targets "
@@ -232,14 +241,16 @@ def verify_migrate_target(checkout_env: str, production_env: str) -> str:
     return maintenance[2]
 
 
-def migrate(track: str, migration_id: str) -> None:
+def migrate(
+    track: str, migration_id: str, keys: tuple[str, str] = PRIMARY_URL_KEYS
+) -> None:
     """Apply ``track`` from this checkout until ``migration_id`` is in.
 
-    ``verify_migrate_target`` holds for any track on the primary database
-    (kalshi, minute): both are applied through MT_TIMESCALE_MAINTENANCE_URL.
+    The default ``keys`` hold for any track on the primary database (kalshi,
+    minute); pass ``TICK_URL_KEYS`` for the tick track.
     """
     dbname = verify_migrate_target(
-        Path(".env").read_text(), out(["cat", str(ENV_FILE)], sudo=True)
+        Path(".env").read_text(), out(["cat", str(ENV_FILE)], sudo=True), keys
     )
     print(f"    maintenance URL targets the production database ({dbname})")
     applied, pending = _migrate_status(track)

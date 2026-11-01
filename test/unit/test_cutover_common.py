@@ -43,7 +43,7 @@ def test_the_track_reaches_status_and_apply(
         return json.dumps({"connected": True, "applied": [], "pending": pending})
 
     monkeypatch.setattr(common, "out", fake_out)
-    monkeypatch.setattr(common, "verify_migrate_target", lambda _c, _p: "market")
+    monkeypatch.setattr(common, "verify_migrate_target", lambda _c, _p, _k: "market")
     monkeypatch.setattr(common.Path, "read_text", lambda _self: "")
     common.migrate(track, migration)
     migrate_calls = [c for c in calls if "migrate" in c]
@@ -63,7 +63,7 @@ def test_an_undefined_migration_is_refused(monkeypatch: pytest.MonkeyPatch) -> N
         return json.dumps({"connected": True, "applied": [], "pending": []})
 
     monkeypatch.setattr(common, "out", fake_out)
-    monkeypatch.setattr(common, "verify_migrate_target", lambda _c, _p: "market")
+    monkeypatch.setattr(common, "verify_migrate_target", lambda _c, _p, _k: "market")
     monkeypatch.setattr(common.Path, "read_text", lambda _self: "")
     with pytest.raises(common.CutoverError, match="does not define"):
         common.migrate("minute", "060_pass_kind_tick")
@@ -155,3 +155,17 @@ def test_install_calls_the_main_checkout_installer_from_a_worktree(
         "--ref",
         "v1",
     ]
+
+
+def test_tick_keys_compare_the_tick_urls() -> None:
+    """``TICK_URL_KEYS`` checks the tick pair, not the primary pair (v0.24.4)."""
+    checkout = (
+        "MT_TIMESCALE_MAINTENANCE_URL=postgresql://mig:pw@localhost/market\n"
+        "MT_TICK_MAINTENANCE_URL=postgresql://mig:pw@localhost/tick\n"
+    )
+    production = "MT_TICK_DB_URL=postgresql://app:pw@127.0.0.1:5432/tick\n"
+    keys = common.TICK_URL_KEYS
+    assert common.verify_migrate_target(checkout, production, keys) == "tick"
+    other = production.replace("/tick", "/tick_rehearsal")
+    with pytest.raises(common.CutoverError, match="refusing to migrate"):
+        common.verify_migrate_target(checkout, other, keys)

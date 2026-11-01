@@ -47,6 +47,7 @@ from manta_trading.providers.auth import resolve_auth
 from manta_trading.providers.profiles import get_profile
 
 if TYPE_CHECKING:
+    from manta_trading.config import Settings
     from manta_trading.constants import Granularity
     from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
 
@@ -573,6 +574,11 @@ def instruments_rebuild(
     only_finnhub: bool = typer.Option(
         False, "--only-finnhub", help="Run only the Finnhub enrichment step; skip all EODHD steps"
     ),
+    only_names: bool = typer.Option(
+        False,
+        "--only-names",
+        help="Only refresh instrument names from EODHD; no insert, delete or migration",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON summary"),
 ) -> None:
     """Rebuild instruments registry from EODHD bulk symbol-list (slice 141)."""
@@ -586,6 +592,12 @@ def instruments_rebuild(
             "MT_TIMESCALE_DB_URL not configured", json_mode=json_output
         )
         raise typer.Exit(1)
+
+    if only_names:
+        _refresh_instrument_names(
+            settings.timescale_db_url, settings, dry_run or only_finnhub, json_output
+        )
+        return
 
     finnhub_key = settings.finnhub_api_key or ""
     if not only_finnhub:
@@ -639,6 +651,38 @@ def instruments_rebuild(
     print_result(table, json_mode=False)
     if dry_run:
         print_result(f"\n[dry-run] would_process: {summary.get('would_process', 0)}", json_mode=False)
+
+
+def _refresh_instrument_names(
+    db_url: str, settings: Settings, conflicting: bool, json_output: bool
+) -> None:
+    """``instruments rebuild --only-names`` (issue #60)."""
+    from manta_trading.data.universe.eodhd_symbol_list_client import EodhdAccessError
+    from manta_trading.data.universe.names import refresh_names
+
+    if conflicting:
+        print_error(
+            "--only-names cannot be combined with --dry-run or --only-finnhub",
+            json_mode=json_output,
+        )
+        raise typer.Exit(1)
+    if not settings.eodhd_api_key:
+        print_error("MT_EODHD_API_KEY not configured", json_mode=json_output)
+        raise typer.Exit(1)
+    try:
+        summary = asyncio.run(
+            refresh_names(db_url, settings.eodhd_api_key)
+        )
+    except EodhdAccessError as exc:
+        print_error(f"EODHD access error: {exc}", json_mode=json_output)
+        raise typer.Exit(1) from exc
+    if json_output:
+        print_result(summary, json_mode=True)
+        return
+    table = make_table("Instrument Names", [("Metric", ""), ("Count", "")])
+    for key, value in summary.items():
+        table.add_row(key, str(value))
+    print_result(table, json_mode=False)
 
 
 @restore_app.command("assess")

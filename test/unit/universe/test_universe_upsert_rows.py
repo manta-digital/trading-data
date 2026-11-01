@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from manta_trading.data.universe.rebuild import _build_upsert_rows
+from manta_trading.data.universe.rebuild import build_upsert_rows
 
 # A real row shape from EODHD's /exchange-symbol-list (fetched 2026-11-01).
 _EODHD_ROW = {
@@ -19,17 +19,17 @@ _EODHD_ROW = {
 
 
 def test_name_is_carried_from_the_eodhd_row() -> None:
-    (row,) = _build_upsert_rows([_EODHD_ROW], {})
+    (row,) = build_upsert_rows([_EODHD_ROW], {})
     assert row["name"] == "Apple Inc"
 
 
 @pytest.mark.parametrize("raw", [None, "", "   "])
 def test_missing_or_blank_name_is_stored_as_null(raw: str | None) -> None:
     """No invented placeholder: an unnamed row stores NULL."""
-    (row,) = _build_upsert_rows([{**_EODHD_ROW, "Name": raw}], {})
+    (row,) = build_upsert_rows([{**_EODHD_ROW, "Name": raw}], {})
     assert row["name"] is None
 
 
 def test_name_is_trimmed() -> None:
-    (row,) = _build_upsert_rows([{**_EODHD_ROW, "Name": "  Apple Inc "}], {})
+    (row,) = build_upsert_rows([{**_EODHD_ROW, "Name": "  Apple Inc "}], {})
     assert row["name"] == "Apple Inc"

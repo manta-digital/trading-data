@@ -303,3 +303,30 @@ def test_upsert_eodhd_universe_writes_and_updates_name(instruments_clean_db):
         assert row == ("Xyz Holdings Inc",)
     finally:
         registry.close()
+
+
+@skip_no_db
+def test_update_names_touches_only_name(instruments_clean_db):
+    """Changed names count; unchanged and unknown ids do not (#60)."""
+    registry = InstrumentRegistry(conninfo=instruments_clean_db)
+    try:
+        registry.upsert_eodhd_universe(
+            [
+                _eodhd_row("XYZ", "XYZ.US", name="Xyz Corp"),
+                _eodhd_row("ABC", "ABC.US", name="Abc Inc"),
+            ]
+        )
+        changed = registry.update_names(
+            {"XYZ.US": "Xyz Holdings Inc", "ABC.US": "Abc Inc", "NOPE.US": "Nope"}
+        )
+        assert changed == 1
+        with psycopg.connect(instruments_clean_db) as conn:
+            rows = conn.execute(
+                "SELECT canonical_id, name, eodhd_type FROM instruments ORDER BY 1"
+            ).fetchall()
+        assert rows == [
+            ("ABC.US", "Abc Inc", "Common Stock"),
+            ("XYZ.US", "Xyz Holdings Inc", "Common Stock"),
+        ]
+    finally:
+        registry.close()

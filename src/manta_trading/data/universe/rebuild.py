@@ -146,7 +146,26 @@ async def _run_finnhub_enrichment(
         pool.close()
 
 
-def _build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dict]) -> list[dict]:
+async def fetch_v1_universe(eodhd_client: EodhdSymbolListClient) -> list[dict]:
+    """Active and delisted US symbols plus USA indices, filtered to the v1 universe."""
+    active_us = await eodhd_client.fetch_active_us()
+    delisted_us = await eodhd_client.fetch_delisted_us()
+    indx_raw = await eodhd_client.fetch_indx()
+
+    # Mark delisted flag and filter to USA for INDX
+    for row in active_us:
+        row["_delisted"] = False
+    for row in delisted_us:
+        row["_delisted"] = True
+    indx_usa = [r for r in indx_raw if r.get("Country") == "USA"]
+    for row in indx_usa:
+        row["_delisted"] = False
+        row["Exchange"] = "INDX"
+
+    return filter_v1_universe(active_us + delisted_us + indx_usa)
+
+
+def build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dict]) -> list[dict]:
     """Convert filtered EODHD rows to upsert dicts, applying D4 canonical_id rules.
 
     - Existing AV-seeded rows: keep their venue/canonical_id/trading_calendar_id.
@@ -192,7 +211,7 @@ def _build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dic
     return rows
 
 
-def _load_existing_by_symbol(pool: ConnectionPool) -> dict[str, dict]:
+def load_existing_by_symbol(pool: ConnectionPool) -> dict[str, dict]:
     """Load existing instruments keyed by symbol for the match-by-symbol step (D4)."""
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -333,21 +352,7 @@ async def run_rebuild(
 
         # ── Step 4: Fetch and filter EODHD lists ──────────────────────────────
         _logger.info("Step 4: Fetching EODHD symbol lists")
-        active_us = await eodhd_client.fetch_active_us()
-        delisted_us = await eodhd_client.fetch_delisted_us()
-        indx_raw = await eodhd_client.fetch_indx()
-
-        # Mark delisted flag and filter to USA for INDX
-        for row in active_us:
-            row["_delisted"] = False
-        for row in delisted_us:
-            row["_delisted"] = True
-        indx_usa = [r for r in indx_raw if r.get("Country") == "USA"]
-        for row in indx_usa:
-            row["_delisted"] = False
-            row["Exchange"] = "INDX"
-
-        all_rows = filter_v1_universe(active_us + delisted_us + indx_usa)
+        all_rows = await fetch_v1_universe(eodhd_client)
         _logger.info("Fetched %d filtered EODHD rows", len(all_rows))
 
         # Count by type for summary
@@ -365,8 +370,8 @@ async def run_rebuild(
 
         # ── Step 5: Build upsert rows matching existing by symbol ─────────────
         _logger.info("Step 5: Building upsert dicts")
-        existing_by_symbol = _load_existing_by_symbol(pool)
-        upsert_rows = _build_upsert_rows(all_rows, existing_by_symbol)
+        existing_by_symbol = load_existing_by_symbol(pool)
+        upsert_rows = build_upsert_rows(all_rows, existing_by_symbol)
 
         # ── Step 6: Upsert ────────────────────────────────────────────────────
         _logger.info("Step 6: Upserting %d rows", len(upsert_rows))
