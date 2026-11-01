@@ -16,12 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.4] - 2026-11-01
+
 ### Added
+- **Find a stock by company name** (#60). `/api/v1/symbols?search=` now matches the start of the ticker or any part of the company name, case-insensitive: `search=apple` finds AAPL. An exact ticker comes first, then other ticker-prefix matches, then name matches. Both symbol routes return a new `name` field (null when unknown). Migration `065_instruments_name` adds the column. `mt data instruments rebuild --only-names` writes names from EODHD's symbol lists and touches nothing else (no insert, no orphan delete, no migration).
+- **API responses are gzipped** when the client sends `Accept-Encoding: gzip`, which browsers do. A day of ES ticks shrinks about tenfold. Time-series bodies are compressed off the event loop.
 - **Plan-included requests no longer count against the tick spend caps** (slice 300). Set `MT_TICK_DATABENTO_PLAN=standard` to tell the tick pass that your Databento Standard plan includes the last 365 days of `trades`, `tbbo` and `mbp-1` and all `definition` history on `GLBX.MDP3`. The per-pass ceiling and the 30-day cap then sum only the spend the plan does not cover. `mt data tick estimate` adds an `is_plan_included` field per schema (and an "In plan" column) and judges the marginal bundle against the ceiling; `cost_usd` stays at list price. Unset keeps today's behaviour. An unknown value is refused at startup, naming the variable and `standard`. Each new request records the answer in `tick_request.is_plan_included` (migration `tick_008_plan_inclusion`; apply with `mt data migrate apply --track tick`).
 
 ### Changed
 - The tick archive no longer assumes every schema is a tick tier: supersession is scoped to a schema family, and ingest writes through a per-schema projector registry. No behaviour change on the held files; a rebuild at the base and head commits gives identical `tick_trade`, `tick_definition` and `tick_ingest_ledger` contents.
 - The pass's guard line now reads "marginal spend (plan-included excluded)".
+
+### Fixed
+- `%` and `_` in `/api/v1/symbols?search=` now match literally instead of acting as wildcards.
 
 ## [0.24.3] - 2026-10-27
 
