@@ -14,7 +14,7 @@ interfaces:
 - 308
 dateCreated: 20261101
 dateUpdated: 20261101
-status: not_started
+status: complete
 turns: 55
 promptTokens: 5629483
 cachedTokens: 5489362
@@ -302,22 +302,25 @@ Status: decided
 
 ### Verification Walkthrough
 
-Run from the checkout root, with the test database URL exported from `.env` (the project's test setup).
+Run from the checkout root, with the test database URL exported from `.env` (`set -a; eval "$(grep -E '^MT_TIMESCALE_TEST_URL=' .env | tr -d '"')"; set +a`). Verified 2026-11-01.
 
 1. **Tests.**
    ```bash
    uv run pytest test/unit/data/base test/unit/test_seed_cme_calendar.py \
-       test/unit/test_seed_cme_metals_calendar.py test/unit/test_schema_migrations.py -q
+       test/unit/test_seed_cme_metals_calendar.py test/unit/test_seed_cme_hours.py \
+       test/unit/test_seed_cme_history.py test/unit/test_schema_migrations.py \
+       test/unit/test_cutover_301.py -q
    uv run pytest test/integration -q -k "calendar or session or migration"
    ```
-   Expected: all pass, including the new schedule, source, boundary and migration tests.
+   Expected: unit `326 passed`. Integration `278 passed, 52 skipped` with exactly two failures, both pre-existing on main and unrelated: `test_migration_051_052.py::TestChainAppliesOnColdStart::test_chain_ends_at_052` and `::TestCoverageFreshnessOnRealHistory::test_pre_167_cagg_keeps_the_generic_budget`. The 066 tests are in `test/integration/test_migration_066_cme_calendar_history.py` (19 tests).
 
-2. **Free count check** (needs the Databento key; costs nothing).
+2. **Free count check** (needs the Databento key; costs nothing). Point it at a migrated throwaway database, since production has no pre-2020 sessions until the cutover. A full run takes hours; split by year and run the ranges side by side:
    ```bash
-   uv run python scripts/check_cme_history_counts.py --calendar CME_EQUITY --parent ES.FUT
-   uv run python scripts/check_cme_history_counts.py --calendar CME_METALS --parent GC.FUT
+   MT_TIMESCALE_DB_URL=<migrated throwaway db> uv run python scripts/check_cme_history_counts.py \
+       --calendar CME_EQUITY --parent ES.FUT --start 2010-06-07 --end 2011-12-31
+   # ... and the other ranges, and CME_METALS with GC.FUT
    ```
-   Expected: exit 0 with no findings or failed calls, or a non-zero exit with each finding matched by an entry in the implementation notes.
+   Expected: a non-zero exit, with every finding matching a row of `user/notes/301-count-check-findings.md` (215 equity, 47 metals) and its group in Findings. Databento's metadata endpoint returns occasional HTTP 500/504 or read timeouts; those print as `FAILED` and are rerun with `--start`/`--end`. Calibration on 2024 against production (read-only): `259 sessions, 0 findings` for each calendar.
 
 3. **Sessions on a migrated test database.**
    ```sql
@@ -325,20 +328,20 @@ Run from the checkout root, with the test database URL exported from `.env` (the
     WHERE calendar_id IN ('CME_EQUITY', 'CME_METALS') GROUP BY 1;
    SELECT * FROM trading_calendar_hours ORDER BY calendar_id, effective_from;
    ```
-   Expected: both calendars start at 2010-06-07, and the eras list ends in the current 17:00 to 16:00 era with every row sourced.
+   Expected (full chain, holiday bound 2027-12-31): `CME_EQUITY 2010-06-07 4540` and `CME_METALS 2010-06-07 4535`. Eras: equity 2010-06-06 15:30/15:15 Sunday 17:00, 2012-11-19 17:00/16:15, 2015-09-21 17:00/16:00; metals 2010-06-06 17:00/16:15, 2015-09-21 17:00/16:00; every row sourced.
 
 4. **A held 2024 job still places.**
    ```bash
    uv run python scripts/verify_cme_sessions.py --calendar CME_EQUITY \
        /data/market-data/databento/GLBX-20240930-USM7UXXJBA
    ```
-   Expected: exit 0, the same output as before the slice.
+   Expected: exit 0, output identical to the same command on main (checked by running both and diffing).
 
 5. **Production** (after merge).
    ```bash
    uv run python scripts/cutover_301_calendar_history.py <release-tag>
    ```
-   Expected: exit 0. The narration in `project-documents/user/notes/` shows the migration applied, the first CME sessions dated 2010-06-07, health passing and the timers released.
+   Expected: exit 0. The narration in `project-documents/user/notes/` shows the migration applied, both CME calendars' first session dated 2010-06-07, `mt data health` and `mt data overview` passing, and the timers released. `--help` prints the steps.
 
 ## Risk Assessment
 

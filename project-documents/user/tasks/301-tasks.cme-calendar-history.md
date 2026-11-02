@@ -8,7 +8,7 @@ projectState: CME_EQUITY and CME_METALS sessions start 2020-01-01; last primary 
   is 065_instruments_name; 058/059 seed the 2020 range through extend_calendar_sessions
 dateCreated: 20261101
 dateUpdated: 20261101
-status: in_progress
+status: complete
 turns: 15
 promptTokens: 826489
 cachedTokens: 753110
@@ -251,13 +251,14 @@ revision_number: 2
 
 ### 10. Final validation
 
-- [ ] **10.1 Quality gates**
-  - [ ] `ruff check` and `ruff format` on touched files only. Run `git diff` against the target (`cf config get git.integration_branch`, or `main` if empty) and check for swept or deleted pre-existing lines.
-  - [ ] mypy in one invocation with the kalshi src paths and tests.
-  - [ ] Success: all clean. No touched code module exceeds about 300 lines.
+- [x] **10.1 Quality gates**
+  - [x] `ruff check` and `ruff format` on touched files only. Run `git diff` against the target (`cf config get git.integration_branch`, or `main` if empty) and check for swept or deleted pre-existing lines.
+  - [x] mypy in one invocation with the kalshi src paths and tests.
+  - [x] Success: all clean. No touched code module exceeds about 300 lines.
+  - Note: test_trading_calendar_integration.py was already unformatted on main; left unformatted.
 
-- [ ] **10.2 Verification walkthrough**
-  - [ ] Run the slice's Verification Walkthrough steps 1 to 4: unit tests, integration tests (`-k "calendar or session or migration"`), the count check result from task 8, the migrated-database queries, and `verify_cme_sessions.py` on the held 2024 job with output identical to before.
-  - [ ] Success: all pass, and the Findings section is complete.
+- [x] **10.2 Verification walkthrough**
+  - [x] Run the slice's Verification Walkthrough steps 1 to 4: unit tests, integration tests (`-k "calendar or session or migration"`), the count check result from task 8, the migrated-database queries, and `verify_cme_sessions.py` on the held 2024 job with output identical to before.
+  - [x] Success: all pass, and the Findings section is complete.
 
 **Commit**: `docs: complete 301 findings and verification notes`

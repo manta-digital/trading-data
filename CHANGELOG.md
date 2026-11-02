@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CME calendars reach back to 2010** (slice 301). `CME_EQUITY` (ES) and `CME_METALS` (GC) now have sessions from 2010-06-07, the first session of Databento's CME dataset, so a 2010-2019 instant places in a session instead of raising `OutOfPopulatedRangeError`. Regular hours are dated in a new `trading_calendar_hours` table, because the Globex day moved twice: ES ran 15:30 (17:00 Sunday) to 15:15 until 2012-11-18, then 17:00 to 16:15, and both ES and GC moved to a 16:00 close on 2015-09-21. Every pre-2020 holiday, early close, late open and unscheduled closure (Hurricane Sandy, the 2018-12-05 day of mourning) is a row citing a dated CME document. Migration `066_cme_calendar_history` applies it and aborts unless every session from 2020 on is unchanged; production gets it through `scripts/cutover_301_calendar_history.py`.
+- `scripts/check_cme_history_counts.py`, a free Databento metadata check of each session against `ohlcv-1m` record counts. Its pre-2020 findings (bars at the close minute, provider gaps on 2012-2014 holidays and a few 2014 weekdays) are listed in `project-documents/user/notes/301-count-check-findings.md`.
+
 ## [0.24.4] - 2026-11-01
 
 ### Added
