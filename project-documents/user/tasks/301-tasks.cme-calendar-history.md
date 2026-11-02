@@ -218,17 +218,18 @@ revision_number: 2
 
 ### 8. Run the count check over the pre-2020 range (D8)
 
-- [ ] **8.1 Run both calendars on a migrated test database**
-  - [ ] Create a throwaway database on the test cluster, apply the full migration chain to it with the same helper the task 7 integration tests use, and set `MT_TIMESCALE_DB_URL` to it for the run. Do not use production, which has no pre-2020 sessions until the cutover.
-  - [ ] Run `check_cme_history_counts.py` for `CME_EQUITY` with `ES.FUT` and `CME_METALS` with `GC.FUT` over 2010-06-07 to 2019-12-31, split by year with `--start` and `--end`. Rerun only failed or remaining ranges.
-  - [ ] Success: every year of both calendars has run to completion, with every failed call rerun.
+- [x] **8.1 Run both calendars on a migrated test database**
+  - [x] Create a throwaway database on the test cluster, apply the full migration chain to it with the same helper the task 7 integration tests use, and set `MT_TIMESCALE_DB_URL` to it for the run. Do not use production, which has no pre-2020 sessions until the cutover.
+  - [x] Run `check_cme_history_counts.py` for `CME_EQUITY` with `ES.FUT` and `CME_METALS` with `GC.FUT` over 2010-06-07 to 2019-12-31, split by year with `--start` and `--end`. Rerun only failed or remaining ranges.
+  - [x] Success: every year of both calendars has run to completion, with every failed call rerun.
 
-- [ ] **8.2 Resolve or record each finding**
-  - [ ] For each finding, look for a dated CME document. If found, add the sourced row (equity or metals history seed) or era, extend the tests, and rerun that window.
-  - [ ] If no document resolves it, record it in the slice design's Findings section as unresolved, with date, window and count. Never add a row that counts alone suggest.
-  - [ ] If a finding leaves a whole early era unsourceable, move `CME_DATASET_START` later per D5 and update the era seed, the migration inputs and the tests.
-  - [ ] After any seed change, rerun the unit and integration tests from tasks 2, 6 and 7; all pass.
-  - [ ] Success: the script exits 0, or every remaining finding has an entry in the Findings section. The Findings section also states any 2020-onward hours change (D2) and the final `CME_DATASET_START`.
+- [x] **8.2 Resolve or record each finding**
+  - [x] For each finding, look for a dated CME document. If found, add the sourced row (equity or metals history seed) or era, extend the tests, and rerun that window.
+  - [x] If no document resolves it, record it in the slice design's Findings section as unresolved, with date, window and count. Never add a row that counts alone suggest.
+  - [x] If a finding leaves a whole early era unsourceable, move `CME_DATASET_START` later per D5 and update the era seed, the migration inputs and the tests.
+  - [x] After any seed change, rerun the unit and integration tests from tasks 2, 6 and 7; all pass.
+  - [x] Success: the script exits 0, or every remaining finding has an entry in the Findings section. The Findings section also states any 2020-onward hours change (D2) and the final `CME_DATASET_START`.
+  - Note: No document resolved any finding; four groups recorded in Findings (234 close-minute bars, 2018-08-05 pre-open bars, 9 holiday and 6 weekday provider-gap dates).
 
 **Commit**: `feat: apply count-check findings to CME history seeds and record unresolved ones`
 
