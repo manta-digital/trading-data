@@ -50,7 +50,11 @@ from manta_trading.data.tick.ingest_records import (
 )
 from manta_trading.data.tick.manifest_reads import Conn, UnitRow
 from manta_trading.data.tick.projectors import INGEST_PROJECTORS
-from manta_trading.data.tick.schema_families import supersedes_sql
+from manta_trading.data.tick.schema_families import (
+    FAMILY_LEDGER,
+    SCHEMA_FAMILY,
+    supersedes_sql,
+)
 from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.tick_calendar import TickCalendarError, planning_product
 
@@ -126,24 +130,38 @@ async def _definitions(conn: Conn, product: str, frame: SessionFrame) -> Definit
     return Definitions.of(await cursor.fetchall())
 
 
-#: Rank expressions come from code constants only (``supersedes_sql``).
+#: Rank expressions and the ledger table come from code constants only
+#: (``supersedes_sql``, ``FAMILY_LEDGER``). A superseded unit shares the new
+#: unit's family, so its times are in that family's ledger.
 _SUPERSEDED = (
     "SELECT o.unit_id, p.schema, o.state, min(l.first_event_ns),"
     " max(l.last_event_ns)"
     " FROM tick_archive_unit o JOIN tick_request p USING (request_id)"
-    " LEFT JOIN tick_ingest_ledger l ON l.unit_id = o.unit_id"
+    " LEFT JOIN {ledger} l ON l.unit_id = o.unit_id"
     " WHERE p.dataset = %(dataset)s AND p.symbols = %(symbols)s"
     " AND p.stype_in = %(stype_in)s AND o.unit_date = %(day)s"
     " AND p.schema = ANY(%(tiers)s)"
     " AND o.superseded_by_unit_id IS NULL AND o.reopened_at IS NULL"
-    f" AND {supersedes_sql('%(schema)s', 'p.schema')}"
+    " AND {supersedes}"
     " GROUP BY o.unit_id, p.schema, o.state ORDER BY o.unit_id"
 )
 
 
+def superseded_sql(schema: TickSchema) -> str:
+    """The superseded-units query, reading the ledger of ``schema``'s family."""
+    ledger = FAMILY_LEDGER[SCHEMA_FAMILY[schema]]
+    return _SUPERSEDED.format(
+        ledger=ledger, supersedes=supersedes_sql("%(schema)s", "p.schema")
+    )
+
+
 async def _superseded(conn: Conn, unit: UnitRow) -> tuple[SupersededUnit, ...]:
+    if SCHEMA_FAMILY[unit.schema] not in FAMILY_LEDGER:
+        # A family with no ledger (definition) is never ingested, so it has
+        # no stored rows for a unit to supersede.
+        return ()
     cursor = await conn.execute(
-        _SUPERSEDED,
+        superseded_sql(unit.schema),
         {
             "dataset": unit.dataset,
             "symbols": list(unit.symbols),

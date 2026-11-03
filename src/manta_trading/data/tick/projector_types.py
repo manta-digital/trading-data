@@ -43,6 +43,12 @@ class Loaded:
     decode_seconds: float = 0.0
     bookkeeping: object | None = None
 
+    def note_batch(self, count: int, low_ns: int, high_ns: int) -> None:
+        """Fold one non-empty batch's count and event-time range in."""
+        self.first_ns = low_ns if self.first_ns is None else min(self.first_ns, low_ns)
+        self.last_ns = high_ns if self.last_ns is None else max(self.last_ns, high_ns)
+        self.decoded += count
+
 
 class IUnitProjector(Protocol):
     def load(

@@ -120,34 +120,42 @@ revision_number: 2
 
 ### 4. Bar projector, `unit_day` check, ingest wiring (D3, D4)
 
-- [ ] **4.1 Add `IngestCheck.UNIT_DAY`**
-  - [ ] In `ingest_checks.py` add the check and `unit_day_reason(count, unit_date, first_ts)` producing `unit_day: N records outside <date>; first at <ts>`.
-  - [ ] Success: the check is reachable by name from the projector.
+- [x] **4.1 Add `IngestCheck.UNIT_DAY`**
+  - [x] In `ingest_checks.py` add the check and `unit_day_reason(count, unit_date, first_ts)` producing `unit_day: N records outside <date>; first at <ts>`.
+  - [x] Success: the check is reachable by name from the projector.
 
-- [ ] **4.2 Test `unit_day_reason`** (extend `test_ingest_checks.py`)
-  - [ ] Exact text for one and for several records; boundaries `[date 00:00 UTC, date + 1 day)` (a bar at 00:00 is inside, at the next midnight is outside).
-  - [ ] Success: tests pass.
+  Note: the check function `check_unit_day` lives in the new `unit_day_check.py` (ingest_records.py is already past 300 lines); 4.2's boundary tests are in test_ingest_checks.py.
 
-- [ ] **4.3 Implement `Ohlcv1mProjector`**
-  - [ ] Read `tick_trade_projector.py`, `projector_types.py`, `projectors.py` and `ingest_records.py` first. Create `data/tick/ohlcv_1m_projector.py` following `TickTradeProjector`'s shape.
-  - [ ] `load` per decoded batch: check every `ts_event` is in the unit's UTC day (`unit_day`); `resolve` every `instrument_id`; `locate_sessions`; `LedgerAccumulator.add` with `volume` as the size; one `COPY` into `tick_ohlcv_1m` (columns per D2, `unit_id` set, `publisher_id` as delivered).
-  - [ ] `stored_count` and `delete_unit` bounded by the unit's first and last bar times. `finish` writes `tick_bar_ledger` rows. Table name is a code constant from `bar_constants.py`; every value is bound.
-  - [ ] Reuse the checks `resolution`, `session_boundary`, `overlap`, `shape`, `decode`. A key collision is the existing `overlap` failure, never `ON CONFLICT`.
-  - [ ] Success: module under about 300 lines, mypy clean.
+- [x] **4.2 Test `unit_day_reason`** (extend `test_ingest_checks.py`)
+  - [x] Exact text for one and for several records; boundaries `[date 00:00 UTC, date + 1 day)` (a bar at 00:00 is inside, at the next midnight is outside).
+  - [x] Success: tests pass.
 
-- [ ] **4.4 Register the projector and read superseded units by family**
-  - [ ] Add `OHLCV_1M_PROJECTOR` to `INGEST_PROJECTORS` in `projectors.py`.
-  - [ ] In `ingest_plan.py` read a superseded unit's times from the ledger of the unit's family via `FAMILY_LEDGER`, not always `tick_ingest_ledger`.
-  - [ ] Success: `select_units` can select `ohlcv-1m` units; a tick-tier unit's superseded read is unchanged.
+- [x] **4.3 Implement `Ohlcv1mProjector`**
+  - [x] Read `tick_trade_projector.py`, `projector_types.py`, `projectors.py` and `ingest_records.py` first. Create `data/tick/ohlcv_1m_projector.py` following `TickTradeProjector`'s shape.
+  - [x] `load` per decoded batch: check every `ts_event` is in the unit's UTC day (`unit_day`); `resolve` every `instrument_id`; `locate_sessions`; `LedgerAccumulator.add` with `volume` as the size; one `COPY` into `tick_ohlcv_1m` (columns per D2, `unit_id` set, `publisher_id` as delivered).
+  - [x] `stored_count` and `delete_unit` bounded by the unit's first and last bar times. `finish` writes `tick_bar_ledger` rows. Table name is a code constant from `bar_constants.py`; every value is bound.
+  - [x] Reuse the checks `resolution`, `session_boundary`, `overlap`, `shape`, `decode`. A key collision is the existing `overlap` failure, never `ON CONFLICT`.
+  - [x] Success: module under about 300 lines, mypy clean.
 
-- [ ] **4.5 Projector and superseded-read tests** (integration, on a migrated throwaway tick database)
-  - [ ] Seed one `tick_definition` row and one calendar session, then load a small hand-built batch through `Ohlcv1mProjector`: rows land in `tick_ohlcv_1m`, `stored_count` matches, `finish` writes the `tick_bar_ledger` row, `delete_unit` removes both.
-  - [ ] A superseded bar unit's first and last times are read from `tick_bar_ledger`; a superseded tick-tier unit's from `tick_ingest_ledger`.
-  - [ ] Success: tests pass.
+  Note: the ledger insert and the first/last/decoded bookkeeping are shared with the trade projector through `ledger_write.write_ledger` and `Loaded.note_batch`; TickTradeProjector now uses both with unchanged behaviour.
 
-- [ ] **4.6 Archive path pin** (D9)
-  - [ ] Unit test (new file or `test_adopt_files.py`) that an `ohlcv-1m` unit's archive path resolves under `MT_TICK_ARCHIVE_DIR`.
-  - [ ] Success: the test passes.
+- [x] **4.4 Register the projector and read superseded units by family**
+  - [x] Add `OHLCV_1M_PROJECTOR` to `INGEST_PROJECTORS` in `projectors.py`.
+  - [x] In `ingest_plan.py` read a superseded unit's times from the ledger of the unit's family via `FAMILY_LEDGER`, not always `tick_ingest_ledger`.
+  - [x] Success: `select_units` can select `ohlcv-1m` units; a tick-tier unit's superseded read is unchanged.
+
+  Note: `superseded_sql(schema)` builds the query with the unit's family ledger; a family with no ledger (definition) has nothing to supersede and returns ().
+
+- [x] **4.5 Projector and superseded-read tests** (integration, on a migrated throwaway tick database)
+  - [x] Seed one `tick_definition` row and one calendar session, then load a small hand-built batch through `Ohlcv1mProjector`: rows land in `tick_ohlcv_1m`, `stored_count` matches, `finish` writes the `tick_bar_ledger` row, `delete_unit` removes both.
+  - [x] A superseded bar unit's first and last times are read from `tick_bar_ledger`; a superseded tick-tier unit's from `tick_ingest_ledger`.
+  - [x] Success: tests pass.
+
+  Note: `delete_unit` removes the bars but keeps the ledger rows, as `tick_trade`'s does (225 TD5); the family-ledger read is tested by moving tbbo into BAR_1M above ohlcv-1m, since the real family holds one schema.
+
+- [x] **4.6 Archive path pin** (D9)
+  - [x] Unit test (new file or `test_adopt_files.py`) that an `ohlcv-1m` unit's archive path resolves under `MT_TICK_ARCHIVE_DIR`.
+  - [x] Success: the test passes.
 
 **Commit**: `feat: add ohlcv-1m projector, unit_day check and registry entry`
 

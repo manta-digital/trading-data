@@ -21,12 +21,14 @@ from manta_trading.data.tick.ingest_records import (
     resolve,
 )
 from manta_trading.data.tick.ingest_rows import COPY_SQL, COPY_TYPES, copy_rows
+from manta_trading.data.tick.ledger_write import write_ledger
 from manta_trading.data.tick.projector_types import (
     BatchProgress,
     Cursor,
     Loaded,
 )
 from manta_trading.data.tick.provider import ITickFileReader
+from manta_trading.data.tick.schema_families import FAMILY_LEDGER, SchemaFamily
 
 if TYPE_CHECKING:
     from manta_trading.data.tick.ingest_plan import UnitIngestPlan
@@ -60,16 +62,9 @@ class TickTradeProjector:
                 for row in copy_rows(records, ordinals, plan.unit.unit_id):
                     copy.write_row(row)
                 if batch.count:
-                    low, high = int(ts.min()), int(ts.max())
-                    loaded.first_ns = (
-                        low if loaded.first_ns is None else min(loaded.first_ns, low)
-                    )
-                    loaded.last_ns = (
-                        high if loaded.last_ns is None else max(loaded.last_ns, high)
-                    )
-                loaded.decoded += batch.count
-                if progress is not None and batch.count:
-                    progress(batch.count)
+                    loaded.note_batch(batch.count, int(ts.min()), int(ts.max()))
+                    if progress is not None:
+                        progress(batch.count)
         loaded.bookkeeping = ledger.rows(plan.definitions, plan.frame, plan.calendar_id)
         return loaded
 
@@ -88,24 +83,7 @@ class TickTradeProjector:
 
     def finish(self, cur: Cursor, unit_id: int, loaded: Loaded) -> None:
         rows = cast("list[LedgerRow]", loaded.bookkeeping)
-        cur.executemany(
-            "INSERT INTO tick_ingest_ledger (unit_id, instrument_id, calendar_id,"
-            " session_date, record_count, volume, first_event_ns, last_event_ns)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            [
-                (
-                    unit_id,
-                    row.instrument_id,
-                    row.calendar_id,
-                    row.session_date,
-                    row.record_count,
-                    row.volume,
-                    row.first_event_ns,
-                    row.last_event_ns,
-                )
-                for row in rows
-            ],
-        )
+        write_ledger(cur, FAMILY_LEDGER[SchemaFamily.TICK_TIER], unit_id, rows)
 
     def delete_unit(
         self, cur: Cursor, unit_id: int, first_ns: int | None, last_ns: int | None
