@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import databento_dbn
+import numpy as np
 import pytest
 from tick_support.dbn_files import BAD_HEADERS, bad_header_bytes, day_file_bytes
 from tick_support.tier_units import TRADES_DAY, real_file
@@ -110,6 +111,22 @@ def test_ohlcv_1m_v1_matches_v3() -> None:
     v1 = next(_open(BAR_FILES[0]).iter_batches()).records
     v3 = next(_open(BAR_FILES[1]).iter_batches()).records
     assert v1.tobytes() == v3.tobytes()
+
+
+def test_the_derived_bar_day_decodes_with_both_sessions_and_spreads() -> None:
+    """The derived 2024-12-03 bar slice (302): not purchased, see SOURCES.md."""
+    tick_file = DbnFileReader().open_file(
+        real_file(TRADES_DAY.replace(month=12, day=3), TickSchema.OHLCV_1M)
+    )
+    assert tick_file.schema is TickSchema.OHLCV_1M
+    records = [b.records for b in tick_file.iter_batches()]
+    bars = records[0] if len(records) == 1 else np.concatenate(records)
+    ts = bars["ts_event"].astype("int64")
+    assert (ts % 60_000_000_000 == 0).all()  # each bar is stamped at its minute
+    break_gap = int(np.diff(np.unique(ts)).max())
+    assert break_gap > 3_000_000_000_000  # the daily break lies inside the day
+    assert len(set(bars["instrument_id"].tolist())) == 5  # incl. calendar spreads
+    assert (bars["high"] >= bars["low"]).all()
 
 
 def test_v2_trades_match_v3() -> None:

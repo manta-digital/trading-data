@@ -161,13 +161,13 @@ revision_number: 2
 
 ### 5. Derived bar fixture (D7, part two)
 
-- [ ] **5.1 Extend `scripts/cut_tick_fixtures.py`**
-  - [ ] Build `test/fixtures/databento/real/glbx-mdp3-20241203.ohlcv-1m.dbn.zst`: the held 2024-12-03 `tbbo` header with the schema field set to `ohlcv-1m`; trade-only one-minute bars (open/high/low/close/volume per instrument and minute, `ts_event` at the minute's open) computed from the day's full held `tbbo` file. Follow how the script derives the existing `trades` fixture.
-  - [ ] Success: the file exists, decodes through the reader as `ohlcv-1m` records, and includes bars on both sides of the daily break and spread instrument ids.
+- [x] **5.1 Extend `scripts/cut_tick_fixtures.py`**
+  - [x] Build `test/fixtures/databento/real/glbx-mdp3-20241203.ohlcv-1m.dbn.zst`: the held 2024-12-03 `tbbo` header with the schema field set to `ohlcv-1m`; trade-only one-minute bars (open/high/low/close/volume per instrument and minute, `ts_event` at the minute's open) computed from the day's full held `tbbo` file. Follow how the script derives the existing `trades` fixture.
+  - [x] Success: the file exists, decodes through the reader as `ohlcv-1m` records, and includes bars on both sides of the daily break and spread instrument ids.
 
-- [ ] **5.2 Record it**
-  - [ ] Add it to `SOURCES.md`, marked **Not purchased**, as 225's derived `trades` fixture is, stating it makes no claim of provider parity.
-  - [ ] Success: `SOURCES.md` lists the two samples and the derived day.
+- [x] **5.2 Record it**
+  - [x] Add it to `SOURCES.md`, marked **Not purchased**, as 225's derived `trades` fixture is, stating it makes no claim of provider parity.
+  - [x] Success: `SOURCES.md` lists the two samples and the derived day.
 
 **Commit**: `test: derive ohlcv-1m real-shape fixture from held tbbo day`
 
