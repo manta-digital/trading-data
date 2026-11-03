@@ -29,7 +29,7 @@ from drill_228_context import (
     connect_scratch,
     scratch_url,
 )
-from drill_228_fingerprint import diff_fingerprints, fingerprint
+from drill_228_fingerprint import diff_databases
 from drill_228_host import (
     backed_up_set,
     check_archive_against_snapshot,
@@ -282,8 +282,8 @@ def step_compare_production(ctx: DrillContext, step: Step) -> None:
     started = time.monotonic()
     with connect_scratch(ctx) as restored:
         check(step, "row counts", _row_counts(ctx.prod), _row_counts(restored))
-        diffs = diff_fingerprints(fingerprint(ctx.prod), fingerprint(restored))
-        check(step, "tick_trade fingerprint differences", [], diffs[:SHOWN_FAILURES])
+        diffs = diff_databases(ctx.prod, restored)
+        check(step, "row-table fingerprint differences", [], diffs[:SHOWN_FAILURES])
         for table in BOOKKEEPING_TABLES:
             check(
                 step,

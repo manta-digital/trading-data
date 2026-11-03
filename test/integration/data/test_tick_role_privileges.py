@@ -20,6 +20,8 @@ from psycopg import sql
 from tick_support.database import PROVISION_TICK_SQL, ProvisionedTickDb
 from tick_support.rows import (
     FILE_COLUMNS,
+    insert_bar,
+    insert_bar_ledger_row,
     insert_dataset_edge,
     insert_day_condition,
     insert_definition,
@@ -41,6 +43,8 @@ TICK_TABLES: dict[str, str] = {
     "tick_definition": "raw_symbol",
     "tick_trade": "flags",
     "tick_ingest_ledger": "volume",
+    "tick_ohlcv_1m": "volume",
+    "tick_bar_ledger": "volume",
     "tick_dataset_edge": "observed_at",
     "tick_day_condition": "observed_at",
 }
@@ -297,6 +301,10 @@ def _insert_into(conn: psycopg.Connection[Any], table: str) -> None:
         insert_trade(conn, unit_id)
     elif table == "tick_ingest_ledger":
         insert_ledger_row(conn, unit_id)
+    elif table == "tick_ohlcv_1m":
+        insert_bar(conn, unit_id)
+    elif table == "tick_bar_ledger":
+        insert_bar_ledger_row(conn, unit_id)
 
 
 @pytest.mark.parametrize(("table", "column"), TICK_TABLES.items())

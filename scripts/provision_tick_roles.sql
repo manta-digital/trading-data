@@ -161,11 +161,12 @@ SELECT format(
 \gexec
 
 -- ---------------------------------------------------------------------------
--- Write surface — enumerated, not inferred. The seven tables of the tick track:
+-- Write surface — enumerated, not inferred. The nine tables of the tick track:
 -- slice 222's manifest (tick_request, tick_archive_unit), contract definitions
 -- (tick_definition), trades (tick_trade) and ingest ledger
 -- (tick_ingest_ledger); slice 223's availability metadata (tick_dataset_edge,
--- tick_day_condition). Filtered on pg_tables so the file applies before they
+-- tick_day_condition); slice 302's bars (tick_ohlcv_1m) and bar ledger
+-- (tick_bar_ledger). Filtered on pg_tables so the file applies before they
 -- exist. DML only: no TRUNCATE, and no sequence grant (identity columns draw
 -- their values without one).
 -- ---------------------------------------------------------------------------
@@ -181,7 +182,9 @@ WHERE schemaname = 'public'
     'tick_trade',
     'tick_ingest_ledger',
     'tick_dataset_edge',
-    'tick_day_condition'
+    'tick_day_condition',
+    'tick_ohlcv_1m',
+    'tick_bar_ledger'
   )
 ORDER BY tablename
 \gexec

@@ -44,9 +44,12 @@ STORED_TIERS: frozenset[TickSchema] = frozenset({TickSchema.TRADES, TickSchema.T
 #: Bought together with a tier, never a tier itself.
 COMPANION_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.DEFINITION})
 
+#: Bar schemas, bought and stored beside the tick tiers (slice 302).
+BAR_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.OHLCV_1M})
+
 #: What a ``tick_request`` may archive. ``mbp-1`` stays estimate-only
 #: (slice 222 TD9).
-ARCHIVED_SCHEMAS: frozenset[TickSchema] = STORED_TIERS | COMPANION_SCHEMAS
+ARCHIVED_SCHEMAS: frozenset[TickSchema] = STORED_TIERS | COMPANION_SCHEMAS | BAR_SCHEMAS
 
 #: The table of per-unit, per-session trade totals (the tick-tier ledger).
 TICK_LEDGER_TABLE: Final = "tick_ingest_ledger"

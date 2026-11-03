@@ -10,7 +10,8 @@ minute track rather than copied. Every later id is prefixed ``tick_NNN_*``
 
 Slice 222 adds the five storage tables; slice 223 adds availability metadata
 and ``reopened_at`` (``tick_006``); slice 226 the columnstore layout
-(``tick_007``); slice 300 ``tick_request.is_plan_included`` (``tick_008``).
+(``tick_007``); slice 300 ``tick_request.is_plan_included`` (``tick_008``);
+slice 302 the ``ohlcv-1m`` bar tables (``tick_009``).
 SQL is idempotent (IF NOT EXISTS,
 ``if_not_exists => TRUE``, constraints named inside the CREATE). Every enum
 CHECK is rendered from its enum, never hand-listed (222 TD9). No migration
@@ -25,6 +26,15 @@ from datetime import timedelta
 from enum import StrEnum
 
 from manta_trading.data.quality.fetch_status import FetchStatus
+from manta_trading.data.tick.bar_constants import (
+    BAR_1M_CHUNK_INTERVAL,
+    BAR_1M_COMPRESS_AFTER,
+    BAR_1M_KEY,
+    BAR_1M_ORDER_BY,
+    BAR_1M_SEGMENT_BY,
+    BAR_1M_TABLE,
+    BAR_LEDGER_TABLE,
+)
 from manta_trading.data.tick.constants import (
     ARCHIVED_SCHEMAS,
     TICK_TRADE_CHUNK_INTERVAL,
@@ -371,6 +381,78 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                 ADD COLUMN IF NOT EXISTS is_plan_included
                 BOOLEAN NOT NULL DEFAULT FALSE;
             ALTER TABLE tick_request ALTER COLUMN is_plan_included DROP DEFAULT;
+        """,
+    },
+    {
+        "id": "tick_009_ohlcv_1m",
+        "description": "Create the tick_ohlcv_1m bar hypertable and tick_bar_ledger",
+        # Slice 302 D2. The request check is dropped and re-added so
+        # ``ohlcv-1m`` joins the archivable schemas (rendered from the enum,
+        # 222 TD9). The bar table mirrors tick_trade (integer-ns hypertable,
+        # 7-day chunks, no default indexes, no foreign key on unit_id) with
+        # tick_007's columnstore layout; the ALTER runs on the empty table.
+        # The ledger copies tick_ingest_ledger's columns, key and CHECKs.
+        "sql": f"""
+            ALTER TABLE tick_request
+                DROP CONSTRAINT IF EXISTS tick_request_schema_check;
+            ALTER TABLE tick_request ADD CONSTRAINT tick_request_schema_check
+                {render_enum_check("schema", ARCHIVED_SCHEMAS)};
+            CREATE TABLE IF NOT EXISTS {BAR_1M_TABLE} (
+                ts_event      BIGINT  NOT NULL,
+                instrument_id BIGINT  NOT NULL,
+                publisher_id  INTEGER NOT NULL,
+                open          BIGINT  NOT NULL,
+                high          BIGINT  NOT NULL,
+                low           BIGINT  NOT NULL,
+                close         BIGINT  NOT NULL,
+                volume        BIGINT  NOT NULL,
+                unit_id       BIGINT  NOT NULL,
+                CONSTRAINT {BAR_1M_TABLE}_pkey PRIMARY KEY ({", ".join(BAR_1M_KEY)})
+            );
+            SELECT create_hypertable(
+                '{BAR_1M_TABLE}',
+                'ts_event',
+                chunk_time_interval    => {interval_to_ns(BAR_1M_CHUNK_INTERVAL)},
+                create_default_indexes => FALSE,
+                if_not_exists          => TRUE
+            );
+            SELECT set_integer_now_func(
+                '{BAR_1M_TABLE}', 'tick_now_ns', replace_if_exists => TRUE
+            );
+            ALTER TABLE {BAR_1M_TABLE} SET (
+                timescaledb.enable_columnstore,
+                timescaledb.segmentby = '{", ".join(BAR_1M_SEGMENT_BY)}',
+                timescaledb.orderby   = '{", ".join(BAR_1M_ORDER_BY)}'
+            );
+            CALL add_columnstore_policy(
+                '{BAR_1M_TABLE}',
+                after         => {interval_to_ns(BAR_1M_COMPRESS_AFTER)}::BIGINT,
+                if_not_exists => TRUE
+            );
+            CREATE TABLE IF NOT EXISTS {BAR_LEDGER_TABLE} (
+                unit_id        BIGINT NOT NULL
+                    CONSTRAINT {BAR_LEDGER_TABLE}_unit_fkey
+                    REFERENCES tick_archive_unit (unit_id),
+                instrument_id  BIGINT NOT NULL,
+                calendar_id    TEXT   NOT NULL,
+                session_date   DATE   NOT NULL,
+                record_count   BIGINT NOT NULL
+                    CONSTRAINT {BAR_LEDGER_TABLE}_record_count_check
+                    CHECK (record_count >= 0),
+                volume         BIGINT NOT NULL
+                    CONSTRAINT {BAR_LEDGER_TABLE}_volume_check
+                    CHECK (volume >= 0),
+                first_event_ns BIGINT,
+                last_event_ns  BIGINT,
+                CONSTRAINT {BAR_LEDGER_TABLE}_pkey
+                    PRIMARY KEY (unit_id, instrument_id, session_date),
+                CONSTRAINT {BAR_LEDGER_TABLE}_first_event_check
+                    CHECK ((first_event_ns IS NULL) = (record_count = 0)),
+                CONSTRAINT {BAR_LEDGER_TABLE}_last_event_check
+                    CHECK ((last_event_ns IS NULL) = (record_count = 0)),
+                CONSTRAINT {BAR_LEDGER_TABLE}_event_order_check
+                    CHECK (first_event_ns <= last_event_ns)
+            );
         """,
     },
 ]

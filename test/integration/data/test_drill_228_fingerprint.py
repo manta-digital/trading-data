@@ -20,7 +20,12 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import drill_228_fingerprint as fp  # noqa: E402
-from tick_support.rows import TBBO_TRADE, insert_trade  # noqa: E402
+from tick_support.rows import (  # noqa: E402
+    BAR_1M_ROW,
+    TBBO_TRADE,
+    insert_bar,
+    insert_trade,
+)
 
 #: A second day's trade: one UTC day after the default.
 _NEXT_DAY = TBBO_TRADE["ts_event"] + 86_400 * 1_000_000_000
@@ -76,3 +81,42 @@ def test_one_missing_row_is_named(pair: Any) -> None:
     second.execute("DELETE FROM tick_trade WHERE ts_event = %s", (_NEXT_DAY,))
     problems = fp.diff_fingerprints(fp.fingerprint(first), fp.fingerprint(second))
     assert problems == ["instrument 42035063 day 2024-09-02: missing (expected 1 rows)"]
+
+
+_BAR_NEXT_DAY = BAR_1M_ROW["ts_event"] + 86_400 * 1_000_000_000
+
+
+def _seed_bars(conn: psycopg.Connection[Any], unit_id: int) -> None:
+    insert_bar(conn, unit_id)
+    insert_bar(conn, unit_id, ts_event=BAR_1M_ROW["ts_event"] + 60_000_000_000)
+    insert_bar(conn, unit_id, ts_event=_BAR_NEXT_DAY)
+
+
+def test_bar_fingerprints_ignore_unit_id_and_name_a_changed_close(pair: Any) -> None:
+    first, second = pair
+    _seed_bars(first, 1)
+    _seed_bars(second, 77)
+    a, b = (
+        fp.fingerprint(first, "tick_ohlcv_1m"),
+        fp.fingerprint(second, "tick_ohlcv_1m"),
+    )
+    assert len(a) == 2
+    assert fp.diff_fingerprints(a, b) == []
+    second.execute(
+        "UPDATE tick_ohlcv_1m SET close = close + 1 WHERE ts_event = %s",
+        (_BAR_NEXT_DAY,),
+    )
+    problems = fp.diff_databases(first, second)
+    assert len(problems) == 1
+    assert problems[0].startswith("tick_ohlcv_1m: ") and "md5" in problems[0]
+
+
+def test_a_missing_bar_day_is_named_with_its_table(pair: Any) -> None:
+    first, second = pair
+    _seed_bars(first, 1)
+    _seed_bars(second, 1)
+    second.execute("DELETE FROM tick_ohlcv_1m WHERE ts_event = %s", (_BAR_NEXT_DAY,))
+    (problem,) = fp.diff_databases(first, second)
+    assert problem.startswith(
+        "tick_ohlcv_1m: instrument 42035063 day 2024-09-04: missing"
+    )

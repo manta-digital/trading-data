@@ -16,6 +16,7 @@ import psycopg
 from psycopg import sql
 
 from manta_trading.data.quality.fetch_status import FetchStatus
+from manta_trading.data.tick.bar_constants import BAR_1M_TABLE, BAR_LEDGER_TABLE
 from manta_trading.data.tick.constants import (
     CME_DATASET,
     DatasetCondition,
@@ -134,6 +135,39 @@ TBBO_TRADE: dict[str, Any] = {
 
 def insert_trade(conn: psycopg.Connection[Any], unit_id: int, **overrides: Any) -> None:
     _insert(conn, "tick_trade", TBBO_TRADE | {"unit_id": unit_id} | overrides, None)
+
+
+#: A valid bar row; ``unit_id`` is supplied by the caller.
+BAR_1M_ROW: dict[str, Any] = {
+    "ts_event": 1_725_321_600_000_000_000,
+    "instrument_id": 42_035_063,
+    "publisher_id": 1,
+    "open": 5_500_000_000_000,
+    "high": 5_501_000_000_000,
+    "low": 5_499_000_000_000,
+    "close": 5_500_500_000_000,
+    "volume": 7,
+}
+
+
+def insert_bar(conn: psycopg.Connection[Any], unit_id: int, **overrides: Any) -> None:
+    _insert(conn, BAR_1M_TABLE, BAR_1M_ROW | {"unit_id": unit_id} | overrides, None)
+
+
+def insert_bar_ledger_row(
+    conn: psycopg.Connection[Any], unit_id: int, **overrides: Any
+) -> None:
+    row: dict[str, Any] = {
+        "unit_id": unit_id,
+        "instrument_id": 42_035_063,
+        "calendar_id": calendar_for_product("ES"),
+        "session_date": date(2024, 9, 3),
+        "record_count": 2,
+        "volume": 3,
+        "first_event_ns": ACTIVATION_NS,
+        "last_event_ns": ACTIVATION_NS + 1,
+    }
+    _insert(conn, BAR_LEDGER_TABLE, row | overrides, None)
 
 
 def insert_ledger_row(

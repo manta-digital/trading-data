@@ -86,31 +86,35 @@ revision_number: 2
 
 ### 3. Storage migration `tick_009_ohlcv_1m` (D2)
 
-- [ ] **3.1 Create `bar_constants.py`**
-  - [ ] Constants for `tick_ohlcv_1m`: table name, chunk interval (7 days, in ns), compress-after (14 days), segment-by column (`instrument_id`), order-by column (`ts_event`). Also the `tick_bar_ledger` table name.
-  - [ ] Success: no storage value for the bar table is defined outside this file.
+- [x] **3.1 Create `bar_constants.py`**
+  - [x] Constants for `tick_ohlcv_1m`: table name, chunk interval (7 days, in ns), compress-after (14 days), segment-by column (`instrument_id`), order-by column (`ts_event`). Also the `tick_bar_ledger` table name.
+  - [x] Success: no storage value for the bar table is defined outside this file.
 
-- [ ] **3.2 Write the migration**
-  - [ ] Read `market/schema/migrations/tick.py` (`tick_004_trades`, `tick_005_ingest_ledger`, `tick_007_trade_columnstore`, `tick_008_plan_inclusion`) and confirm the last migration id before naming this one.
-  - [ ] Add `OHLCV_1M` to `ARCHIVED_SCHEMAS` in `constants.py` in this task.
-  - [ ] Append `tick_009_ohlcv_1m`: drop and re-add `tick_request_schema_check` rendered from `ARCHIVED_SCHEMAS`; create `tick_ohlcv_1m` with the D2 columns and `PRIMARY KEY (instrument_id, ts_event)`; `create_hypertable` (`create_default_indexes => FALSE`, `if_not_exists => TRUE`); `set_integer_now_func('tick_ohlcv_1m', 'tick_now_ns')`; columnstore `ALTER` on the empty table; `add_columnstore_policy`; create `tick_bar_ledger` with `tick_ingest_ledger`'s columns, key and `CHECK`s plus the foreign key to `tick_archive_unit`.
-  - [ ] Update the module docstring's migration list.
-  - [ ] Success: `mt data migrate apply --track tick` on a throwaway tick database creates both tables.
+- [x] **3.2 Write the migration**
+  - [x] Read `market/schema/migrations/tick.py` (`tick_004_trades`, `tick_005_ingest_ledger`, `tick_007_trade_columnstore`, `tick_008_plan_inclusion`) and confirm the last migration id before naming this one.
+  - [x] Add `OHLCV_1M` to `ARCHIVED_SCHEMAS` in `constants.py` in this task.
+  - [x] Append `tick_009_ohlcv_1m`: drop and re-add `tick_request_schema_check` rendered from `ARCHIVED_SCHEMAS`; create `tick_ohlcv_1m` with the D2 columns and `PRIMARY KEY (instrument_id, ts_event)`; `create_hypertable` (`create_default_indexes => FALSE`, `if_not_exists => TRUE`); `set_integer_now_func('tick_ohlcv_1m', 'tick_now_ns')`; columnstore `ALTER` on the empty table; `add_columnstore_policy`; create `tick_bar_ledger` with `tick_ingest_ledger`'s columns, key and `CHECK`s plus the foreign key to `tick_archive_unit`.
+  - [x] Update the module docstring's migration list.
+  - [x] Success: `mt data migrate apply --track tick` on a throwaway tick database creates both tables.
 
-- [ ] **3.3 Migration tests** (`test/integration/data/test_tick_009_ohlcv_1m.py`, modelled on `test_tick_008_plan_inclusion.py` and `test_tick_columnstore_migration.py`)
-  - [ ] Applies on an empty tick database and on a populated one (existing `tick_request` and `tick_trade` rows survive).
-  - [ ] `tick_request` accepts `ohlcv-1m` and still rejects an unknown schema.
-  - [ ] `tick_ohlcv_1m` is a hypertable with the primary key, the 7-day chunk interval and a columnstore policy; a duplicate `(instrument_id, ts_event)` insert is refused.
-  - [ ] Re-applying is a no-op.
-  - [ ] Success: the new tests pass. Update any test pinning the latest tick migration id.
+  Note: the module docstring and migrations README list tick_009; BAR_SCHEMAS (constants.py) is the new set joined into ARCHIVED_SCHEMAS.
 
-- [ ] **3.4 Drill tables and fingerprint** (D9; the drill pin test fails as soon as 3.2 lands, so fix it here)
-  - [ ] Add `tick_bar_ledger` to `drill_228_bookkeeping.BOOKKEEPING_TABLES`; add a `tick_ohlcv_1m` fingerprint beside `tick_trade`'s in `drill_228_fingerprint.py`.
-  - [ ] Success: `test_drill_228_bookkeeping.py` and `test_drill_228_fingerprint.py` pass (the pin test asserting drill tables equal the migrated tick tables passes again).
+- [x] **3.3 Migration tests** (`test/integration/data/test_tick_009_ohlcv_1m.py`, modelled on `test_tick_008_plan_inclusion.py` and `test_tick_columnstore_migration.py`)
+  - [x] Applies on an empty tick database and on a populated one (existing `tick_request` and `tick_trade` rows survive).
+  - [x] `tick_request` accepts `ohlcv-1m` and still rejects an unknown schema.
+  - [x] `tick_ohlcv_1m` is a hypertable with the primary key, the 7-day chunk interval and a columnstore policy; a duplicate `(instrument_id, ts_event)` insert is refused.
+  - [x] Re-applying is a no-op.
+  - [x] Success: the new tests pass. Update any test pinning the latest tick migration id.
 
-- [ ] **3.5 Roles** (D9)
-  - [ ] Add `tick_ohlcv_1m` and `tick_bar_ledger` to the enumerated write surface in `scripts/provision_tick_roles.sql`. Extend `test_tick_role_privileges.py` to cover both. Do not re-run the script in production.
-  - [ ] Success: the role privilege test passes.
+- [x] **3.4 Drill tables and fingerprint** (D9; the drill pin test fails as soon as 3.2 lands, so fix it here)
+  - [x] Add `tick_bar_ledger` to `drill_228_bookkeeping.BOOKKEEPING_TABLES`; add a `tick_ohlcv_1m` fingerprint beside `tick_trade`'s in `drill_228_fingerprint.py`.
+  - [x] Success: `test_drill_228_bookkeeping.py` and `test_drill_228_fingerprint.py` pass (the pin test asserting drill tables equal the migrated tick tables passes again).
+
+  Note: `diff_databases` in drill_228_fingerprint.py compares every fingerprinted row table; the two drill steps call it instead of the tick_trade-only pair.
+
+- [x] **3.5 Roles** (D9)
+  - [x] Add `tick_ohlcv_1m` and `tick_bar_ledger` to the enumerated write surface in `scripts/provision_tick_roles.sql`. Extend `test_tick_role_privileges.py` to cover both. Do not re-run the script in production.
+  - [x] Success: the role privilege test passes.
 
 **Commit**: `feat: add tick_009 migration, drill tables and roles for bar storage`
 

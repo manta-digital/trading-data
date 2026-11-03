@@ -115,11 +115,12 @@ def test_unit_states_with_file_come_after_delivery() -> None:
     assert all(order.index(s) > delivered for s in UNIT_STATES_WITH_FILE)
 
 
-def test_archived_schemas_are_stored_tiers_and_definition() -> None:
+def test_archived_schemas_are_stored_tiers_definition_and_bars() -> None:
     assert ARCHIVED_SCHEMAS == {
         TickSchema.TRADES,
         TickSchema.TBBO,
         TickSchema.DEFINITION,
+        TickSchema.OHLCV_1M,
     }
     assert TickSchema.MBP_1 not in ARCHIVED_SCHEMAS
 
@@ -171,13 +172,8 @@ def test_tier_rank_follows_tier_order() -> None:
     assert TICK_TIER_RANK[TickSchema.TBBO] > TICK_TIER_RANK[TickSchema.TRADES]
 
 
-def test_ohlcv_1m_is_a_schema_in_no_collection_yet() -> None:
+def test_ohlcv_1m_is_archived_but_neither_a_tier_nor_a_companion() -> None:
     assert TickSchema.OHLCV_1M == "ohlcv-1m"
-    for collection in (
-        TICK_TIERS,
-        STORED_TIERS,
-        COMPANION_SCHEMAS,
-        ARCHIVED_SCHEMAS,
-        ESTIMATE_SCHEMAS,
-    ):
+    assert TickSchema.OHLCV_1M in ARCHIVED_SCHEMAS
+    for collection in (TICK_TIERS, STORED_TIERS, COMPANION_SCHEMAS, ESTIMATE_SCHEMAS):
         assert TickSchema.OHLCV_1M not in collection
