@@ -94,8 +94,11 @@ def verify_first_sessions() -> None:
             [
                 "mt-run", "data", "calendars", "sessions",
                 "--calendar", calendar_id,
-                "--from", CME_DATASET_START.isoformat(),
-                "--to", (CME_DATASET_START + FIRST_WEEK).isoformat(),
+                # The first weekday, not the dataset start: it falls on a Sunday,
+                # and the calendar is populated from that evening's open, so a
+                # midnight-local --from on it is outside the calendar.
+                "--from", first_session_expected().isoformat(),
+                "--to", (first_session_expected() + FIRST_WEEK).isoformat(),
                 "--json",
             ],
             sudo=True,

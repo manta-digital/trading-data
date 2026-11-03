@@ -29,6 +29,7 @@ import json
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
@@ -58,6 +59,26 @@ SERVE_URL = "http://127.0.0.1:8100"
 SEARCH_WORD = "bitcoin"
 #: A search that takes longer than this on the real catalog has lost its index.
 SLOW_SECONDS = 2.0
+#: How long to wait for the restarted server to start listening.
+LISTEN_WAIT_SECONDS = 60
+
+
+def _fetch_when_listening(url: str) -> dict[str, list[dict[str, str]]]:
+    """GET ``url``, waiting out the restart: systemd reports the unit active
+    before uvicorn has bound the port."""
+    deadline = time.monotonic() + LISTEN_WAIT_SECONDS
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return json.loads(response.read())  # type: ignore[no-any-return]
+        except urllib.error.URLError as exc:
+            # Connection refused while the new process starts is expected;
+            # anything else, or running out of time, is a real failure.
+            if not isinstance(exc.reason, ConnectionRefusedError):
+                raise
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(1)
 
 
 def verify_search() -> None:
@@ -65,8 +86,7 @@ def verify_search() -> None:
         {"q": SEARCH_WORD}
     )
     started = time.monotonic()
-    with urllib.request.urlopen(url, timeout=30) as response:
-        body = json.loads(response.read())
+    body = _fetch_when_listening(url)
     elapsed = time.monotonic() - started
     for group, parent in (
         ("series", "ticker"),
