@@ -66,6 +66,52 @@ def test_es_batches(name: str, schema: TickSchema, itemsize: int, price: int) ->
     assert int(first.records["instrument_id"][0]) == 5482
 
 
+#: The two ohlcv-1m samples: same two ESH1 bars, DBN v1 and v3.
+BAR_FILES = ["test_data.ohlcv-1m.v1.dbn.zst", "test_data.ohlcv-1m.v3.dbn.zst"]
+BAR_MINUTES_NS = [
+    int(datetime(2020, 12, 28, 13, 0, tzinfo=UTC).timestamp()) * 1_000_000_000,
+    int(datetime(2020, 12, 28, 13, 1, tzinfo=UTC).timestamp()) * 1_000_000_000,
+]
+
+
+@pytest.mark.parametrize("name", BAR_FILES)
+def test_ohlcv_1m_header_and_records(name: str) -> None:
+    tick_file = _open(name)
+    assert tick_file.dataset == CME_DATASET
+    assert tick_file.schema is TickSchema.OHLCV_1M
+    assert dict(tick_file.mappings) == ESH1
+    batches = list(tick_file.iter_batches())
+    assert sum(b.count for b in batches) == 2
+    records = batches[0].records
+    assert batches[0].schema is TickSchema.OHLCV_1M
+    assert records.dtype.names == (
+        "length",
+        "rtype",
+        "publisher_id",
+        "instrument_id",
+        "ts_event",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    )
+    assert records.dtype.itemsize == 56
+    assert {int(i) for i in records["instrument_id"]} == {5482}
+    # ts_event is the minute's open.
+    assert [int(t) for t in records["ts_event"]] == BAR_MINUTES_NS
+    # Prices are fixed-point at 1e-9. The sample's bars are 100x the trades
+    # samples' prices (372025.0): the provider's synthetic values, not a scale.
+    assert int(records["open"][0]) == 372025000000000
+    assert int(records["volume"][0]) == 353
+
+
+def test_ohlcv_1m_v1_matches_v3() -> None:
+    v1 = next(_open(BAR_FILES[0]).iter_batches()).records
+    v3 = next(_open(BAR_FILES[1]).iter_batches()).records
+    assert v1.tobytes() == v3.tobytes()
+
+
 def test_v2_trades_match_v3() -> None:
     v2 = next(_open("test_data.trades.v2.dbn.zst").iter_batches()).records
     v3 = next(_open("test_data.trades.v3.dbn.zst").iter_batches()).records

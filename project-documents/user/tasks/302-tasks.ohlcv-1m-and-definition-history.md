@@ -71,14 +71,16 @@ revision_number: 2
 
 ### 2. Reader fixtures and decode tests (D7, part one)
 
-- [ ] **2.1 Copy the DBN samples and record them**
-  - [ ] Fetch `test_data.ohlcv-1m.v1.dbn.zst` and `test_data.ohlcv-1m.v3.dbn.zst` from `databento/dbn` `tests/data/` at tag `v0.70.0` (use `gh api`), unmodified, into `test/fixtures/databento/` beside the existing samples.
-  - [ ] Add both to `test/fixtures/databento/SOURCES.md`, in its existing format, with the tag and the check date.
-  - [ ] Success: both files exist; `SOURCES.md` lists them.
+- [x] **2.1 Copy the DBN samples and record them**
+  - [x] Fetch `test_data.ohlcv-1m.v1.dbn.zst` and `test_data.ohlcv-1m.v3.dbn.zst` from `databento/dbn` `tests/data/` at tag `v0.70.0` (use `gh api`), unmodified, into `test/fixtures/databento/` beside the existing samples.
+  - [x] Add both to `test/fixtures/databento/SOURCES.md`, in its existing format, with the tag and the check date.
+  - [x] Success: both files exist; `SOURCES.md` lists them.
 
-- [ ] **2.2 Reader decode tests**
-  - [ ] Extend `test_dbn_file.py`: the reader decodes both samples as 2 bar records (instrument 5482, `GLBX.MDP3`), `ts_event` is the minute's open (13:00:00 and 13:01:00 UTC on 2020-12-28), and field names and price scale are as the projector will read them. If the reader cannot decode the bar record, fix the reader here.
-  - [ ] Success: the new tests pass for v1 and v3.
+- [x] **2.2 Reader decode tests**
+  - [x] Extend `test_dbn_file.py`: the reader decodes both samples as 2 bar records (instrument 5482, `GLBX.MDP3`), `ts_event` is the minute's open (13:00:00 and 13:01:00 UTC on 2020-12-28), and field names and price scale are as the projector will read them. If the reader cannot decode the bar record, fix the reader here.
+  - [x] Success: the new tests pass for v1 and v3.
+
+  Note: the samples' prices are 100x the trades samples' (open 372025.0); the test asserts the sample's own value.
 
 **Commit**: `test: add ohlcv-1m DBN sample fixtures and reader tests`
 
