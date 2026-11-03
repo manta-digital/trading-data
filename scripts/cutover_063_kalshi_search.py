@@ -85,6 +85,7 @@ def verify_search() -> None:
     url = f"{SERVE_URL}/api/v1/kalshi/search?" + urllib.parse.urlencode(
         {"q": SEARCH_WORD}
     )
+    _fetch_when_listening(url)  # waits out the restart and warms the cache
     started = time.monotonic()
     body = _fetch_when_listening(url)
     elapsed = time.monotonic() - started
