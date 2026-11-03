@@ -223,14 +223,16 @@ revision_number: 2
 
 ### 7. `HistoryWant` and validation (D5)
 
-- [ ] **7.1 Implement `HistoryWant` and `TickUniverseEntry.history`**
-  - [ ] Read `data/tick/universe.py` and `test_universe.py`. Add `HistoryWant(schema, start, end)` (UTC days, end exclusive, `end=None` = up to the availability edge) and `history: tuple[HistoryWant, ...] = ()` on the entry.
-  - [ ] Import-time validation, each error naming the entry and field: schema is `ohlcv-1m` or `definition`; at most one want per schema; `start` not before `CME_DATASET_START` (import it from `market/schema/seed_cme_hours.py`); the entry has an explicit `tier`; an `ohlcv-1m` want needs a `definition` want whose range contains it (open `end` needs open `end`).
-  - [ ] Success: production `TICK_UNIVERSE` still imports with `history=()`.
+- [x] **7.1 Implement `HistoryWant` and `TickUniverseEntry.history`**
+  - [x] Read `data/tick/universe.py` and `test_universe.py`. Add `HistoryWant(schema, start, end)` (UTC days, end exclusive, `end=None` = up to the availability edge) and `history: tuple[HistoryWant, ...] = ()` on the entry.
+  - [x] Import-time validation, each error naming the entry and field: schema is `ohlcv-1m` or `definition`; at most one want per schema; `start` not before `CME_DATASET_START` (import it from `market/schema/seed_cme_hours.py`); the entry has an explicit `tier`; an `ohlcv-1m` want needs a `definition` want whose range contains it (open `end` needs open `end`).
+  - [x] Success: production `TICK_UNIVERSE` still imports with `history=()`.
 
-- [ ] **7.2 Validation tests** (extend `test_universe.py`; one test per rule)
-  - [ ] Valid entry with both wants. Rejected: bar want outside definition range; bar want with no definition want; `start` before `CME_DATASET_START`; repeated schema; `tier=None`; schema other than the two allowed; open bar `end` with closed definition `end`.
-  - [ ] Success: each rejection names the entry and field.
+  Note: `HISTORY_SCHEMAS = BAR_SCHEMAS | COMPANION_SCHEMAS` lives in constants.py; errors name the entry and the field as `history[<schema>].<field>`.
+
+- [x] **7.2 Validation tests** (extend `test_universe.py`; one test per rule)
+  - [x] Valid entry with both wants. Rejected: bar want outside definition range; bar want with no definition want; `start` before `CME_DATASET_START`; repeated schema; `tier=None`; schema other than the two allowed; open bar `end` with closed definition `end`.
+  - [x] Success: each rejection names the entry and field.
 
 **Commit**: `feat: add HistoryWant and universe history validation`
 

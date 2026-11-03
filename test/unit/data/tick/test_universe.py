@@ -16,9 +16,11 @@ from manta_trading.data.tick.constants import (
 )
 from manta_trading.data.tick.universe import (
     TICK_UNIVERSE,
+    HistoryWant,
     TickUniverseEntry,
     validate_universe,
 )
+from manta_trading.market.schema.seed_cme_hours import CME_DATASET_START
 from manta_trading.market.schema.seed_cme_metals_calendar import (
     CME_METALS_CALENDAR_ID,
 )
@@ -82,3 +84,81 @@ def test_each_bad_entry_names_its_field(changes: dict[str, Any], field: str) -> 
 def test_duplicate_products_are_refused() -> None:
     with pytest.raises(ValueError, match="listed twice"):
         validate_universe([GOOD, GOOD])
+
+
+# -- history wants (slice 302 D5) ---------------------------------------------
+
+BARS = HistoryWant(TickSchema.OHLCV_1M, date(2012, 1, 1), date(2013, 1, 1))
+DEFINITIONS = HistoryWant(TickSchema.DEFINITION, date(2011, 12, 1), date(2013, 2, 1))
+WITH_HISTORY = replace(GOOD, history=(DEFINITIONS, BARS))
+
+
+def test_production_universe_has_no_history() -> None:
+    assert all(entry.history == () for entry in TICK_UNIVERSE)
+
+
+def test_an_entry_with_both_history_wants_validates() -> None:
+    validate_universe([WITH_HISTORY])
+    validate_universe([replace(WITH_HISTORY, history=(DEFINITIONS,))])
+    open_ended = (
+        replace(DEFINITIONS, end=None),
+        replace(BARS, end=None),
+    )
+    validate_universe([replace(GOOD, history=open_ended)])
+
+
+def _rejects(entry: TickUniverseEntry, *needles: str) -> None:
+    with pytest.raises(ValueError) as raised:
+        validate_universe([entry])
+    message = str(raised.value)
+    assert "'ES'" in message  # the entry
+    for needle in needles:
+        assert needle in message
+
+
+def test_a_bar_want_outside_the_definition_range_is_rejected() -> None:
+    bars = replace(BARS, end=date(2013, 3, 1))
+    _rejects(
+        replace(GOOD, history=(DEFINITIONS, bars)), "history[ohlcv-1m]", "not inside"
+    )
+    early = replace(BARS, start=date(2011, 6, 1))
+    _rejects(
+        replace(GOOD, history=(DEFINITIONS, early)), "history[ohlcv-1m]", "not inside"
+    )
+
+
+def test_a_bar_want_with_no_definition_want_is_rejected() -> None:
+    _rejects(replace(GOOD, history=(BARS,)), "history[ohlcv-1m]", "needs a definition")
+
+
+def test_a_start_before_the_dataset_start_is_rejected() -> None:
+    early = date(2010, 6, 5)
+    assert early < CME_DATASET_START
+    wants = (replace(DEFINITIONS, start=early), replace(BARS, start=early))
+    _rejects(replace(GOOD, history=wants), "history[definition].start", str(early))
+
+
+def test_a_repeated_schema_is_rejected() -> None:
+    _rejects(replace(GOOD, history=(DEFINITIONS, DEFINITIONS)), "more than once")
+
+
+def test_a_history_want_on_an_entry_with_no_tier_is_rejected() -> None:
+    _rejects(replace(WITH_HISTORY, tier=None), "tier", "not chosen")
+
+
+@pytest.mark.parametrize(
+    "schema", [TickSchema.TBBO, TickSchema.MBP_1, TickSchema.TRADES]
+)
+def test_a_schema_other_than_the_two_allowed_is_rejected(schema: TickSchema) -> None:
+    other = HistoryWant(schema, date(2012, 1, 1), date(2013, 1, 1))
+    _rejects(replace(GOOD, history=(other,)), f"history[{schema}].schema")
+
+
+def test_an_open_bar_end_with_a_closed_definition_end_is_rejected() -> None:
+    open_bars = replace(BARS, end=None)
+    _rejects(replace(GOOD, history=(DEFINITIONS, open_bars)), "not inside")
+
+
+def test_an_inverted_want_range_is_rejected() -> None:
+    inverted = replace(DEFINITIONS, end=DEFINITIONS.start)
+    _rejects(replace(GOOD, history=(inverted,)), "history[definition].end")
