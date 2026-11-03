@@ -238,18 +238,22 @@ revision_number: 2
 
 ### 8. Planner history wants (D5)
 
-- [ ] **8.1 Plan history wants beside tier wants**
-  - [ ] Read `planner.py` and `test_planner.py`. Rename `_tier_wants` to `_wants` over the tier and the history wants. Each produces `(shape, days)` through the same classification, month runs and ordering. A want's days are the product's session days inside its range. A definition history want is a want of its own, not a companion; the union of it and the companion definition set is what gets planned.
-  - [ ] Definitions order before every other schema within a day (224 TD4).
-  - [ ] Success: with `history=()` the planner output is byte-identical to before.
+- [x] **8.1 Plan history wants beside tier wants**
+  - [x] Read `planner.py` and `test_planner.py`. Rename `_tier_wants` to `_wants` over the tier and the history wants. Each produces `(shape, days)` through the same classification, month runs and ordering. A want's days are the product's session days inside its range. A definition history want is a want of its own, not a companion; the union of it and the companion definition set is what gets planned.
+  - [x] Definitions order before every other schema within a day (224 TD4).
+  - [x] Success: with `history=()` the planner output is byte-identical to before.
 
-- [ ] **8.2 Planner tests** (extend `test_planner.py`)
-  - [ ] Union of a definition want with companion definitions (no duplicate request); definitions ordered before bars within a day; month runs for a multi-month want; covered days dropped; empty `history` leaves existing plans unchanged.
-  - [ ] Success: tests pass.
+  Note: `_tier_wants` keeps its name and `_history_wants` is its sibling; `_union` merges tier, companion and history wants per shape, so the companion rule stays tick-tier only. `purchase_plan.wanted_spans` (tested) now also widens each product's session span over history wants, or the planner would see no sessions for them.
 
-- [ ] **8.3 Production plan unchanged check**
-  - [ ] Run `uv run mt data tick pass --estimate-only --json` on the branch, then on its base commit in a temporary worktree (`git worktree add <dir outside the repo> $(git merge-base HEAD <target>)`, same environment, remove the worktree afterwards); compare planned requests and spend lines.
-  - [ ] Success: identical (0 requests for today's universe). Record the result as a note under this task.
+- [x] **8.2 Planner tests** (extend `test_planner.py`)
+  - [x] Union of a definition want with companion definitions (no duplicate request); definitions ordered before bars within a day; month runs for a multi-month want; covered days dropped; empty `history` leaves existing plans unchanged.
+  - [x] Success: tests pass.
+
+- [x] **8.3 Production plan unchanged check**
+  - [x] Run `uv run mt data tick pass --estimate-only --json` on the branch, then on its base commit in a temporary worktree (`git worktree add <dir outside the repo> $(git merge-base HEAD <target>)`, same environment, remove the worktree afterwards); compare planned requests and spend lines.
+  - [x] Success: identical (0 requests for today's universe). Record the result as a note under this task.
+
+  Note: the branch cannot run against production (the tick preflight refuses while `tick_009` is pending there), so the check ran on a throwaway tick database on the test cluster holding a copy of production's manifest and availability rows (`tick_request`, `tick_archive_unit`, `tick_dataset_edge`, `tick_day_condition`; production read-only). The base commit `6a3923e` (temporary worktree, removed) ran `mt data tick pass --estimate-only --json` at `tick_008`; `tick_009` was applied and the branch ran the same command. Result: identical apart from run id, timestamps and durations: 0 requests, planned $0, verdict `nothing_to_buy`. The database was dropped.
 
 **Commit**: `feat: plan universe history wants beside tier wants`
 
