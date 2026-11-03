@@ -79,7 +79,9 @@ class Ohlcv1mProjector:
                 positions = locate_sessions(plan.frame, ts)
                 ledger.add(ids, positions, records["volume"], ts)
                 columns = [records[field].tolist() for field in _RECORD_FIELDS]
-                for row in zip(*columns, repeat(plan.unit.unit_id), strict=False):
+                for row in zip(
+                    *columns, repeat(plan.unit.unit_id, batch.count), strict=True
+                ):
                     copy.write_row(row)
                 if batch.count:
                     loaded.note_batch(batch.count, int(ts.min()), int(ts.max()))

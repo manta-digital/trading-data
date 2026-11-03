@@ -73,16 +73,10 @@ class CoverageSession:
 _BAR_ONLY_KEYS = ("ledger_volume", "raw_volume")
 
 
-def _without_bar_only(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            k: _without_bar_only(v)
-            for k, v in value.items()
-            if not (k in _BAR_ONLY_KEYS and v is None)
-        }
-    if isinstance(value, list):
-        return [_without_bar_only(v) for v in value]
-    return value
+def _drop_unset_bar_keys(row: dict[str, Any]) -> None:
+    for key in _BAR_ONLY_KEYS:
+        if row.get(key) is None:
+            row.pop(key, None)
 
 
 @dataclass(frozen=True)
@@ -104,7 +98,10 @@ class TickCoverage:
             body["schema"] = self.schema
         for session, out in zip(self.sessions, body["sessions"], strict=True):
             out["check"] = session.check
-        return _without_bar_only(body) | {"mismatched": self.mismatched}
+            _drop_unset_bar_keys(out)
+            for mismatch in out["mismatches"]:
+                _drop_unset_bar_keys(mismatch)
+        return body | {"mismatched": self.mismatched}
 
 
 Totals = Mapping[tuple[int, date], tuple[int, int | None]]

@@ -59,12 +59,12 @@ class Shape:
     stype_in: SType
 
     def params(self, family: SchemaFamily) -> dict[str, Any]:
-        """Query parameters; ``tiers`` is the schemas of ``family`` (302 D6)."""
+        """Query parameters; ``schemas`` is the schemas of ``family`` (302 D6)."""
         return {
             "dataset": self.dataset,
             "symbols": list(self.symbols),
             "stype_in": self.stype_in.value,
-            "tiers": sorted(schema.value for schema in FAMILY_SCHEMAS[family]),
+            "schemas": sorted(schema.value for schema in FAMILY_SCHEMAS[family]),
         }
 
 
@@ -84,7 +84,7 @@ def _ledger_units(family: SchemaFamily) -> str:
 
 SHAPE_WHERE = (
     "r.dataset = %(dataset)s AND r.symbols = %(symbols)s"
-    " AND r.stype_in = %(stype_in)s AND r.schema = ANY(%(tiers)s)"
+    " AND r.stype_in = %(stype_in)s AND r.schema = ANY(%(schemas)s)"
     f" AND {COVERAGE_PREDICATE}"
 )
 
