@@ -305,7 +305,7 @@ async def test_unreachable_calendar_raises_with_no_rows(
 async def test_range_outside_the_calendar_raises_with_no_rows(
     make_run: RunFactory, migrated_tick_db: str, source: Path, archive: Path
 ) -> None:
-    early = _job(start="2019-12-02 00:00:00+00:00", end="2019-12-04 00:00:00+00:00")
+    early = _job(start="2010-05-03 00:00:00+00:00", end="2010-05-05 00:00:00+00:00")
     with pytest.raises(TickCalendarError, match="CME_EQUITY"):
         await _adopt(make_run, migrated_tick_db, source, job=early)
     assert _rows(migrated_tick_db, "SELECT 1 FROM tick_request") == []

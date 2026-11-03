@@ -70,6 +70,24 @@ def early_close_day(day: date, name: str, close: time) -> dict[str, Any]:
     }
 
 
+def late_open_day(
+    day: date, name: str, open_time: time, close: time | None = None
+) -> dict[str, Any]:
+    """An exception row for a session that opens at ``open_time`` (301 D4).
+
+    ``open_time`` is on the previous day when it is later than the close, as
+    for the regular open. ``close`` is given when the same session also closes
+    early.
+    """
+    return {
+        "holiday_date": day,
+        "holiday_name": name,
+        "market_status": MarketStatus.LATE_OPEN,
+        "early_close_time": close,
+        "late_open_time": open_time,
+    }
+
+
 # Wayback snapshots: the live cmegroup.com refuses automated reads. The JSON
 # rows are the service behind cmegroup.com/trading-hours.html; there a 12:00
 # "preopen" on a holiday is the halt, and a day with no events means no trading.

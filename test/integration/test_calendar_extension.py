@@ -11,8 +11,12 @@ from datetime import date, timedelta
 
 import psycopg
 import pytest
+from psycopg_pool import ConnectionPool
 
+from manta_trading.data.base.session_eras import is_dated
 from manta_trading.data.base.session_extension import extend_calendar_sessions
+from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+from manta_trading.market.schema.runner import apply_migrations
 
 _TEST_CALENDAR = "ZZZ221_EXT"
 _BOUND_DAYS_OUT = 30
@@ -99,3 +103,17 @@ def test_second_call_from_horizon_is_noop(
     )
     assert second.rows_upserted == 0
     assert second.horizon_after == first.horizon_after
+
+
+def test_no_calendar_is_dated_before_the_column_exists(ephemeral_db: str) -> None:
+    """301 D3: 058/059 on a fresh database run before ``hours_dated`` exists."""
+    cut = next(
+        i
+        for i, m in enumerate(MINUTE_MIGRATIONS)
+        if m["id"] == "059_seed_cme_metals_calendar"
+    )
+    with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
+        apply_migrations(pool, MINUTE_MIGRATIONS[: cut + 1])
+    with psycopg.connect(ephemeral_db) as connection:
+        for calendar_id in ("CME_EQUITY", "CME_METALS", "NYSE"):
+            assert is_dated(connection, calendar_id) is False
