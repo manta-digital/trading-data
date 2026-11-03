@@ -348,7 +348,7 @@ Run from the checkout root with the test database URL exported from `.env` (proj
    ```
    Expected: all pass, including the new bar projector, `tick_009`, history-want and pre-2020 placement tests.
 
-2. **Bar ingest on throwaway databases.** Create two databases from `MT_TIMESCALE_TEST_URL`: a primary one, migrated through 301 with `uv run mt data init` under `MT_TIMESCALE_DB_URL`, for the calendars; and a tick one, with `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` pointed at it and a scratch directory. Run `uv run mt data init --database tick`. Record the 2024-12-03 definition and bar fixtures as units of an `ES.FUT` parent request; the integration test `test_bar_ingest_e2e` contains the helper that does this, and no CLI command records an arbitrary file as a unit. Then:
+2. **Bar ingest on throwaway databases.** Create two databases from `MT_TIMESCALE_TEST_URL`: a primary one, migrated through 301 with `uv run mt data init` under `MT_TIMESCALE_DB_URL`, for the calendars; and a tick one, with `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` pointed at it and a scratch directory. Run `uv run mt data init --database tick`. Record the 2024-12-03 definition and bar fixtures as units of an `ES.FUT` parent request; the helper module `test/integration/data/tick_bar_helpers.py` (used by `test_bar_ingest_e2e`) does this, and no CLI command records an arbitrary file as a unit. Then:
    ```bash
    uv run mt data tick ingest --json
    uv run mt data tick coverage --product ES --schema ohlcv-1m --start 2024-12-03 --end 2024-12-05 --json

@@ -46,8 +46,8 @@ revision_number: 2
 
 - [ ] **1.1 Add `TickSchema.OHLCV_1M` and archived membership**
   - [ ] Read `src/manta_trading/data/tick/constants.py` and `test/unit/data/tick/test_constants.py` first.
-  - [ ] Add `TickSchema.OHLCV_1M = "ohlcv-1m"`; append it to `ESTIMATE_SCHEMAS`. Do not add it to `ARCHIVED_SCHEMAS` yet: task 3.2 does that with the migration, so the constant never runs ahead of the database check constraint. Do not touch `STORED_TIERS`, `TICK_TIERS` or `COMPANION_SCHEMAS`.
-  - [ ] Success: the existing constants tests pass (update any that enumerate the schemas), and `OHLCV_1M` is in `ESTIMATE_SCHEMAS` only.
+  - [ ] Add `TickSchema.OHLCV_1M = "ohlcv-1m"` only. Do not add it to `ARCHIVED_SCHEMAS` yet (task 3.2 does that with the migration, so the constant never runs ahead of the database check constraint) or to `ESTIMATE_SCHEMAS` (task 11.1 does that with its row and tests, so `mt data tick estimate` output does not change before then). Do not touch `STORED_TIERS`, `TICK_TIERS` or `COMPANION_SCHEMAS`.
+  - [ ] Success: the existing constants tests pass (update any that enumerate the schemas), and `OHLCV_1M` exists and is in no schema collection.
 
 - [ ] **1.2 Add `SchemaFamily.BAR_1M` and `FAMILY_LEDGER`**
   - [ ] In `schema_families.py`, add `BAR_1M: (OHLCV_1M,)` to `FAMILY_SCHEMAS` and a `FAMILY_LEDGER` mapping: `TICK_TIER` to `tick_ingest_ledger`, `BAR_1M` to `tick_bar_ledger`. `DEFINITION` is deliberately absent (projected by the acquisition pass).
@@ -156,8 +156,12 @@ revision_number: 2
 ### 6. Bar ingest end to end (D3, D4, D10; criteria 1–4, 7, 11)
 
 - [ ] **6.1 Test helper for recording units**
-  - [ ] Create `test/integration/data/tick_bar_helpers.py` (or the project's existing helper location): record a definition file and a bar file as units of an `ES.FUT` parent request in a throwaway tick database. Definition units are projected by the acquisition pass, not by ingest (300 D3): read `definitions.py`, `acquisition_pass.py` and `test_tick_definitions.py`, and mark the definition unit ingested by calling the same definition-projection function the acquisition pass calls. Do not mark it with a direct status update. Only bar units go through `mt data tick ingest`. Also set up the primary database migrated through 301 for calendars. This helper is what the walkthrough names `test_bar_ingest_e2e` as containing. Also provide a function that writes a small DBN file to `tmp_path` from hand-built records with the DBN Python writer (model it on the existing helpers in `test_tick_definitions.py` and `test_dbn_files_helper.py`); the later tasks in this group build their inputs with it.
-  - [ ] Success: the helper is exercised by 6.2.
+  - [ ] Create `test/integration/data/tick_bar_helpers.py` (or the project's existing helper location): record a definition file and a bar file as units of an `ES.FUT` parent request in a throwaway tick database. Definition units are projected by the acquisition pass, not by ingest (300 D3): read `definitions.py`, `acquisition_pass.py` and `test_tick_definitions.py`, and mark the definition unit ingested by calling the same definition-projection function the acquisition pass calls. Do not mark it with a direct status update. Only bar units go through `mt data tick ingest`. Also set up the primary database migrated through 301 for calendars. The walkthrough in the slice design says `test_bar_ingest_e2e` contains this helper; it lives in `tick_bar_helpers.py` and the test imports it. Update that walkthrough sentence to name `tick_bar_helpers.py`.
+  - [ ] Success: a smoke test records a definition unit and a bar unit and reads both back with the expected statuses.
+
+- [ ] **6.1a DBN writer helper**
+  - [ ] In the same helper module add a function that writes a small DBN file to `tmp_path` from hand-built records with the DBN Python writer (model it on the existing helpers in `test_tick_definitions.py` and `test_dbn_files_helper.py`); 6.4 to 6.6 build their inputs with it.
+  - [ ] Success: a test writes a file of two bars and the reader decodes both back.
 
 - [ ] **6.2 `test_bar_ingest_e2e`**
   - [ ] Ingest the 2024-12-03 definition fixture then the derived bar fixture: bar unit is `ingested`, one `tick_ohlcv_1m` row per bar, `tick_bar_ledger` rows per instrument and session on both sides of the daily break, provider = decoded = stored.
@@ -165,14 +169,14 @@ revision_number: 2
 
 - [ ] **6.3 Prerequisite and supersession tests**
   - [ ] A bar unit is skipped as `awaiting definitions` until its same-shape, same-day definition unit is ingested.
-  - [ ] A tick-tier unit and an `ohlcv-1m` unit of the same shape and day both stay current after ingest.
+  - [ ] A tick-tier unit and an `ohlcv-1m` unit of the same shape and day both stay current after ingest. The tick-tier unit comes from the derived `trades` fixture of the same day, recorded as a unit through the same 6.1 helper and ingested through the existing trade projector.
   - [ ] Success: tests pass.
 
 - [ ] **6.4 Failure tests** (one test per failure)
   - [ ] Bar outside the unit's UTC day fails `unit_day`.
   - [ ] Bar with no definition fails `resolution`.
   - [ ] Bar in a daily break fails `session_boundary`.
-  - [ ] A second current unit holding the same key fails `overlap`.
+  - [ ] A second current unit holding the same key fails `overlap`. Setup: ingest one bar unit, then record a second `ohlcv-1m` unit that supersession does not retire (read `supersedes_sql` in `schema_families.py` for what retires a unit; use a different shape or day key so the first stays current) carrying a bar for the same instrument and minute; ingesting the second fails.
   - [ ] Success: each failure names its check and leaves no rows in `tick_ohlcv_1m` or `tick_bar_ledger`.
 
 - [ ] **6.5 Pre-2020 placement test** (`test_bar_pre2020`)
@@ -231,12 +235,14 @@ revision_number: 2
 
 - [ ] **9.3 One verdict set per wanted family**
   - [ ] `tick_status_build` builds the tick-tier verdicts as today and `BAR_1M` verdicts when the entry has an `ohlcv-1m` want, over that want's range. Day conditions come from `tick_day_condition`. A session whose units are ingested is `complete` however few bars exist; a `missing` day with no unit is `provider_hole`.
-  - [ ] Success: an entry with no bar want produces no bar verdicts.
+  - [ ] Unit test (in `test_tick_status.py`): an entry with no bar want produces no bar verdicts; an entry with one produces `BAR_1M` verdicts over the want's range.
+  - [ ] Success: the test passes.
 
 - [ ] **9.4 Status rendering and JSON**
   - [ ] In `cli/commands/tick_status_render.py` print one section per wanted family; the `ohlcv-1m` section is headed `load-complete only` and shows session counts by status, condition findings and `caught up`. A family with no want is not printed.
   - [ ] `--json` gains a `families` list; existing top-level product fields stay the tick tier's.
-  - [ ] Success: output for today's universe is identical to before.
+  - [ ] Golden-output test: text and `--json` output for today's universe (no bar want) equal the pre-change output, captured from the base commit before this task's edit.
+  - [ ] Success: the golden test passes.
 
 - [ ] **9.5 Status integration tests**
   - [ ] Using the 6.1 helper and a test universe with a bar want: separate `ohlcv-1m` section headed `load-complete only`; sparse-bar session is `complete`; `missing` day with no unit is `provider_hole`; entry without a bar want prints no bar section; `--json` top-level fields unchanged and `families` present.
@@ -248,11 +254,11 @@ revision_number: 2
 
 - [ ] **10.1 Family-aware coverage**
   - [ ] Read `tick_coverage.py` and `cli/commands/tick*.py` coverage command. `build_coverage(..., family)`; add `--schema` to `mt data tick coverage`, defaulting to the entry's tier (today's output). `--schema ohlcv-1m` reports per instrument and session: status, condition, unit ids, ledger bars and volume, raw bars and volume (`count(*)`, `sum(volume)` over `tick_ohlcv_1m`, one scan bounded by the range), and the check. A mismatch exits 3.
-  - [ ] Reject a `--schema` the entry does not want, with an explicit error.
+  - [ ] Reject a `--schema` the entry does not want, with an explicit error (tested in 10.2).
   - [ ] Success: output without `--schema` is identical to today's.
 
 - [ ] **10.2 Coverage tests**
-  - [ ] Ledger equals raw gives `check: ok` and exit 0 for the 2024-12-03 and 2024-12-04 sessions. Deleting or adding a raw bar gives a mismatch and exit 3. Without `--schema` the output matches the pre-change golden output.
+  - [ ] Ledger equals raw gives `check: ok` and exit 0 for the 2024-12-03 and 2024-12-04 sessions. Deleting or adding a raw bar gives a mismatch and exit 3. Without `--schema` the output matches the pre-change golden output. A `--schema` the entry does not want exits with an explicit error naming the schema.
   - [ ] Success: tests pass.
 
 **Commit**: `feat: add coverage --schema for ohlcv-1m`
@@ -260,7 +266,7 @@ revision_number: 2
 ### 11. Estimate row (D8)
 
 - [ ] **11.1 Show `ohlcv-1m` in the estimate**
-  - [ ] Read `estimate.py` and `test_estimate.py`. `ESTIMATE_SCHEMAS` already includes it (1.1); ensure its row shows list cost, records, bytes and `is_plan_included`, judged alone against the ceiling and kept out of the tick-tier bundle (`_row` bundle stays for `STORED_TIERS`).
+  - [ ] Read `estimate.py` and `test_estimate.py`. Append `OHLCV_1M` to `ESTIMATE_SCHEMAS`; ensure its row shows list cost, records, bytes and `is_plan_included`, judged alone against the ceiling and kept out of the tick-tier bundle (`_row` bundle stays for `STORED_TIERS`).
   - [ ] Success: the tick-tier rows and bundle verdict are unchanged.
 
 - [ ] **11.2 Estimate tests** (extend `test_estimate.py`)
@@ -273,7 +279,7 @@ revision_number: 2
 
 - [ ] **12.1 Full checks**
   - [ ] `ruff check` and `ruff format --check` on touched files; mypy in one invocation with the kalshi src paths and tests; confirm touched source files are within about 300 lines.
-  - [ ] `git diff main` shows no swept lines (deletions of unrelated code) from `ruff format`.
+  - [ ] `git diff <target>` (the `cf config get git.integration_branch` value, or `main` when empty) shows no swept lines (deletions of unrelated code) from `ruff format`.
   - [ ] Success: all clean.
 
 - [ ] **12.2 Full tick test tiers**
@@ -281,7 +287,7 @@ revision_number: 2
   - [ ] Success: only documented pre-existing failures remain.
 
 - [ ] **12.3 Walkthrough pass**
-  - [ ] Run walkthrough steps 1–5 from the slice design. Step 6 (production after merge) is not part of this task file.
+  - [ ] Run walkthrough steps 1–3 and 5 from the slice design; step 4 (production plan unchanged) was done in 8.3. Step 6 (production after merge) is not part of this task file.
   - [ ] Add a CHANGELOG entry under the unreleased section describing the new schema, tables, `history` wants and `coverage --schema`; update `README.md` tick command docs if they list `status` and `coverage` options.
   - [ ] Success: each step's expected output is observed; the slice design's success criteria 1–11 each map to a passing test or walkthrough step.
 
