@@ -14,7 +14,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 import psycopg
 
@@ -25,6 +25,7 @@ from manta_trading.data.base.trading_calendar import (
     TradingCalendar,
 )
 from manta_trading.data.quality.fetch_status import FetchStatus
+from manta_trading.data.tick.bar_constants import BAR_1M_TABLE
 from manta_trading.data.tick.constants import (
     CME_DATASET,
     TICK_DB_CONNECT_TIMEOUT_SECONDS,
@@ -127,17 +128,39 @@ async def shape_units(
     return dict(by_day)
 
 
-async def ledger_totals(
-    conn: Conn, shape: Shape, family: SchemaFamily, first: date, last: date
+LedgerColumn = Literal["record_count", "volume"]
+
+
+async def _ledger_sums(
+    conn: Conn,
+    shape: Shape,
+    family: SchemaFamily,
+    first: date,
+    last: date,
+    column: LedgerColumn,
 ) -> dict[tuple[int, date], int]:
-    """``record_count`` per (instrument, session) over current units."""
+    """``sum(column)`` per (instrument, session) over the family's current units."""
     cursor = await conn.execute(
-        "SELECT l.instrument_id, l.session_date, sum(l.record_count)"
+        f"SELECT l.instrument_id, l.session_date, sum(l.{column})"
         f" FROM {_ledger_units(family)} WHERE {SHAPE_WHERE}"
         " AND l.session_date BETWEEN %(first)s AND %(last)s GROUP BY 1, 2",
         shape.params(family) | {"first": first, "last": last},
     )
     return {(i, d): int(n) for i, d, n in await cursor.fetchall()}
+
+
+async def ledger_totals(
+    conn: Conn, shape: Shape, family: SchemaFamily, first: date, last: date
+) -> dict[tuple[int, date], int]:
+    """``record_count`` per (instrument, session) over current units."""
+    return await _ledger_sums(conn, shape, family, first, last, "record_count")
+
+
+async def ledger_volumes(
+    conn: Conn, shape: Shape, family: SchemaFamily, first: date, last: date
+) -> dict[tuple[int, date], int]:
+    """``volume`` per (instrument, session) over current units."""
+    return await _ledger_sums(conn, shape, family, first, last, "volume")
 
 
 async def newest_event_ns(conn: Conn) -> int | None:
@@ -198,22 +221,26 @@ async def contract_lines(
     ]
 
 
-async def raw_counts(
-    conn: Conn, product: str, sessions: Sequence[tuple[date, int, int]]
-) -> dict[tuple[int, date], int]:
-    """``count(*)`` of ``tick_trade`` per (instrument, session) — the one scan.
+async def _raw_rows(
+    conn: Conn,
+    table: str,
+    aggregates: str,
+    product: str,
+    sessions: Sequence[tuple[date, int, int]],
+) -> list[tuple[Any, ...]]:
+    """One bounded scan of ``table`` per (instrument, session): the rows are
+    ``(instrument_id, session_date, *aggregates)``. ``table`` and ``aggregates``
+    are code constants.
 
     ``sessions`` are ``(session_date, open_ns, close_ns)``; the scan is
     bounded by the first open and last close, and each row is assigned to its
     session by a join against the sessions passed as arrays. Only instruments
-    defined for ``product`` count: products share ``tick_trade`` and their
-    sessions overlap (232), and ingest stores no trade without its definition.
+    defined for ``product`` count: products share the table and their
+    sessions overlap (232), and ingest stores no row without its definition.
     """
-    if not sessions:
-        return {}
     dates, opens, closes = zip(*sessions, strict=True)
     cursor = await conn.execute(
-        "SELECT t.instrument_id, s.session_date, count(*) FROM tick_trade t"
+        f"SELECT t.instrument_id, s.session_date, {aggregates} FROM {table} t"
         " JOIN unnest(%s::date[], %s::bigint[], %s::bigint[])"
         " AS s(session_date, open_ns, close_ns)"
         " ON t.ts_event BETWEEN s.open_ns AND s.close_ns"
@@ -223,7 +250,29 @@ async def raw_counts(
         " GROUP BY 1, 2",
         (list(dates), list(opens), list(closes), min(opens), max(closes), product),
     )
-    return {(i, d): int(n) for i, d, n in await cursor.fetchall()}
+    return await cursor.fetchall()
+
+
+async def raw_counts(
+    conn: Conn, product: str, sessions: Sequence[tuple[date, int, int]]
+) -> dict[tuple[int, date], int]:
+    """``count(*)`` of ``tick_trade`` per (instrument, session) — the one scan."""
+    if not sessions:
+        return {}
+    rows = await _raw_rows(conn, "tick_trade", "count(*)", product, sessions)
+    return {(i, d): int(n) for i, d, n in rows}
+
+
+async def raw_bar_totals(
+    conn: Conn, product: str, sessions: Sequence[tuple[date, int, int]]
+) -> dict[tuple[int, date], tuple[int, int]]:
+    """``(count(*), sum(volume))`` of ``tick_ohlcv_1m`` per (instrument,
+    session) — the bar tier's one scan, bounded as :func:`raw_counts`."""
+    if not sessions:
+        return {}
+    aggregates = "count(*), sum(t.volume)"
+    rows = await _raw_rows(conn, BAR_1M_TABLE, aggregates, product, sessions)
+    return {(i, d): (int(n), int(v)) for i, d, n, v in rows}
 
 
 @contextmanager

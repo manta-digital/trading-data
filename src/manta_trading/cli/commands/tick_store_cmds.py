@@ -30,6 +30,7 @@ from manta_trading.cli.output import print_error
 if TYPE_CHECKING:
     from manta_trading.cli.commands.tick_heartbeat import IngestHeartbeat
     from manta_trading.config import Settings
+    from manta_trading.data.tick.constants import TickSchema
     from manta_trading.data.tick.pass_contract import PassResult
     from manta_trading.data.tick.tick_coverage import TickCoverage
     from manta_trading.data.tick.tick_status_build import TickStatus
@@ -59,6 +60,11 @@ _ALL_INSTRUMENTS_OPTION = typer.Option(
     False, "--all-instruments", help="List spreads beside the outrights."
 )
 DATE_FORMAT = "%Y-%m-%d"
+_SCHEMA_OPTION = typer.Option(
+    None,
+    "--schema",
+    help="Compare this wanted schema (default: the tick tier), e.g. ohlcv-1m.",
+)
 _START_OPTION = typer.Option(
     ..., "--start", formats=[DATE_FORMAT], help="First session date."
 )
@@ -230,14 +236,35 @@ def tick_status(
         raise typer.Exit(exit_code)
 
 
+def _schema_option(value: str | None) -> TickSchema | None:
+    """``--schema`` as a ``TickSchema``; an unknown name is a preflight refusal."""
+    from manta_trading.data.tick.constants import TickSchema
+    from manta_trading.data.tick.store_context import TickPreflightError
+
+    if value is None:
+        return None
+    try:
+        return TickSchema(value)
+    except ValueError:
+        known = ", ".join(s.value for s in TickSchema)
+        raise TickPreflightError(
+            f"--schema {value} is not a schema ({known})"
+        ) from None
+
+
 def tick_coverage(
     ctx: typer.Context,
     start: datetime = _START_OPTION,
     end: datetime = _END_OPTION,
     product: str | None = PRODUCT_OPTION,
+    schema: str | None = _SCHEMA_OPTION,
     json_output: bool = JSON_OPTION,
 ) -> None:
-    """The raw-count proof: tick_trade rows per session against the ledger."""
+    """The raw-count proof: stored rows per session against the ledger.
+
+    The tick tier by default (tick_trade); --schema ohlcv-1m compares bar count
+    and volume against tick_ohlcv_1m.
+    """
     from manta_trading.cli.commands.tick_status_render import print_coverage
     from manta_trading.data.tick.tick_coverage import build_coverage
 
@@ -252,10 +279,13 @@ def tick_coverage(
 
     async def main() -> list[TickCoverage]:
         entries = universe_entries(product)
+        wanted_schema = _schema_option(schema)
 
         async def read(conn: Any, url: str) -> list[TickCoverage]:
             return [
-                await build_coverage(conn, url, e, start.date(), end.date())
+                await build_coverage(
+                    conn, url, e, start.date(), end.date(), wanted_schema
+                )
                 for e in entries
             ]
 

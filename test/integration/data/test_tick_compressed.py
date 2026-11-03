@@ -83,7 +83,7 @@ async def _ingested(
 async def _coverage_ok(url: str, calendar_url: str) -> None:
     async with connect(url) as conn:
         coverage = await build_coverage(
-            conn, calendar_url, ES, TBBO_DAY, TBBO_DAY + timedelta(days=1)
+            conn, calendar_url, ES, TBBO_DAY, TBBO_DAY + timedelta(days=1), None
         )
     assert [s.check for s in coverage.sessions] == ["ok"]
     assert coverage.sessions[0].ledger == coverage.sessions[0].raw > 0

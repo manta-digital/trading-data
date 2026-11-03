@@ -168,8 +168,11 @@ def print_coverage(
         print_result(coverage_to_dict(results, exit_code), json_mode=True)
         return
     for result in results:
+        bars = result.schema is not None  # a non-tick family also compares volume
+        schema = f"  {result.schema}" if bars else ""
+        volume_columns = [("ledger vol", ""), ("raw vol", "")] if bars else []
         table = make_table(
-            f"{result.product}  {result.calendar_id}",
+            f"{result.product}  {result.calendar_id}{schema}",
             [
                 ("session", "cyan"),
                 ("condition", ""),
@@ -177,10 +180,12 @@ def print_coverage(
                 ("units", ""),
                 ("ledger", ""),
                 ("raw", ""),
+                *volume_columns,
                 ("check", "bold"),
             ],
         )
         for s in result.sessions:
+            volumes = [str(s.ledger_volume), str(s.raw_volume)] if bars else []
             table.add_row(
                 str(s.session_date),
                 s.condition,
@@ -188,12 +193,18 @@ def print_coverage(
                 ",".join(map(str, s.unit_ids)) or "-",
                 str(s.ledger),
                 str(s.raw),
+                *volumes,
                 s.check,
             )
         print_result(table, json_mode=False)
         for s in result.sessions:
             for m in s.mismatches:
+                extra = (
+                    f", volume ledger {m.ledger_volume}, raw {m.raw_volume}"
+                    if bars
+                    else ""
+                )
                 rprint(
                     f"  [red]{s.session_date} instrument {m.instrument_id}:"
-                    f" ledger {m.ledger}, raw {m.raw}[/red]"
+                    f" ledger {m.ledger}, raw {m.raw}{extra}[/red]"
                 )

@@ -1,0 +1,67 @@
+{
+  "products": [
+    {
+      "product": "ES",
+      "calendar_id": "CME_EQUITY",
+      "start": "2024-09-03",
+      "end": "2024-09-05",
+      "sessions": [
+        {
+          "session_date": "2024-09-03",
+          "condition": "unknown",
+          "status": "edge_unknown",
+          "unit_ids": [
+            2
+          ],
+          "ledger": 2273,
+          "raw": 2273,
+          "mismatches": [],
+          "check": "ok"
+        },
+        {
+          "session_date": "2024-09-04",
+          "condition": "unknown",
+          "status": "edge_unknown",
+          "unit_ids": [
+            2
+          ],
+          "ledger": 1501,
+          "raw": 1501,
+          "mismatches": [],
+          "check": "ok"
+        }
+      ],
+      "mismatched": false
+    },
+    {
+      "product": "GC",
+      "calendar_id": "CME_METALS",
+      "start": "2024-09-03",
+      "end": "2024-09-05",
+      "sessions": [
+        {
+          "session_date": "2024-09-03",
+          "condition": "unknown",
+          "status": "edge_unknown",
+          "unit_ids": [],
+          "ledger": 0,
+          "raw": 0,
+          "mismatches": [],
+          "check": "ok"
+        },
+        {
+          "session_date": "2024-09-04",
+          "condition": "unknown",
+          "status": "edge_unknown",
+          "unit_ids": [],
+          "ledger": 0,
+          "raw": 0,
+          "mismatches": [],
+          "check": "ok"
+        }
+      ],
+      "mismatched": false
+    }
+  ],
+  "exit_code": 0
+}

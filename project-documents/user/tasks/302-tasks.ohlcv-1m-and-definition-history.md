@@ -292,14 +292,16 @@ revision_number: 2
 
 ### 10. Coverage per schema (D6)
 
-- [ ] **10.1 Family-aware coverage**
-  - [ ] Read `tick_coverage.py` and `cli/commands/tick*.py` coverage command. `build_coverage(..., family)`; add `--schema` to `mt data tick coverage`, defaulting to the entry's tier (today's output). `--schema ohlcv-1m` reports per instrument and session: status, condition, unit ids, ledger bars and volume, raw bars and volume (`count(*)`, `sum(volume)` over `tick_ohlcv_1m`, one scan bounded by the range), and the check. A mismatch exits 3.
-  - [ ] Reject a `--schema` the entry does not want, with an explicit error (tested in 10.2).
-  - [ ] Success: output without `--schema` is identical to today's.
+- [x] **10.1 Family-aware coverage**
+  - [x] Read `tick_coverage.py` and `cli/commands/tick*.py` coverage command. `build_coverage(..., family)`; add `--schema` to `mt data tick coverage`, defaulting to the entry's tier (today's output). `--schema ohlcv-1m` reports per instrument and session: status, condition, unit ids, ledger bars and volume, raw bars and volume (`count(*)`, `sum(volume)` over `tick_ohlcv_1m`, one scan bounded by the range), and the check. A mismatch exits 3.
+  - [x] Reject a `--schema` the entry does not want, with an explicit error (tested in 10.2).
+  - [x] Success: output without `--schema` is identical to today's.
+    Note: the bar-only result keys (`schema`, `ledger_volume`, `raw_volume`) are dropped from the JSON when None, so the tick tier's output is byte-identical; a bar mismatch is any difference in count or volume.
 
-- [ ] **10.2 Coverage tests**
-  - [ ] Ledger equals raw gives `check: ok` and exit 0 for the 2024-12-03 and 2024-12-04 sessions. Deleting or adding a raw bar gives a mismatch and exit 3. Without `--schema` the output matches the pre-change golden output. A `--schema` the entry does not want exits with an explicit error naming the schema.
-  - [ ] Success: tests pass.
+- [x] **10.2 Coverage tests**
+  - [x] Ledger equals raw gives `check: ok` and exit 0 for the 2024-12-03 and 2024-12-04 sessions. Deleting or adding a raw bar gives a mismatch and exit 3. Without `--schema` the output matches the pre-change golden output. A `--schema` the entry does not want exits with an explicit error naming the schema.
+  - [x] Success: tests pass.
+  Note: the production universe configures no history, so the bar tests patch `universe.TICK_UNIVERSE` with an ES entry that wants ohlcv-1m over 2024-12-03..2024-12-05 (the derived bar day); 'deleting or adding a raw bar' is covered by a deleted bar and a changed raw volume.
 
 **Commit**: `feat: add coverage --schema for ohlcv-1m`
 

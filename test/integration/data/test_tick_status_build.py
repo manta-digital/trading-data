@@ -117,7 +117,7 @@ async def test_coverage_is_ok_then_names_a_deleted_row(
     ingested: AConn, session_migrated_db: str
 ) -> None:
     start, end = date(2024, 9, 3), date(2024, 9, 5)
-    coverage = await build_coverage(ingested, session_migrated_db, ES, start, end)
+    coverage = await build_coverage(ingested, session_migrated_db, ES, start, end, None)
     assert [(s.session_date, s.check) for s in coverage.sessions] == [
         (date(2024, 9, 3), "ok"),
         (date(2024, 9, 4), "ok"),
@@ -132,7 +132,7 @@ async def test_coverage_is_ok_then_names_a_deleted_row(
         " ORDER BY ts_event LIMIT 1)"
     )
     assert deleted.rowcount == 1
-    after = await build_coverage(ingested, session_migrated_db, ES, start, end)
+    after = await build_coverage(ingested, session_migrated_db, ES, start, end, None)
     assert after.mismatched
     (bad,) = [s for s in after.sessions if s.mismatches]
     (mismatch,) = bad.mismatches
