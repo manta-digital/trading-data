@@ -104,6 +104,7 @@ async def seed_tier_unit(
     tier_file: Path | None = None,
     definition_file: Path | None = None,
     bad_header: str | None = None,
+    require_definitions: bool = True,
 ) -> SeededUnit:
     """Seed a selectable ``schema`` unit for ``day`` from its real slice.
 
@@ -112,6 +113,8 @@ async def seed_tier_unit(
     replace the committed slices (the load test uses whole archived days).
     ``bad_header`` (a ``BAD_HEADERS`` kind) archives the tier file with that
     header field rewritten; ``record_count`` is still the clean file's.
+    ``require_definitions=False`` lets a test of a failing definition file seed
+    it: the projection's failures are then left on the definition unit.
     """
     tier = tier_file or real_file(day, schema)
     definition = definition_file or real_file(day, TickSchema.DEFINITION)
@@ -143,5 +146,6 @@ async def seed_tier_unit(
     async with connect(url) as aconn:
         run = tick_run(aconn, FakeTickProvider(clock=clock), archive_root, clock)
         tally = await project_definitions(run, READER)
-    assert tally.failed == 0, f"definition projection failed: {tally.to_dict()}"
+    if require_definitions:
+        assert tally.failed == 0, f"definition projection failed: {tally.to_dict()}"
     return SeededUnit(unit, definition_unit, files[tier.name], count)

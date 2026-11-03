@@ -173,41 +173,51 @@ revision_number: 2
 
 ### 6. Bar ingest end to end (D3, D4, D10; criteria 1–4, 7, 11)
 
-- [ ] **6.1 Test helper for recording units**
-  - [ ] Create `test/integration/data/tick_bar_helpers.py` (or the project's existing helper location): record a definition file and a bar file as units of an `ES.FUT` parent request in a throwaway tick database. Definition units are projected by the acquisition pass, not by ingest (300 D3): read `definitions.py`, `acquisition_pass.py` and `test_tick_definitions.py`, and mark the definition unit ingested by calling the same definition-projection function the acquisition pass calls. Do not mark it with a direct status update. Only bar units go through `mt data tick ingest`. Also set up the primary database migrated through 301 for calendars. The walkthrough in the slice design says `test_bar_ingest_e2e` contains this helper; it lives in `tick_bar_helpers.py` and the test imports it. Update that walkthrough sentence to name `tick_bar_helpers.py`.
-  - [ ] Success: a smoke test records a definition unit and a bar unit and reads both back with the expected statuses.
+- [x] **6.1 Test helper for recording units**
+  - [x] Create `test/integration/data/tick_bar_helpers.py` (or the project's existing helper location): record a definition file and a bar file as units of an `ES.FUT` parent request in a throwaway tick database. Definition units are projected by the acquisition pass, not by ingest (300 D3): read `definitions.py`, `acquisition_pass.py` and `test_tick_definitions.py`, and mark the definition unit ingested by calling the same definition-projection function the acquisition pass calls. Do not mark it with a direct status update. Only bar units go through `mt data tick ingest`. Also set up the primary database migrated through 301 for calendars. The walkthrough in the slice design says `test_bar_ingest_e2e` contains this helper; it lives in `tick_bar_helpers.py` and the test imports it. Update that walkthrough sentence to name `tick_bar_helpers.py`.
+  - [x] Success: a smoke test records a definition unit and a bar unit and reads both back with the expected statuses.
 
-- [ ] **6.1a DBN writer helper**
-  - [ ] In the same helper module add a function that writes a small DBN file to `tmp_path` from hand-built records with the DBN Python writer (model it on the existing helpers in `test_tick_definitions.py` and `test_dbn_files_helper.py`); 6.4 to 6.6 build their inputs with it.
-  - [ ] Success: a test writes a file of two bars and the reader decodes both back.
+  Note: the helper lives in `test/tick_support/tick_bar_helpers.py`, the project's helper location, as a thin wrapper over `seed_tier_unit`; the walkthrough sentence in the slice design now names it.
 
-- [ ] **6.2 `test_bar_ingest_e2e`**
-  - [ ] Ingest the 2024-12-03 definition fixture then the derived bar fixture: bar unit is `ingested`, one `tick_ohlcv_1m` row per bar, `tick_bar_ledger` rows per instrument and session on both sides of the daily break, provider = decoded = stored.
-  - [ ] Success: the test passes.
+- [x] **6.1a DBN writer helper**
+  - [x] In the same helper module add a function that writes a small DBN file to `tmp_path` from hand-built records with the DBN Python writer (model it on the existing helpers in `test_tick_definitions.py` and `test_dbn_files_helper.py`); 6.4 to 6.6 build their inputs with it.
+  - [x] Success: a test writes a file of two bars and the reader decodes both back.
 
-- [ ] **6.3 Prerequisite and supersession tests**
-  - [ ] A bar unit is skipped as `awaiting definitions` until its same-shape, same-day definition unit is ingested.
-  - [ ] A tick-tier unit and an `ohlcv-1m` unit of the same shape and day both stay current after ingest. The tick-tier unit comes from the derived `trades` fixture of the same day, recorded as a unit through the same 6.1 helper and ingested through the existing trade projector.
-  - [ ] Success: tests pass.
+- [x] **6.2 `test_bar_ingest_e2e`**
+  - [x] Ingest the 2024-12-03 definition fixture then the derived bar fixture: bar unit is `ingested`, one `tick_ohlcv_1m` row per bar, `tick_bar_ledger` rows per instrument and session on both sides of the daily break, provider = decoded = stored.
+  - [x] Success: the test passes.
 
-- [ ] **6.4 Failure tests** (one test per failure)
-  - [ ] Bar outside the unit's UTC day fails `unit_day`.
-  - [ ] Bar with no definition fails `resolution`.
-  - [ ] Bar in a daily break fails `session_boundary`.
-  - [ ] A second current unit holding the same key fails `overlap`. Setup: ingest one bar unit, then record a second `ohlcv-1m` unit that supersession does not retire (read `supersedes_sql` in `schema_families.py` for what retires a unit; use a different shape or day key so the first stays current) carrying a bar for the same instrument and minute; ingesting the second fails.
-  - [ ] Success: each failure names its check and leaves no rows in `tick_ohlcv_1m` or `tick_bar_ledger`.
+- [x] **6.3 Prerequisite and supersession tests**
+  - [x] A bar unit is skipped as `awaiting definitions` until its same-shape, same-day definition unit is ingested.
+  - [x] A tick-tier unit and an `ohlcv-1m` unit of the same shape and day both stay current after ingest. The tick-tier unit comes from the derived `trades` fixture of the same day, recorded as a unit through the same 6.1 helper and ingested through the existing trade projector.
+  - [x] Success: tests pass.
 
-- [ ] **6.5 Pre-2020 placement test** (`test_bar_pre2020`)
-  - [ ] Inputs: seed one `tick_definition` row for an ES instrument active in 2012, and write a bar file (via the 6.1 writer) with one bar at 2012-03-06 15:00 UTC (a Tuesday, inside regular hours), with matching definition and bar units for that day.
-  - [ ] On a primary database migrated through 301, the bar ingests into its `CME_EQUITY` session.
-  - [ ] For the failing case, use a second throwaway primary database from the same fixture and delete its `CME_EQUITY` sessions dated before 2020 (the fixture created it, so the delete is permitted); the same bar then fails with `session_boundary` naming the sessions either side.
-  - [ ] Success: `uv run pytest test/integration/data -q -k "bar_pre2020"` passes.
+  Note: the awaiting-definitions test flips the definition unit's state in the throwaway tick database; the cross-family tick-tier unit is the derived `trades` slice recorded through `seed_tier_unit`.
 
-- [ ] **6.6 Pre-2020 definition failure test** (D10, criterion 11)
-  - [ ] Inputs: write a definition file (via the 6.1 writer) with one record whose activation or expiration is the DBN undefined-timestamp value, plus a bar unit of the same day and shape.
-  - [ ] The definition unit fails naming the instrument, and the bar unit stays `awaiting definitions`.
-  - [ ] If the existing definition code (222 F007) does not already fail this way, fix it here.
-  - [ ] Success: the test passes.
+- [x] **6.4 Failure tests** (one test per failure)
+  - [x] Bar outside the unit's UTC day fails `unit_day`.
+  - [x] Bar with no definition fails `resolution`.
+  - [x] Bar in a daily break fails `session_boundary`.
+  - [x] A second current unit holding the same key fails `overlap`. Setup: ingest one bar unit, then record a second `ohlcv-1m` unit that supersession does not retire (read `supersedes_sql` in `schema_families.py` for what retires a unit; use a different shape or day key so the first stays current) carrying a bar for the same instrument and minute; ingesting the second fails.
+  - [x] Success: each failure names its check and leaves no rows in `tick_ohlcv_1m` or `tick_bar_ledger`.
+
+  Note: the overlap setup is two bar units of one shape and day: equal rank never supersedes, so both stay current and the second ingest hits the key.
+
+- [x] **6.5 Pre-2020 placement test** (`test_bar_pre2020`)
+  - [x] Inputs: seed one `tick_definition` row for an ES instrument active in 2012, and write a bar file (via the 6.1 writer) with one bar at 2012-03-06 15:00 UTC (a Tuesday, inside regular hours), with matching definition and bar units for that day.
+  - [x] On a primary database migrated through 301, the bar ingests into its `CME_EQUITY` session.
+  - [x] For the failing case, use a second throwaway primary database from the same fixture and delete its `CME_EQUITY` sessions dated before 2020 (the fixture created it, so the delete is permitted); the same bar then fails with `session_boundary` naming the sessions either side.
+  - [x] Success: `uv run pytest test/integration/data -q -k "bar_pre2020"` passes.
+
+  Note: with the pre-2020 CME_EQUITY sessions deleted the plan itself fails `session_boundary` with the populated-range reason (day 2012-03-06 outside the populated calendar range), not the sessions-either-side reason, which needs a day inside the range.
+
+- [x] **6.6 Pre-2020 definition failure test** (D10, criterion 11)
+  - [x] Inputs: write a definition file (via the 6.1 writer) with one record whose activation or expiration is the DBN undefined-timestamp value, plus a bar unit of the same day and shape.
+  - [x] The definition unit fails naming the instrument, and the bar unit stays `awaiting definitions`.
+  - [x] If the existing definition code (222 F007) does not already fail this way, fix it here.
+  - [x] Success: the test passes.
+
+  Note: the existing definition projection (222 F007) already fails this way; no fix was needed.
 
 **Commit**: `test: add bar ingest, failure and pre-2020 placement tests`
 
