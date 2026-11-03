@@ -14,10 +14,16 @@ in ``test/fixtures/databento/metadata/<method>[.<schema>].json`` as
 never reaches a file; the script still scans every file for it before
 finishing.
 
+``--schema NAME`` (repeatable) records only the three per-schema calls for that
+schema, leaving the shared recordings and every other schema's untouched: a new
+schema joins the recordings without re-pricing the old ones (slice 302 added
+``ohlcv-1m`` this way, so the tests' pinned figures for the other schemas hold).
+
 Manual, developer-run only; never in CI. Usage::
 
     uv run python scripts/record_databento_fixtures.py
     uv run python scripts/record_databento_fixtures.py --dry-run
+    uv run python scripts/record_databento_fixtures.py --schema ohlcv-1m
 """
 
 from __future__ import annotations
@@ -33,7 +39,12 @@ import databento
 import httpx
 
 from manta_trading.config import Settings
-from manta_trading.data.tick.constants import CME_DATASET, ESTIMATE_SCHEMAS, SType
+from manta_trading.data.tick.constants import (
+    CME_DATASET,
+    ESTIMATE_SCHEMAS,
+    SType,
+    TickSchema,
+)
 from manta_trading.data.tick.databento.adapter import (
     DatabentoTickProvider,
     api_key_env,
@@ -94,12 +105,16 @@ def _file_name(entry: dict[str, Any]) -> str:
     return f"{method}.{schema}.json" if schema else f"{method}.json"
 
 
-def record(metadata: ITickMetadataProvider) -> None:
-    """Every method of the free protocol, over ``REQUEST`` at each schema."""
-    metadata.dataset_range(REQUEST.dataset)
-    metadata.dataset_condition(REQUEST.dataset, REQUEST.start, REQUEST.end)
-    metadata.resolve_symbols(REQUEST)
-    for schema in ESTIMATE_SCHEMAS:
+def record(
+    metadata: ITickMetadataProvider, only: list[TickSchema] | None = None
+) -> None:
+    """Every method of the free protocol, over ``REQUEST`` at each schema; with
+    ``only``, just the per-schema calls for those schemas."""
+    if only is None:
+        metadata.dataset_range(REQUEST.dataset)
+        metadata.dataset_condition(REQUEST.dataset, REQUEST.start, REQUEST.end)
+        metadata.resolve_symbols(REQUEST)
+    for schema in ESTIMATE_SCHEMAS if only is None else only:
         at_schema = REQUEST.with_schema(schema)
         metadata.record_count(at_schema)
         metadata.billable_size(at_schema)
@@ -109,6 +124,13 @@ def record(metadata: ITickMetadataProvider) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true", help="print, don't write")
+    parser.add_argument(
+        "--schema",
+        action="append",
+        type=TickSchema,
+        choices=list(ESTIMATE_SCHEMAS),
+        help="record only this schema's calls; repeatable",
+    )
     args = parser.parse_args(argv)
 
     key = Settings().databento_api_key
@@ -118,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     sink: list[dict[str, Any]] = []
     client = _RecordingClient(databento.Historical(key=key), sink)
     with DatabentoTickProvider(client, httpx.Client()) as provider:  # type: ignore[arg-type]
-        record(provider)
+        record(provider, args.schema)
 
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     for entry in sink:

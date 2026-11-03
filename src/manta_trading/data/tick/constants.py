@@ -58,8 +58,13 @@ ARCHIVED_SCHEMAS: frozenset[TickSchema] = STORED_TIERS | COMPANION_SCHEMAS | BAR
 #: The table of per-unit, per-session trade totals (the tick-tier ledger).
 TICK_LEDGER_TABLE: Final = "tick_ingest_ledger"
 
-#: The one tuple the preflight iterates: every tier, then the companion.
-ESTIMATE_SCHEMAS: tuple[TickSchema, ...] = (*TICK_TIERS, TickSchema.DEFINITION)
+#: The one tuple the preflight iterates: every tier, the companion, then the
+#: bar schemas (slice 302 D8).
+ESTIMATE_SCHEMAS: tuple[TickSchema, ...] = (
+    *TICK_TIERS,
+    TickSchema.DEFINITION,
+    *sorted(BAR_SCHEMAS),
+)
 
 
 class SType(StrEnum):

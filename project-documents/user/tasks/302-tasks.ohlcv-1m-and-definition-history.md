@@ -307,13 +307,15 @@ revision_number: 2
 
 ### 11. Estimate row (D8)
 
-- [ ] **11.1 Show `ohlcv-1m` in the estimate**
-  - [ ] Read `estimate.py` and `test_estimate.py`. Append `OHLCV_1M` to `ESTIMATE_SCHEMAS`; ensure its row shows list cost, records, bytes and `is_plan_included`, judged alone against the ceiling and kept out of the tick-tier bundle (`_row` bundle stays for `STORED_TIERS`).
-  - [ ] Success: the tick-tier rows and bundle verdict are unchanged.
+- [x] **11.1 Show `ohlcv-1m` in the estimate**
+  - [x] Read `estimate.py` and `test_estimate.py`. Append `OHLCV_1M` to `ESTIMATE_SCHEMAS`; ensure its row shows list cost, records, bytes and `is_plan_included`, judged alone against the ceiling and kept out of the tick-tier bundle (`_row` bundle stays for `STORED_TIERS`).
+  - [x] Success: the tick-tier rows and bundle verdict are unchanged.
 
-- [ ] **11.2 Estimate tests** (extend `test_estimate.py`)
-  - [ ] The `ohlcv-1m` row is present with `is_plan_included: false` under no plan and `true` under STANDARD; its verdict ignores the tier bundle; the bundle total excludes it.
-  - [ ] Success: tests pass.
+  Note: the unit tests price `ohlcv-1m` from three new recordings (`get_record_count/get_billable_size/get_cost.ohlcv-1m.json`) taken with free metadata calls over the same ES.c.0 request as the others; `scripts/record_databento_fixtures.py --schema` records one schema without re-pricing the rest, so the tests' pinned figures for the other schemas hold.
+
+- [x] **11.2 Estimate tests** (extend `test_estimate.py`)
+  - [x] The `ohlcv-1m` row is present with `is_plan_included: false` under no plan and `true` under STANDARD; its verdict ignores the tier bundle; the bundle total excludes it.
+  - [x] Success: tests pass.
 
 **Commit**: `feat: add ohlcv-1m row to tick estimate`
 

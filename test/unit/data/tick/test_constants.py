@@ -76,8 +76,10 @@ def test_companion_is_definition_only() -> None:
     assert not COMPANION_SCHEMAS & set(TICK_TIERS)
 
 
-def test_estimate_schemas_are_every_tier_then_definition() -> None:
-    assert ESTIMATE_SCHEMAS[-1] is TickSchema.DEFINITION
+def test_estimate_schemas_are_every_tier_then_definition_then_bars() -> None:
+    assert ESTIMATE_SCHEMAS[: len(TICK_TIERS)] == TICK_TIERS
+    assert ESTIMATE_SCHEMAS[len(TICK_TIERS)] is TickSchema.DEFINITION
+    assert ESTIMATE_SCHEMAS[-1] is TickSchema.OHLCV_1M
     assert set(TICK_TIERS) <= set(ESTIMATE_SCHEMAS)
     assert len(ESTIMATE_SCHEMAS) == len(set(ESTIMATE_SCHEMAS))
 
@@ -169,5 +171,6 @@ def test_ingest_workers_is_positive() -> None:
 def test_ohlcv_1m_is_archived_but_neither_a_tier_nor_a_companion() -> None:
     assert TickSchema.OHLCV_1M == "ohlcv-1m"
     assert TickSchema.OHLCV_1M in ARCHIVED_SCHEMAS
-    for collection in (TICK_TIERS, STORED_TIERS, COMPANION_SCHEMAS, ESTIMATE_SCHEMAS):
+    assert TickSchema.OHLCV_1M in ESTIMATE_SCHEMAS
+    for collection in (TICK_TIERS, STORED_TIERS, COMPANION_SCHEMAS):
         assert TickSchema.OHLCV_1M not in collection

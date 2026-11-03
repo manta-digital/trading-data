@@ -9,6 +9,9 @@ plan includes that schema for the request, and a bundle's verdict judges its
 *marginal* cost (the members the plan does not include) against the ceiling, so
 this command and the pass's spend guard cannot disagree. ``cost_usd`` and
 ``bundle_cost_usd`` stay at list price.
+
+A bar schema (slice 302, D8) is judged alone: its verdict is its own marginal
+cost against the ceiling, it has no bundle, and it is in no tick tier's bundle.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from enum import StrEnum
 
 from manta_trading.config.databento_plans import DatabentoPlan
 from manta_trading.data.tick.constants import (
+    BAR_SCHEMAS,
     COMPANION_SCHEMAS,
     ESTIMATE_SCHEMAS,
     STORED_TIERS,
@@ -131,6 +135,9 @@ def _row(
         marginal = sum(
             (figures[m][2] for m in members if not included[m]), start=Decimal(0)
         )
+        verdict = _bundle_verdict(marginal, ceiling)
+    elif schema in BAR_SCHEMAS:
+        marginal = Decimal(0) if included[schema] else cost
         verdict = _bundle_verdict(marginal, ceiling)
     elif schema in COMPANION_SCHEMAS:
         verdict = CeilingVerdict.BOUGHT_WITH_EACH_TIER
