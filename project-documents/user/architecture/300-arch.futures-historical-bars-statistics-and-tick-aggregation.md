@@ -91,7 +91,7 @@ The archive holds `ohlcv-1m`, `ohlcv-1s` (in the range chosen by purpose) and `s
 
 ## Anticipated Slices
 
-Provisional, in rough build order. Only the purchase test spends money before a subscription, apart from the $0.04 statistics window slice 303 buys to evaluate the open-interest rule (303 D11).
+Provisional, in rough build order. Only the purchase test spends money before a subscription, apart from the $0.05 statistics window slice 303 buys to evaluate the open-interest rule (303 D11).
 
 - **Archive generalisation** — Schema families, per-schema projector registry, family-scoped supersession, and the plan-inclusion marker with its configuration table and guard change. Everything below builds on it.
 - **`ohlcv-1m` with definition history** — The schema, its table, `definition` back to 2010, contract identity, and completeness for the tier (load-complete and the volume checks that need only `ohlcv-1m`), built on DBN sample files.

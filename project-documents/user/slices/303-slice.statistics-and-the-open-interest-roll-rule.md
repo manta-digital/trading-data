@@ -42,7 +42,7 @@ A statistics record describes a session that has already closed. CME publishes s
 
 The tier ships with its completeness check: load-complete per unit, a content check that every listed outright has its settlement, cleared volume and open interest, and the cross-tier check of a session's traded volume (ticks or `ohlcv-1m` bars) against `statistics` cleared volume.
 
-The open-interest rule (`n`, Databento's letter) ranks contracts by stored open interest. It is evaluated against calendar, volume and Databento's own `.n.0` for ES and GC on real data: the slice buys ES and GC `statistics` for the window where ticks are held (2024-08-30 to 2024-12-31, $0.037 at list price, measured 2026-11-03), inside the existing $0.50 ceiling. GC is the case that matters, because Databento's `GC.n.0` rolls 6 to 12 days before `GC.v.0` (229 TD6).
+The open-interest rule (`n`, Databento's letter) ranks contracts by stored open interest. It is evaluated against calendar, volume and Databento's own `.n.0` for ES and GC on real data: the slice buys ES and GC `statistics` for the window where ticks are held (2024-08-30 to 2024-12-31), with the October definitions it lacks: $0.051 at list price (measured 2026-11-03), usage-billed, inside the existing $0.50 ceiling. GC is the case that matters, because Databento's `GC.n.0` rolls 6 to 12 days before `GC.v.0` (229 TD6).
 
 The volume rule also learns to read bar volume for sessions with no ticks, as 302 handed over: before 2024 only bars exist.
 
@@ -230,7 +230,7 @@ Status: decided
 
 `statistics_reads.resolved(conn, shape, stat_types, first, last)` returns one row per `(instrument_id, stat_type, session_date)` over current units of the shape (`SHAPE_WHERE`): the record with the greatest `(ts_recv, sequence, record_ordinal)`. If that record is a `DELETE`, the key has no value. The SQL is one `DISTINCT ON` written in code; every value is bound. It returns the winning record's `unit_id`, so a roll answer names the units its basis came from.
 
-Resolution is at read time, not in a stored table: corrections arrive in later units, and a stored winner would need rewriting on every ingest. The table is small enough that the roll path's read over a five-year schedule stays inside its statement timeout (measured in D11, recorded in the evaluation note).
+Resolution is at read time, not in a stored table: corrections arrive in later units, and a stored winner would need rewriting on every ingest. Its cost at scale is not known from this slice: D11 times it over the four-month window only, and the table reaches 19.4 M rows over the full range. 307, which first holds the full range, times the read over a `TICK_ROLL_MAX_SESSIONS` schedule. If it exceeds `TICK_ROLL_STATEMENT_TIMEOUT_SECONDS`, the request fails as every roll-path database error does (229 TD9): the CLI exits with its database error, naming the product and range. It never returns a partial or empty schedule. A stored resolved table is reconsidered then, on that measurement.
 
 Settlement's final and preliminary flags are not interpreted. The latest settlement record wins whatever its flag, and no reader in this slice depends on finality. The bit layout is not in the SDK source; 306 decides whether settlement is served and reads the flags then. The purchase records the flag values observed.
 
@@ -303,7 +303,9 @@ One session never mixes families. Ticks come first so every answer the product g
 ### D11 — The real purchase and the evaluation
 Status: decided
 
-The rule cannot be evaluated without stored open interest, and none is held. Waiting for 304 would ship an unproven rule and an unconfirmed reading of `ts_ref`. So this slice buys the smallest window that evaluates everything: ES and GC `statistics`, plus the missing October definitions, for 2024-08-30 to 2025-01-01. This matches the span of the held `tbbo` units and of the 229/232 roll fixtures. It covers ES's September and December rolls and GC's rolls through December, including the 2024-11-21 against 2024-11-29 case. List price $0.037 for statistics, inside the existing $0.50 ceiling, so no ceiling changes. Definitions were bought through the same path in 226's proof (2026-09-30), so this does not pre-empt 304's purpose, which is the first purchase large enough to reconcile against an invoice. The architecture's "only the purchase test spends money" is amended to name this exception.
+The rule cannot be evaluated without stored open interest, and none is held. Waiting for 304 would ship an unproven rule and an unconfirmed reading of `ts_ref`. So this slice buys the smallest window that evaluates everything: ES and GC `statistics`, plus the missing October definitions, for 2024-08-30 to 2025-01-01. This matches the span of the held `tbbo` units and of the 229/232 roll fixtures. It covers ES's September and December rolls and GC's rolls through December, including the 2024-11-21 against 2024-11-29 case. Free metadata, read 2026-11-03: statistics ES $0.0127 and GC $0.0242; October definitions ES $0.0014 and GC $0.0129; **$0.051 together**, inside the existing $0.50 ceiling, so no ceiling changes.
+
+**Plan state.** The account has no subscription, and the throwaway run leaves `MT_TICK_DATABENTO_PLAN` unset, as production does. Every request of the run is therefore recorded with its plan-inclusion marker false, the guard counts its full list price, and Databento bills it by usage. D1's plan row takes effect only once a plan is configured; it does not apply here. The manifest records each request's estimate, and the evaluation note records the charge Databento reports for the jobs beside it. Definitions were bought through the same path in 226's proof (2026-09-30), so this does not pre-empt 304's purpose, which is the first purchase large enough to reconcile against an invoice. The architecture's "only the purchase test spends money" is amended to name this exception.
 
 The purchase runs the branch's pass against a throwaway tick database and a scratch archive directory, with a wrapper universe giving ES and GC the two history wants (as 302's walkthrough does). Production's manifest and universe are untouched. The spend guard counts the job either way, through the provider's job list. The job ids go in the evaluation note; 304 adopts those jobs (`mt data tick adopt`) instead of re-buying the window while they are within retention.
 
@@ -313,7 +315,7 @@ The evaluation (`user/notes/303-statistics-evaluation.md`) records:
 - the latest receive time of each required statistic relative to its session's close, against `STATISTICS_PUBLICATION_SESSIONS`;
 - V / C per contract and session for ES and GC (tick volume against cleared volume), and any `over` or `no_trades`;
 - per product, the roll dates of `c.0`, `v.0`, our `n.0` and Databento's `.n.0` and `.v.0`;
-- the resolved-read timing over the window.
+- the resolved-read timing over the window (window scale only; see D5).
 
 **Recorded fixtures.** `record_229_roll_fixture.py` also writes `{product}_open_interest.json` (resolved outright open interest per session, with unit ids, and the statistics verdicts) and adds `.n.0` and `.n.1` to `{product}_databento.json` (free `symbology.resolve`). `test_roll_provider_equivalence.py` adds `n.0` and `n.1` for ES and GC. A session where our `n.0` and Databento's differ is either fixed by the lag (one lag for both products, never per roll) or listed in `KNOWN_DIVERGENCE` with the evidence, and reported in the slice's completion summary.
 
@@ -354,7 +356,7 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 - **304:** a proven `statistics` path, the window's job ids to adopt, and `statistics` history wants to set for ES and GC.
 - **305:** the statistics session verdict, content findings and the cross-tier check, for `health`, `accounting` and `overview`.
 - **306:** resolved settlement and open interest per contract and session, for its decision whether to serve them; `n` in the rule vocabulary.
-- **307:** the same path over the full range, and `v.0` answering on bar volume where no ticks exist.
+- **307:** the same path over the full range, and `v.0` answering on bar volume where no ticks exist; it times the resolved read over a `TICK_ROLL_MAX_SESSIONS` schedule at full size (D5).
 
 ### Consumes from Other Slices
 
@@ -395,7 +397,7 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 
 ### Verification Walkthrough
 
-Run from the checkout root. Steps 1 and 4 need `MT_TIMESCALE_TEST_URL` exported from `.env`, and only that variable (302's walkthrough explains why). Step 2 spends about $0.04 of real money. Commands that do not exist yet are marked.
+Run from the checkout root. Steps 1 and 4 need `MT_TIMESCALE_TEST_URL` exported from `.env`, and only that variable (302's walkthrough explains why). Step 2 spends about $0.05 of real money, usage-billed, with no plan configured. Commands that do not exist yet are marked.
 
 1. **Tests.**
    ```bash
@@ -408,7 +410,7 @@ Run from the checkout root. Steps 1 and 4 need `MT_TIMESCALE_TEST_URL` exported 
 2. **Buy and ingest the window on throwaway databases.** Create a primary and a tick database on the test cluster and point `MT_TIMESCALE_DB_URL`, `MT_TIMESCALE_MAINTENANCE_URL`, `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` at them and at a scratch directory that is kept. `CLI` is the 302-style wrapper with ES and GC wanting `definition` and `statistics` over 2024-08-30 to 2025-01-01, and `tier` and range unchanged from production.
    ```bash
    uv run mt data init && uv run mt data init --database tick      # tick through tick_010_statistics
-   CLI data tick pass --estimate-only --json    # statistics rows ≈ $0.0127 (ES), $0.0242 (GC); verdict within
+   CLI data tick pass --estimate-only --json    # statistics ≈ $0.0127 (ES), $0.0242 (GC), October definitions ≈ $0.0014, $0.0129; plan-included false; verdict within
    CLI data tick pass --json                    # buys, downloads, verifies; definitions projected
    CLI data tick ingest --json                  # every statistics unit "ingested"
    ```
@@ -464,4 +466,4 @@ Relative effort 4/5. Two task files fit the slice: the tier, then the rule.
 - The purchase is the only spend. It runs through estimate and guard; if the guard refuses, the reason is recorded and the window is not forced through.
 - `ruff format` touched files only, and check `git diff` for swept lines before each commit.
 - SQL built from constants keeps 300's rule: fragments are written in code and every value is bound.
-- The roll path's resolved read must stay inside `TICK_ROLL_STATEMENT_TIMEOUT_SECONDS` over `TICK_ROLL_MAX_SESSIONS`; D11 measures it.
+- The resolved read's cost over `TICK_ROLL_MAX_SESSIONS` is unmeasured here; 307 measures it at full size (D5). A timeout is an error, never a partial schedule.
