@@ -109,7 +109,8 @@ The volume rule also learns to read bar volume for sessions with no ticks, as 30
 data/tick/constants.py            TickSchema.STATISTICS; HISTORY_SCHEMAS,
                                   ARCHIVED_SCHEMAS, ESTIMATE_SCHEMAS gain it;
                                   RollMethod.OPEN_INTEREST = "n";
-                                  OPEN_INTEREST_RANK_LAG_SESSIONS
+                                  VOLUME_RANK_LAG_SESSIONS renamed
+                                  RANK_LAG_SESSIONS (both rules)
 data/tick/statistics_constants.py table names, columns, key, chunk and
                                   columnstore values; REFERENCED_STAT_TYPES,
                                   REQUIRED_STAT_TYPES;
@@ -217,7 +218,7 @@ Status: decided
 - The date must be a session of the calendar, and no later than the unit's date. Otherwise the unit fails `stat_reference`, naming the instrument, stat type, `ts_ref` and the reason (`not a session`, `after the unit`).
 - A date before `CME_DATASET_START` gets no session and is stored with `session_date` NULL. The unit result counts them (`N records reference dates before 2010-06-06`). The first units from 2010 carry statistics for sessions the dataset does not have; failing them would block the start of history for a fact we cannot change.
 
-A record of a referenced type with `ts_ref` undefined fails `stat_reference`. A record of any other type is stored with no session: those are intraday statistics (opening price, session high, indicative opening price), some sent in pre-open outside any session, and nothing in this initiative reads them.
+A record of a referenced type with `ts_ref` undefined fails `stat_reference`. A record of any other type is stored with no session, and the projector's only branch on stat type is membership of `REFERENCED_STAT_TYPES`: those are intraday statistics (opening price, session high, indicative opening price), some sent in pre-open outside any session, and nothing in this initiative reads them.
 
 Which UTC instant `ts_ref` carries within the trading date is not documented. Taking the UTC date is correct for any instant from 00:00 to 23:59 UTC of that date. The purchase confirms it (D11): the observed `ts_ref` values are recorded, and the cross-tier check would show every session shifted by one if the date were wrong.
 
@@ -244,7 +245,7 @@ Production keeps `history=()`. 304 sets ES and GC ranges.
 ### D7 — The family's verdict: load, then content
 Status: decided
 
-**Load.** Session D's statistics arrive from D (preliminary settlement) through the next session. `STATISTICS_PUBLICATION_SESSIONS = 1` states it: D's window is the UTC days from D through the close day of the session one after D, read from the calendar. The session's status is 225's `classify_session` over the statistics units of those days, the same statuses and precedence as every family. A day with a `missing` condition and no unit is `provider_hole`, as elsewhere. The constant cites 220's pinned publication timing (`VOLUME_RANK_LAG_SESSIONS`'s note), and the purchase measures it (D11).
+**Load.** Session D's statistics arrive from D (preliminary settlement) through the next session. `STATISTICS_PUBLICATION_SESSIONS = 1` states it: D's window is the UTC days from D through the close day of the session one after D, read from the calendar. The session's status is 225's `classify_session` over the statistics units of those days, the same statuses and precedence as every family. A day with a `missing` condition and no unit is `provider_hole`, as elsewhere. The constant cites 220's pinned publication timing (`RANK_LAG_SESSIONS`'s note), and the purchase measures it (D11).
 
 **Content.** In a load-complete session, every outright listed through the session (definition window `activation_ns ≤ open`, `expiration_ns ≥ close`) must have ledger records for each of `REQUIRED_STAT_TYPES` (settlement, cleared volume, open interest). Each gap is a finding naming the contract and the missing types. A contract expiring inside the session is not required; its records are kept if present. Spreads are never required.
 
@@ -264,9 +265,9 @@ Status: decided
 - `over`: V > C. A finding: more trades than CME cleared means a double load or a wrong session;
 - `no_trades`: V = 0 and C > 0. A finding: the ledger proves the unit loaded, so the session's traded volume is missing.
 
-`over` and `no_trades` set the exit code to 3. `under` does not. CME cleared volume includes trades made away from Globex (block trades, exchanges for physical and for related positions), which neither ticks nor provider bars carry, so V below C is normal. The architecture's "agrees" is refined to this. The purchase measures V / C over the held window and records its distribution; if every session agrees exactly, the check is tightened to equality in the same slice.
+`over` and `no_trades` set the exit code to 3. `under` does not. CME cleared volume includes trades made away from Globex (block trades, exchanges for physical and for related positions), which neither ticks nor provider bars carry, so V below C is normal. The architecture's "agrees" is refined to this. The purchase measures V / C over the held window and records its distribution.
 
-The check is in `coverage` only. It reads resolved values from the raw statistics table, and 305 brings it to `health` and the other surfaces.
+**One implementation, parameterised by family.** `statistics_reads.volume_check(conn, shape, family, first, last) -> tuple[VolumeVerdict, ...]` is a connection-bound query: one resolved read of cleared volume (D5) and one ledger read of the given family, both bounded by `[first, last]`. The verdict is assigned by a pure `classify_volume(cleared, traded)`. Coverage calls it once per volume family complete in the range. In this slice the tick-tier run over the purchased window is the evidence; the bar run is exercised only on the derived 2024-12-03 day, since no provider bars are held until 304. Its cost is a raw-table read proportional to the range; the evaluation note records it per session over the window. 305 calls the same function for `health` and the other surfaces and chooses the range those surfaces read.
 
 ### D9 — The open-interest rule, `n`
 Status: decided
@@ -275,7 +276,7 @@ Status: decided
 
 Resolution for session S mirrors the volume rule (229 TD3), with open interest in place of volume:
 
-- L is the session `OPEN_INTEREST_RANK_LAG_SESSIONS` before S. The constant starts at 2, for the reason `VOLUME_RANK_LAG_SESSIONS` is 2: CME publishes D's statistics during D + 1, and Databento's continuous rules rank on them. The equivalence test pins it (D11).
+- L is the session `RANK_LAG_SESSIONS` before S. Both rules rest on the same fact (CME publishes D's statistics during D + 1, and Databento's continuous rules rank on them), so they share one constant: `VOLUME_RANK_LAG_SESSIONS` is renamed `RANK_LAG_SESSIONS` and stays 2. The equivalence test pins it for `v` and `n` together. Only a test failure that one lag cannot satisfy splits it.
 - Candidates are eligible at S and listed in L (229's predicate). They are ranked by resolved open interest at L, ties to the earlier expiration.
 - S is `Unresolved` when L's statistics status is not `complete` (reason names L and its status), or when a candidate has no resolved open interest at L (reason names the contract and L). A content gap is a provider fact, not a broken invariant, so it is an answer, not a `RollInputError`.
 - The answer's `basis_unit_ids` are the units of the open-interest records read.
@@ -294,20 +295,20 @@ Status: decided
 2. else `BAR_1M`, when the bar session is `complete`;
 3. else the session is unresolved, naming both statuses.
 
-One session never mixes families. Ticks come first so every answer the product gives today is unchanged, and the pinned equivalence test still holds. 302 writes bar ledger rows for every listed contract, zero-bar rows included (the same `ingest_plan._definitions` predicate as ticks), so 229's I13 invariant holds for bar volume too. `ActiveContract` gains `basis_family`, shown by `mt data tick active --json`; for `c` it is NULL.
+One session never mixes families. Ticks come first so every answer the product gives today is unchanged, and the pinned equivalence test still holds. 302 writes bar ledger rows for every listed contract, zero-bar rows included (the same `ingest_plan._definitions` predicate as ticks), so 229's I13 invariant holds for bar volume too. `ActiveContract` gains `basis_family` (`tick_tier`, `bar_1m`, `statistics` for `n`, NULL for `c`). `RollSchedule.segments()` also breaks a run where the basis family changes, so one segment never spans two bases. The API's `SegmentRecord`, used by the schedule, ticks and bars responses, gains `basis`, so every roll answer the API serves names the tier it was decided from (the architecture's "never splice tiers silently"). `mt data tick active --json` shows it too.
 
 - *Rejected: bars first.* Uniform over the history, but it would change today's answers the day bars are bought, on a basis no test pins.
 
 ### D11 — The real purchase and the evaluation
 Status: decided
 
-The rule cannot be evaluated without stored open interest, and none is held. Waiting for 304 would ship an unproven rule and an unconfirmed reading of `ts_ref`. So this slice buys the smallest window that evaluates everything: ES and GC `statistics`, plus the missing October definitions, for 2024-08-30 to 2025-01-01. This matches the span of the held `tbbo` units and of the 229/232 roll fixtures. It covers ES's September and December rolls and GC's rolls through December, including the 2024-11-21 against 2024-11-29 case. List price $0.037 for statistics, inside the existing $0.50 ceiling, so no ceiling changes. Definitions were bought through the same path in 226's proof (2026-09-30), so this does not pre-empt 304's purpose, which is the first purchase large enough to reconcile against an invoice.
+The rule cannot be evaluated without stored open interest, and none is held. Waiting for 304 would ship an unproven rule and an unconfirmed reading of `ts_ref`. So this slice buys the smallest window that evaluates everything: ES and GC `statistics`, plus the missing October definitions, for 2024-08-30 to 2025-01-01. This matches the span of the held `tbbo` units and of the 229/232 roll fixtures. It covers ES's September and December rolls and GC's rolls through December, including the 2024-11-21 against 2024-11-29 case. List price $0.037 for statistics, inside the existing $0.50 ceiling, so no ceiling changes. Definitions were bought through the same path in 226's proof (2026-09-30), so this does not pre-empt 304's purpose, which is the first purchase large enough to reconcile against an invoice. The architecture's "only the purchase test spends money" is amended to name this exception.
 
 The purchase runs the branch's pass against a throwaway tick database and a scratch archive directory, with a wrapper universe giving ES and GC the two history wants (as 302's walkthrough does). Production's manifest and universe are untouched. The spend guard counts the job either way, through the provider's job list. The job ids go in the evaluation note; 304 adopts those jobs (`mt data tick adopt`) instead of re-buying the window while they are within retention.
 
 The evaluation (`user/notes/303-statistics-evaluation.md`) records:
 
-- the observed `ts_ref` instants and `stat_flags` values per required stat type;
+- the observed `ts_ref` instants and `stat_flags` values per required stat type, and how many distinct reference dates were checked against the calendar (the first pre-2024 ingest in 304 and 307 meets dates this window does not);
 - the latest receive time of each required statistic relative to its session's close, against `STATISTICS_PUBLICATION_SESSIONS`;
 - V / C per contract and session for ES and GC (tick volume against cleared volume), and any `over` or `no_trades`;
 - per product, the roll dates of `c.0`, `v.0`, our `n.0` and Databento's `.n.0` and `.v.0`;
@@ -325,7 +326,7 @@ As 302 D9: the files are under `MT_TICK_ARCHIVE_DIR`; both tables are in the tic
 ### D13 — The API takes `n`
 Status: decided
 
-Every route that takes a `rule` parses it with `RollRule.parse`, so `n.0` works with no route change. `RULE_DESCRIPTION` lists `n.0`. `docs/api/reference.md` and `agents.md` describe `n` beside `v` and `c` (ranked on an earlier session's open interest, never looking ahead), and `openapi.json` is regenerated. Serving open interest and settlement themselves is 306's question.
+Every route that takes a `rule` parses it with `RollRule.parse`, so `n.0` works with no route change. `SegmentRecord` gains `basis` (D10), an additive response field. `RULE_DESCRIPTION` lists `n.0`. `docs/api/reference.md` and `agents.md` describe `n` beside `v` and `c` (ranked on an earlier session's open interest, never looking ahead) and the segment's `basis`, and `openapi.json` is regenerated. Serving open interest and settlement themselves is 306's question.
 
 ## Implementation Details
 
@@ -342,6 +343,7 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 ### API Contracts
 
 - `GET /api/v1/futures/...?rule=n.0` on every route taking `rule`: answers by open interest; `422` with the parser's message for `n.0+2s`.
+- Segments in the schedule, ticks and bars responses carry `basis`: `tick_tier`, `bar_1m`, `statistics` or null (calendar).
 - `mt data tick active --rule n.0 [--start --end] [--json]`: the schedule or the latest line; JSON answers carry `basis_family`.
 
 ## Integration Points
@@ -370,7 +372,7 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 6. `mt data tick status` shows a `statistics` section: a session is judged over its publication window's units, and a listed outright missing a required statistic is a finding naming it.
 7. `mt data tick coverage --schema statistics` reports ledger and raw counts per required type and the volume check per contract; a count mismatch, `over` or `no_trades` exits 3, `under` does not.
 8. `n.0` and `n.1` resolve on stored open interest with the lag; a session whose lag session is not statistics-complete, or whose candidate lacks open interest, is unresolved with a reason naming it. `n.0+2s` is refused.
-9. The volume rule reads tick volume where the tick session is complete and bar volume otherwise; every answer it gives over the recorded fixtures is unchanged.
+9. The volume rule reads tick volume where the tick session is complete and bar volume otherwise; every answer it gives over the recorded fixtures is unchanged. Every API segment names its `basis`, and no segment spans two bases.
 10. Over the purchased window, our `n.0` names the contract Databento's `.n.0` names on every session, apart from divergences listed with evidence.
 11. A `statistics` want outside its entry's definition want, before `CME_DATASET_START`, repeated, or on an entry with `tier=None` fails at import naming the field.
 12. With the production universe, `mt data tick pass --estimate-only` plans exactly what it planned before the slice. `mt data tick estimate` prints a `statistics` row, judged alone.
@@ -387,7 +389,7 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 ### Integration Requirements
 
 - 304 can buy ES and GC `statistics` over the full range by editing `TICK_UNIVERSE`, and can adopt this slice's jobs.
-- 305 can read the family's verdicts and the volume check without new reads.
+- 305 reads the family's verdicts through status's reads and the volume check through `statistics_reads.volume_check`; it writes no new query of its own.
 - The production tick pass, ingest and every existing roll answer behave as before once `tick_010` is applied.
 
 ### Verification Walkthrough
