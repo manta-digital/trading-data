@@ -27,6 +27,7 @@ from manta_trading.data.tick.constants import (
     TickSchema,
     UnitState,
 )
+from manta_trading.data.tick.raw_reads import raw_counts
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.status_reads import (
     Shape,
@@ -34,7 +35,6 @@ from manta_trading.data.tick.status_reads import (
     contract_lines,
     dataset_edge,
     ledger_totals,
-    raw_counts,
     shape_units,
 )
 

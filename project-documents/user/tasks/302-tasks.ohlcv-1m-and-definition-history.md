@@ -11,7 +11,7 @@ projectState: 300 (archive generalisation) and 301 (CME calendar history) are me
   production universe has no history wants
 dateCreated: 20261103
 dateUpdated: 20261103
-status: not_started
+status: complete
 turns: 20
 promptTokens: 1319940
 cachedTokens: 1233879
@@ -321,18 +321,22 @@ revision_number: 2
 
 ### 12. Final validation
 
-- [ ] **12.1 Full checks**
-  - [ ] `ruff check` and `ruff format --check` on touched files; mypy in one invocation with the kalshi src paths and tests; confirm touched source files are within about 300 lines.
-  - [ ] `git diff <target>` (the `cf config get git.integration_branch` value, or `main` when empty) shows no swept lines (deletions of unrelated code) from `ruff format`.
-  - [ ] Success: all clean.
+- [x] **12.1 Full checks**
+  - [x] `ruff check` and `ruff format --check` on touched files; mypy in one invocation with the kalshi src paths and tests; confirm touched source files are within about 300 lines.
+  - [x] `git diff <target>` (the `cf config get git.integration_branch` value, or `main` when empty) shows no swept lines (deletions of unrelated code) from `ruff format`.
+  - [x] Success: all clean.
 
-- [ ] **12.2 Full tick test tiers**
-  - [ ] Run `uv run pytest test/unit/data/tick -q`, then `uv run pytest test/integration/data -q -k "tick or drill_228"` as separate runs. Re-run any failure in isolation before investigating; known pre-existing failures are listed in memory notes.
-  - [ ] Success: only documented pre-existing failures remain.
+  Note: source files over about 300 lines after this slice: `constants.py` (401, 396 before), `tick.py` migrations (458, an append-only list), `planner.py` and `purchase_plan.py` (about 310) and `get_plan.py`; `status_reads.py` and `tick_status_build.py` were split (`raw_reads.py`, `tick_status_scope.py`) to stay under.
 
-- [ ] **12.3 Walkthrough pass**
-  - [ ] Run walkthrough steps 1–3 and 5 from the slice design; step 4 (production plan unchanged) was done in 8.3. Step 6 (production after merge) is not part of this task file.
-  - [ ] Add a CHANGELOG entry under the unreleased section describing the new schema, tables, `history` wants and `coverage --schema`; update `README.md` tick command docs if they list `status` and `coverage` options.
-  - [ ] Success: each step's expected output is observed; the slice design's success criteria 1–11 each map to a passing test or walkthrough step.
+- [x] **12.2 Full tick test tiers**
+  - [x] Run `uv run pytest test/unit/data/tick -q`, then `uv run pytest test/integration/data -q -k "tick or drill_228"` as separate runs. Re-run any failure in isolation before investigating; known pre-existing failures are listed in memory notes.
+  - [x] Success: only documented pre-existing failures remain.
+
+  Note: the integration run used only `MT_TIMESCALE_TEST_URL` in the environment; injecting the whole .env makes the unreachable-database CLI tests fail. The two `test_health_tick` failures need `MT_BACKUP_ROOTS` and fail the same on the base commit.
+
+- [x] **12.3 Walkthrough pass**
+  - [x] Run walkthrough steps 1–3 and 5 from the slice design; step 4 (production plan unchanged) was done in 8.3. Step 6 (production after merge) is not part of this task file.
+  - [x] Add a CHANGELOG entry under the unreleased section describing the new schema, tables, `history` wants and `coverage --schema`; update `README.md` tick command docs if they list `status` and `coverage` options.
+  - [x] Success: each step's expected output is observed; the slice design's success criteria 1–11 each map to a passing test or walkthrough step.
 
 **Commit**: `docs: add 302 changelog and validation notes`

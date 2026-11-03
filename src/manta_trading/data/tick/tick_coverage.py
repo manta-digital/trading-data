@@ -25,14 +25,13 @@ from manta_trading.data.base.session_index import Session
 from manta_trading.data.tick.constants import TickSchema, calendar_for_product
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.raw_reads import raw_bar_totals, raw_counts
 from manta_trading.data.tick.schema_families import SCHEMA_FAMILY, SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.status_reads import (
     calendar_sessions,
     ledger_totals,
     ledger_volumes,
-    raw_bar_totals,
-    raw_counts,
     session_verdicts,
     shape_of,
 )
