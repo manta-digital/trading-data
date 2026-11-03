@@ -9,6 +9,9 @@ with the field named.
 wants (the pass still buys definitions for tier days the manifest already
 owns). ES's tier and range were set by slice 226's go/no-go.
 ``--start/--end`` on ``pass`` only narrow the configured range.
+
+``history`` (slice 302 D5) lists wants beyond the tick tier: ``ohlcv-1m`` bars
+and the ``definition`` days they need. Production configures none.
 """
 
 from __future__ import annotations
@@ -19,10 +22,21 @@ from datetime import date
 
 from manta_trading.data.tick.constants import (
     FUTURES_PRODUCT_CALENDAR,
+    HISTORY_SCHEMAS,
     STORED_TIERS,
     SType,
     TickSchema,
 )
+from manta_trading.market.schema.seed_cme_hours import CME_DATASET_START
+
+
+@dataclass(frozen=True)
+class HistoryWant:
+    """One schema wanted over a range, on its entry's symbols and stype."""
+
+    schema: TickSchema  # a HISTORY_SCHEMAS member
+    start: date  # UTC days, end exclusive
+    end: date | None = None  # None = up to the availability edge
 
 
 @dataclass(frozen=True)
@@ -35,6 +49,7 @@ class TickUniverseEntry:
     tier: TickSchema | None  # a STORED_TIERS member, or None = not chosen yet
     start: date | None  # wanted range, UTC days, end exclusive
     end: date | None  # None = up to the availability edge
+    history: tuple[HistoryWant, ...] = ()
 
 
 # ES.FUT (parent) covers the outrights and the calendar spreads. Including the
@@ -73,6 +88,58 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
 )
 
 
+def _validate_want(label: str, want: HistoryWant) -> None:
+    field = f"history[{want.schema}]"
+    if want.schema not in HISTORY_SCHEMAS:
+        allowed = ", ".join(sorted(HISTORY_SCHEMAS))
+        raise ValueError(f"{label}: {field}.schema is not a history schema ({allowed})")
+    if want.start < CME_DATASET_START:
+        raise ValueError(
+            f"{label}: {field}.start {want.start} is before the CME dataset start"
+            f" {CME_DATASET_START}"
+        )
+    if want.end is not None and want.end <= want.start:
+        raise ValueError(
+            f"{label}: {field}.end {want.end} must be after start {want.start}"
+        )
+
+
+def _validate_bars_inside_definitions(label: str, entry: TickUniverseEntry) -> None:
+    """A bar day with no definition day would wait forever (D5)."""
+    wants = {want.schema: want for want in entry.history}
+    bars = wants.get(TickSchema.OHLCV_1M)
+    if bars is None:
+        return
+    field = f"history[{TickSchema.OHLCV_1M}]"
+    definitions = wants.get(TickSchema.DEFINITION)
+    if definitions is None:
+        raise ValueError(f"{label}: {field} needs a {TickSchema.DEFINITION} want")
+    starts_before = bars.start < definitions.start
+    ends_after = definitions.end is not None and (
+        bars.end is None or bars.end > definitions.end
+    )
+    if starts_before or ends_after:
+        raise ValueError(
+            f"{label}: {field} range {bars.start}..{bars.end} is not inside the"
+            f" {TickSchema.DEFINITION} want {definitions.start}..{definitions.end}"
+        )
+
+
+def _validate_history(label: str, entry: TickUniverseEntry) -> None:
+    if not entry.history:
+        return
+    if entry.tier is None:
+        raise ValueError(
+            f"{label}: tier is required when history is set (None means not chosen)"
+        )
+    schemas = [want.schema for want in entry.history]
+    for want in entry.history:
+        if schemas.count(want.schema) > 1:
+            raise ValueError(f"{label}: history lists {want.schema} more than once")
+        _validate_want(label, want)
+    _validate_bars_inside_definitions(label, entry)
+
+
 def _validate_entry(entry: TickUniverseEntry) -> None:
     label = f"tick universe entry {entry.product!r}"
     if entry.product not in FUTURES_PRODUCT_CALENDAR:
@@ -88,6 +155,7 @@ def _validate_entry(entry: TickUniverseEntry) -> None:
         raise ValueError(f"{label}: start is required when a tier is set")
     if entry.start is not None and entry.end is not None and entry.end <= entry.start:
         raise ValueError(f"{label}: end {entry.end} must be after start {entry.start}")
+    _validate_history(label, entry)
 
 
 def validate_universe(entries: Sequence[TickUniverseEntry]) -> None:

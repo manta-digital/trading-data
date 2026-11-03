@@ -29,6 +29,7 @@ from manta_trading.data.tick.manifest_reads import COVERAGE_PREDICATE, Conn
 from manta_trading.data.tick.roll_inputs import held_session_bounds
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import ActiveContract, Unresolved
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.status_reads import (
     calendar_sessions,
@@ -118,7 +119,7 @@ async def sessions_dated(
 async def _incomplete(
     conn: Conn, entry: TickUniverseEntry, sessions: Sequence[Session]
 ) -> tuple[Incomplete, ...]:
-    verdicts = await session_verdicts(conn, entry, sessions)
+    verdicts = await session_verdicts(conn, entry, sessions, SchemaFamily.TICK_TIER)
     return tuple(
         Incomplete(v.session_date, v.status)
         for v in verdicts

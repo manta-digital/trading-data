@@ -13,8 +13,8 @@ interfaces:
 - 306
 - 307
 dateCreated: 20261101
-dateUpdated: 20261101
-status: not_started
+dateUpdated: 20261103
+status: complete
 turns: 34
 promptTokens: 3149976
 cachedTokens: 3010012
@@ -339,42 +339,70 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 
 ### Verification Walkthrough
 
-Run from the checkout root with the test database URL exported from `.env` (project test setup). Steps 2 and 3 need 301 merged.
+Run from the checkout root. Step 1 and 3 need `MT_TIMESCALE_TEST_URL` exported from `.env` (and only that variable: a test run that also carries `MT_DATABENTO_API_KEY` or the backup variables fails `test_health_tick` and the unreachable-database CLI tests, which expect them unset). Steps 2 and 3 need 301 merged. Verified 2026-11-03 on branch `302-slice.ohlcv-1m-and-definition-history`.
 
 1. **Tests.**
    ```bash
-   uv run pytest test/unit/data/tick -q
-   uv run pytest test/integration/data -q -k "tick or drill_228"
+   export MT_TIMESCALE_TEST_URL="$(grep '^MT_TIMESCALE_TEST_URL=' .env | cut -d= -f2- | tr -d '"')"
+   env -i HOME=$HOME PATH=$PATH MT_TIMESCALE_TEST_URL="$MT_TIMESCALE_TEST_URL" uv run pytest test/unit/data/tick -q
+   env -i HOME=$HOME PATH=$PATH MT_TIMESCALE_TEST_URL="$MT_TIMESCALE_TEST_URL" uv run pytest test/integration/data -q -k "tick or drill_228"
    ```
-   Expected: all pass, including the new bar projector, `tick_009`, history-want and pre-2020 placement tests.
+   Expected: all pass, including the new bar projector, `tick_009`, history-want, status, coverage and pre-2020 placement tests. Observed: unit tier `test/unit/data/tick` 615 passed; integration `-k "tick or drill_228"` 504 passed, 2 failed, both `test_health_tick` (`test_an_unreachable_tick_database_is_informational`, `test_holed_and_reopened_units_never_fail_retention`), which fail identically on the base commit (they need `MT_BACKUP_ROOTS`).
 
-2. **Bar ingest on throwaway databases.** Create two databases from `MT_TIMESCALE_TEST_URL`: a primary one, migrated through 301 with `uv run mt data init` under `MT_TIMESCALE_DB_URL`, for the calendars; and a tick one, with `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` pointed at it and a scratch directory. Run `uv run mt data init --database tick`. Record the 2024-12-03 definition and bar fixtures as units of an `ES.FUT` parent request; the helper module `test/integration/data/tick_bar_helpers.py` (used by `test_bar_ingest_e2e`) does this, and no CLI command records an arbitrary file as a unit. Then:
+2. **Bar ingest on throwaway databases.** Create two databases on the test cluster (`CREATE DATABASE` through `MT_TIMESCALE_TEST_URL`): a primary one for the calendars and a tick one. Point `MT_TIMESCALE_DB_URL` and `MT_TIMESCALE_MAINTENANCE_URL` at the first, `MT_TICK_DB_URL` and `MT_TICK_MAINTENANCE_URL` at the second, and `MT_TICK_ARCHIVE_DIR` at an empty scratch directory, then:
    ```bash
-   uv run mt data tick ingest --json
-   uv run mt data tick coverage --product ES --schema ohlcv-1m --start 2024-12-03 --end 2024-12-05 --json
-   uv run mt data tick status --product ES
+   uv run mt data init                       # primary: 69 migrations, through 066 (sessions from 2010)
+   uv run mt data init --database tick       # tick: 10 migrations, through tick_009_ohlcv_1m
+   PYTHONPATH=test uv run python -c "
+   import asyncio, sys
+   from pathlib import Path
+   from tick_support.tick_bar_helpers import seed_bar_units
+   print(asyncio.run(seed_bar_units(sys.argv[1], Path(sys.argv[2]), job_id='BARS')))
+   " "$MT_TICK_DB_URL" "$MT_TICK_ARCHIVE_DIR"
    ```
-   Expected: ingest reports the bar unit `ingested` after the definition unit. Coverage shows the sessions dated 2024-12-03 and 2024-12-04 with `check: ok` and ledger bars equal to raw bars. Status shows an `ohlcv-1m` section headed `load-complete only`. Drop both databases afterwards.
+   The helper records the 2024-12-03 definition fixture (projected into `tick_definition`, the unit *ingested*) and the derived bar fixture (a *verified* unit, 2,281 bars); no CLI command records an arbitrary file as a unit. Production configures no history wants, so the next three commands run through a wrapper that replaces the universe with one ES entry wanting `ohlcv-1m` over 2024-12-03 to 2024-12-05 and then calls the normal app (`CLI` below is `uv run python walk_cli.py`; the wrapper is twenty lines, quoted at the end of this step):
+   ```bash
+   CLI data tick ingest --json
+   CLI data tick coverage --product ES --schema ohlcv-1m --start 2024-12-03 --end 2024-12-05 --json
+   CLI data tick status --product ES
+   ```
+   Expected and observed: ingest reports one unit, `"schema": "ohlcv-1m"`, `"outcome": "ingested"`, `"records": 2281`. Coverage lists the sessions dated 2024-12-03 (ledger 2204 = raw 2204, volume 923289 both) and 2024-12-04 (77 = 77, volume 6775 both), each `"check": "ok"`, with `"schema": "ohlcv-1m"` and `"mismatched": false`. Status prints the tick-tier block, then `ohlcv-1m   load-complete only   wanted from 2024-12-03` with `sessions held: 2`; every bucket reads `edge unknown` because no acquisition pass has observed day conditions in these scratch databases. Drop both databases afterwards.
+
+   The wrapper:
+   ```python
+   from dataclasses import replace
+   from datetime import date
+   from manta_trading.data.tick import universe
+   from manta_trading.data.tick.constants import TickSchema
+   from manta_trading.data.tick.universe import HistoryWant
+
+   es = next(e for e in universe.TICK_UNIVERSE if e.product == "ES")
+   universe.TICK_UNIVERSE = (replace(
+       es, tier=TickSchema.TBBO, start=date(2024, 12, 3), end=date(2024, 12, 5),
+       history=(
+           HistoryWant(TickSchema.DEFINITION, date(2024, 12, 3), date(2024, 12, 5)),
+           HistoryWant(TickSchema.OHLCV_1M, date(2024, 12, 3), date(2024, 12, 5)),
+       ),
+   ),)
+   from manta_trading.cli.app import app
+   app()
+   ```
 
 3. **Pre-2020 placement.**
    ```bash
-   uv run pytest test/integration/data -q -k "bar_pre2020"
+   env -i HOME=$HOME PATH=$PATH MT_TIMESCALE_TEST_URL="$MT_TIMESCALE_TEST_URL" uv run pytest test/integration/data -q -k "bar_pre2020"
    ```
-   Expected: pass. A 2012 bar lands in its CME session; the same bar against a calendar without that session fails with `session_boundary`.
+   Expected and observed: 3 passed. A 2012-03-06 bar lands in its `CME_EQUITY` session; against a primary database with its pre-2020 sessions deleted the plan fails `session_boundary` ("day 2012-03-06 is outside the populated calendar range"); a definition with an undefined window fails its unit naming the instrument and leaves the bar unit `awaiting definitions`.
 
-4. **Production pass unchanged.**
-   ```bash
-   uv run mt data tick pass --estimate-only --json
-   ```
-   Expected: the same planned requests and spend lines as on the slice's base commit (0 requests for today's universe).
+4. **Production pass unchanged.** Production cannot run the branch until `tick_009` is applied (the tick preflight refuses a pass while a migration is pending), so the check ran on a throwaway tick database holding a copy of production's manifest and availability rows (production read-only): the base commit's `uv run mt data tick pass --estimate-only --json` at `tick_008`, then `tick_009` applied and the branch's. Observed (2026-11-03): identical except run id, timestamps and durations; 0 requests, planned $0, verdict `nothing_to_buy`.
 
 5. **Estimate row** (free metadata calls only).
    ```bash
    uv run mt data tick estimate --symbols ES.FUT --stype parent --start 2024-12-02 --end 2024-12-07 --json
    ```
-   Expected: an `ohlcv-1m` row with list `cost_usd`, `is_plan_included: false` (no plan configured) and its own verdict.
+   Expected and observed: a fifth row `ohlcv-1m` with 13,857 records, 775,992 billable bytes, `cost_usd` `0.050588920712` (list price), `bundle_cost_usd` null, `is_plan_included: false` (no plan configured) and `ceiling_verdict: within` against the $0.50 ceiling, while `trades` and `tbbo` read `over`.
 
-6. **Production, after merge.** Apply `tick_009` with `mt data migrate apply --track tick`, then `sudo mt-run data health`. Expected: the tick lines are unchanged, and `mt data tick status` shows no `ohlcv-1m` section, because no entry wants bars until 304.
+6. **Production, after merge** (not run here). Apply `tick_009` with `mt data migrate apply --track tick`, then `sudo mt-run data health`. Expected: the tick lines are unchanged, and `mt data tick status` shows no `ohlcv-1m` section, because no entry wants bars until 304.
 
 ## Risk Assessment
 

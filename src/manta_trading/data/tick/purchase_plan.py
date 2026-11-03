@@ -61,7 +61,7 @@ from manta_trading.data.tick.tick_calendar import (
     planning_product,
     product_session_days,
 )
-from manta_trading.data.tick.universe import TICK_UNIVERSE
+from manta_trading.data.tick.universe import TICK_UNIVERSE, TickUniverseEntry
 
 Window = tuple[date | None, date | None]
 
@@ -95,6 +95,35 @@ class PurchasePlan:
         return bool(self.items)
 
 
+def wanted_spans(
+    universe: Sequence[TickUniverseEntry],
+    owned: Sequence[OwnedTierDay],
+    edges: Mapping[str, date],
+) -> dict[str, tuple[date, date]]:
+    """Per product, the day span its tier, history and owned-day wants can touch.
+
+    An open end runs to the dataset's availability edge; a want with no edge
+    recorded has no span yet (the planner refuses it with a named error).
+    """
+    spans: dict[str, tuple[date, date]] = {}
+
+    def widen(product: str, start: date, end: date) -> None:
+        lo, hi = spans.get(product, (start, end))
+        spans[product] = (min(lo, start), max(hi, end))
+
+    for entry in universe:
+        end = entry.end if entry.end is not None else edges.get(CME_DATASET)
+        if entry.tier is not None and entry.start is not None and end is not None:
+            widen(entry.product, entry.start, end)
+        for want in entry.history:
+            want_end = want.end if want.end is not None else edges.get(CME_DATASET)
+            if want_end is not None:
+                widen(entry.product, want.start, want_end)
+    for day in owned:
+        widen(day.product, day.day, day.day + timedelta(days=1))
+    return spans
+
+
 async def _sessions(
     run: TickRun,
     owned: Sequence[OwnedTierDay],
@@ -102,18 +131,7 @@ async def _sessions(
     window: Window,
 ) -> dict[str, list[date]]:
     """Session days per product over the span its wants can touch."""
-    spans: dict[str, tuple[date, date]] = {}
-
-    def widen(product: str, start: date, end: date) -> None:
-        lo, hi = spans.get(product, (start, end))
-        spans[product] = (min(lo, start), max(hi, end))
-
-    for entry in TICK_UNIVERSE:
-        end = entry.end if entry.end is not None else edges.get(CME_DATASET)
-        if entry.tier is not None and entry.start is not None and end is not None:
-            widen(entry.product, entry.start, end)
-    for day in owned:
-        widen(day.product, day.day, day.day + timedelta(days=1))
+    spans = wanted_spans(TICK_UNIVERSE, owned, edges)
     if not spans:
         return {}
     url = calendar_url(run.settings)

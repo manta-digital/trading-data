@@ -1,4 +1,4 @@
-"""The ``tick_trade`` fingerprint for the slice 228 restore drill (TD3).
+"""The row-table fingerprints for the slice 228 restore drill (TD3).
 
 One definition, run against production, the restored database and the
 rebuilt one. Per ``(instrument_id, UTC day of ts_event)`` it returns the row
@@ -9,6 +9,9 @@ The hashed columns come from ``storage_columns.py``, never typed here, so a
 column added to the contract is hashed automatically. ``unit_id`` is left
 out: a rebuild numbers units in adopt order, so it is not comparable across
 databases. TD4 checks which unit wrote each row, through the ledger.
+
+Slice 302 adds ``tick_ohlcv_1m`` beside ``tick_trade``: the same query shape
+over the bar table's columns (``BAR_1M_COLUMNS``) and key.
 """
 
 from __future__ import annotations
@@ -21,6 +24,11 @@ import psycopg
 from drill_228_bookkeeping import pin_text_settings
 from psycopg import sql
 
+from manta_trading.data.tick.bar_constants import (
+    BAR_1M_COLUMNS,
+    BAR_1M_KEY,
+    BAR_1M_TABLE,
+)
 from manta_trading.data.tick.storage_columns import (
     TICK_TRADE_COLUMNS,
     TICK_TRADE_DERIVED_COLUMNS,
@@ -29,6 +37,11 @@ from manta_trading.data.tick.storage_columns import (
 from manta_trading.market.schema.migrations.tick import interval_to_ns
 
 TABLE = "tick_trade"
+#: Every fingerprinted row table, each with its key (the hash's row order).
+FINGERPRINTED_KEYS: dict[str, tuple[str, ...]] = {
+    TABLE: tuple(TICK_TRADE_KEY),
+    BAR_1M_TABLE: BAR_1M_KEY,
+}
 #: Identity values that differ between databases holding the same rows.
 EXCLUDED_COLUMNS: frozenset[str] = frozenset({"unit_id"})
 #: The time column the day groups are cut from (integer nanoseconds, UTC).
@@ -51,10 +64,15 @@ def hashed_columns(
     return [c for c in columns if c not in EXCLUDED_COLUMNS]
 
 
-def fingerprint_sql(columns: Iterable[str]) -> sql.Composed:
+def bar_hashed_columns() -> list[str]:
+    """Every ``tick_ohlcv_1m`` column, in table order, except the excluded ones."""
+    return [c for c in BAR_1M_COLUMNS if c not in EXCLUDED_COLUMNS]
+
+
+def fingerprint_sql(columns: Iterable[str], table: str = TABLE) -> sql.Composed:
     """Per-group count and md5 over ``columns``, ordered by the table's key."""
     row = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
-    order = sql.SQL(", ").join(sql.Identifier(c) for c in TICK_TRADE_KEY)
+    order = sql.SQL(", ").join(sql.Identifier(c) for c in FINGERPRINTED_KEYS[table])
     time, instrument = sql.Identifier(TIME_COLUMN), sql.Identifier(INSTRUMENT_COLUMN)
     return sql.SQL(
         "SELECT {instrument}, {time} / {ns_per_day} AS day_index, count(*),"
@@ -66,18 +84,24 @@ def fingerprint_sql(columns: Iterable[str]) -> sql.Composed:
         ns_per_day=sql.Literal(_NS_PER_DAY),
         row=row,
         order=order,
-        table=sql.Identifier(TABLE),
+        table=sql.Identifier(table),
     )
 
 
 #: The one fingerprint query (TD3).
 FINGERPRINT_SQL = fingerprint_sql(hashed_columns())
+BAR_FINGERPRINT_SQL = fingerprint_sql(bar_hashed_columns(), BAR_1M_TABLE)
+
+_QUERIES: dict[str, sql.Composed] = {
+    TABLE: FINGERPRINT_SQL,
+    BAR_1M_TABLE: BAR_FINGERPRINT_SQL,
+}
 
 
-def fingerprint(conn: psycopg.Connection[Any]) -> Fingerprint:
-    """``{(instrument_id, UTC day): (row count, md5)}`` for one database."""
+def fingerprint(conn: psycopg.Connection[Any], table: str = TABLE) -> Fingerprint:
+    """``{(instrument_id, UTC day): (row count, md5)}`` of ``table`` in one database."""
     pin_text_settings(conn)  # no text column today; keeps a future one stable
-    rows = conn.execute(FINGERPRINT_SQL).fetchall()
+    rows = conn.execute(_QUERIES[table]).fetchall()
     return {
         (int(inst), _EPOCH + timedelta(days=int(day))): (int(count), str(digest))
         for inst, day, count, digest in rows
@@ -100,3 +124,16 @@ def diff_fingerprints(expected: Fingerprint, seen: Fingerprint) -> list[str]:
                 f"seen {s_count} rows md5 {s_md5}"
             )
     return problems
+
+
+def diff_databases(
+    expected: psycopg.Connection[Any], seen: psycopg.Connection[Any]
+) -> list[str]:
+    """Differences of every fingerprinted table, each problem prefixed by its table."""
+    return [
+        f"{table}: {problem}"
+        for table in FINGERPRINTED_KEYS
+        for problem in diff_fingerprints(
+            fingerprint(expected, table), fingerprint(seen, table)
+        )
+    ]

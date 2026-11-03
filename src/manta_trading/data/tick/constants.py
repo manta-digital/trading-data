@@ -28,6 +28,7 @@ class TickSchema(StrEnum):
     TBBO = "tbbo"
     MBP_1 = "mbp-1"
     DEFINITION = "definition"
+    OHLCV_1M = "ohlcv-1m"
 
 
 #: The candidate tiers the preflight compares, cheapest first.
@@ -43,12 +44,27 @@ STORED_TIERS: frozenset[TickSchema] = frozenset({TickSchema.TRADES, TickSchema.T
 #: Bought together with a tier, never a tier itself.
 COMPANION_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.DEFINITION})
 
+#: Bar schemas, bought and stored beside the tick tiers (slice 302).
+BAR_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.OHLCV_1M})
+
+#: What a universe entry's ``history`` may want (slice 302 D5); 303 adds
+#: ``statistics``.
+HISTORY_SCHEMAS: frozenset[TickSchema] = BAR_SCHEMAS | COMPANION_SCHEMAS
+
 #: What a ``tick_request`` may archive. ``mbp-1`` stays estimate-only
 #: (slice 222 TD9).
-ARCHIVED_SCHEMAS: frozenset[TickSchema] = STORED_TIERS | COMPANION_SCHEMAS
+ARCHIVED_SCHEMAS: frozenset[TickSchema] = STORED_TIERS | COMPANION_SCHEMAS | BAR_SCHEMAS
 
-#: The one tuple the preflight iterates: every tier, then the companion.
-ESTIMATE_SCHEMAS: tuple[TickSchema, ...] = (*TICK_TIERS, TickSchema.DEFINITION)
+#: The table of per-unit, per-session trade totals (the tick-tier ledger).
+TICK_LEDGER_TABLE: Final = "tick_ingest_ledger"
+
+#: The one tuple the preflight iterates: every tier, the companion, then the
+#: bar schemas (slice 302 D8).
+ESTIMATE_SCHEMAS: tuple[TickSchema, ...] = (
+    *TICK_TIERS,
+    TickSchema.DEFINITION,
+    *sorted(BAR_SCHEMAS),
+)
 
 
 class SType(StrEnum):
@@ -292,13 +308,6 @@ TICK_INGEST_LOCK_KEY = 220_000_002
 #: ``user/notes/2026-10-03-226-proof-workers.md``), and at 2 the Kalshi
 #: pass showed no contention (``user/notes/2026-10-03-226-proof-contention.md``).
 TICK_INGEST_WORKERS = 2
-
-#: Tier → rank, higher supersedes lower (TD5). Derived from ``TICK_TIERS``
-#: order, the one place the order is stated.
-TICK_TIER_RANK: Final[Mapping[TickSchema, int]] = {
-    tier: rank for rank, tier in enumerate(TICK_TIERS)
-}
-
 
 #: A worker's ``lock_timeout`` (TD8): a unit row or trade chunk held longer
 #: than this aborts the run as ``storage_abort`` instead of hanging. Rule (226

@@ -1,0 +1,208 @@
+{
+  "complete_basis": "units",
+  "products": [
+    {
+      "buckets": {
+        "awaiting_ingest": 0,
+        "complete": 1,
+        "edge_unknown": 2,
+        "failed": 0,
+        "in_flight": 0,
+        "missing": 1,
+        "pending": 1,
+        "provider_hole": 0,
+        "retry_exhausted": 0
+      },
+      "calendar_id": "CME_EQUITY",
+      "caught_up": null,
+      "contracts": [
+        {
+          "expiration_ns": 1726839000000000000,
+          "first_session": "2024-09-03",
+          "instrument_class": "F",
+          "instrument_id": 118,
+          "last_session": "2024-09-04",
+          "raw_symbol": "ESU4",
+          "records": 3413,
+          "sessions": 2,
+          "volume": 8784
+        },
+        {
+          "expiration_ns": 1734705000000000000,
+          "first_session": "2024-09-03",
+          "instrument_class": "F",
+          "instrument_id": 183748,
+          "last_session": "2024-12-04",
+          "raw_symbol": "ESZ4",
+          "records": 3617,
+          "sessions": 4,
+          "volume": 24042
+        },
+        {
+          "expiration_ns": 1742563800000000000,
+          "first_session": "2024-09-03",
+          "instrument_class": "F",
+          "instrument_id": 5002,
+          "last_session": "2024-12-04",
+          "raw_symbol": "ESH5",
+          "records": 177,
+          "sessions": 4,
+          "volume": 206
+        },
+        {
+          "expiration_ns": 1750426200000000000,
+          "first_session": "2024-12-03",
+          "instrument_class": "F",
+          "instrument_id": 4916,
+          "last_session": "2024-12-03",
+          "raw_symbol": "ESM5",
+          "records": 31,
+          "sessions": 1,
+          "volume": 47
+        }
+      ],
+      "dataset": "GLBX.MDP3",
+      "degraded": 2,
+      "edge_age_seconds": 3600.0,
+      "edge_available_end": "2024-09-03T18:00:00-06:00",
+      "edge_observed_at": "2026-09-30T05:00:00-06:00",
+      "holed_sessions": [],
+      "product": "ES",
+      "rolls": [
+        {
+          "basis_session": null,
+          "basis_unit_ids": null,
+          "definition_unit_id": null,
+          "definitions_as_of": null,
+          "error": null,
+          "expiration": null,
+          "instrument_id": null,
+          "is_default": true,
+          "known_through": null,
+          "next_roll": null,
+          "product": "ES",
+          "raw_symbol": null,
+          "reason": null,
+          "roll_no_later_than": null,
+          "rule": "v.0",
+          "session_date": "2024-09-03",
+          "unresolved": [
+            {
+              "reason": "volume inputs: session 2024-08-30 is edge_unknown",
+              "session_date": "2024-09-03"
+            }
+          ]
+        },
+        {
+          "basis_session": "2024-09-03",
+          "basis_unit_ids": [],
+          "definition_unit_id": 1,
+          "definitions_as_of": "2024-12-03",
+          "error": null,
+          "expiration": "2024-09-20T13:30:00+00:00",
+          "instrument_id": 118,
+          "is_default": false,
+          "known_through": "2027-12-31",
+          "next_roll": {
+            "basis_session": "2024-09-23",
+            "basis_unit_ids": [],
+            "definition_unit_id": 1,
+            "definitions_as_of": "2024-12-03",
+            "expiration": "2024-12-20T14:30:00+00:00",
+            "instrument_id": 183748,
+            "raw_symbol": "ESZ4",
+            "session_date": "2024-09-23"
+          },
+          "product": "ES",
+          "raw_symbol": "ESU4",
+          "reason": null,
+          "roll_no_later_than": null,
+          "rule": "c.0",
+          "session_date": "2024-09-03",
+          "unresolved": []
+        }
+      ],
+      "sessions_held": 5,
+      "spreads_hidden": 4,
+      "stype_in": "parent",
+      "symbols": [
+        "ES.FUT"
+      ],
+      "tier": null,
+      "wanted_end": null,
+      "wanted_start": null
+    },
+    {
+      "buckets": {
+        "awaiting_ingest": 0,
+        "complete": 0,
+        "edge_unknown": 0,
+        "failed": 0,
+        "in_flight": 0,
+        "missing": 0,
+        "pending": 0,
+        "provider_hole": 0,
+        "retry_exhausted": 0
+      },
+      "calendar_id": "CME_METALS",
+      "caught_up": null,
+      "contracts": [],
+      "dataset": "GLBX.MDP3",
+      "degraded": 0,
+      "edge_age_seconds": 3600.0,
+      "edge_available_end": "2024-09-03T18:00:00-06:00",
+      "edge_observed_at": "2026-09-30T05:00:00-06:00",
+      "holed_sessions": [],
+      "product": "GC",
+      "rolls": [
+        {
+          "basis_session": null,
+          "basis_unit_ids": null,
+          "definition_unit_id": null,
+          "definitions_as_of": null,
+          "error": null,
+          "expiration": null,
+          "instrument_id": null,
+          "is_default": true,
+          "known_through": null,
+          "next_roll": null,
+          "product": "GC",
+          "raw_symbol": null,
+          "reason": "no sessions held for GC",
+          "roll_no_later_than": null,
+          "rule": "v.0",
+          "session_date": null,
+          "unresolved": []
+        },
+        {
+          "basis_session": null,
+          "basis_unit_ids": null,
+          "definition_unit_id": null,
+          "definitions_as_of": null,
+          "error": null,
+          "expiration": null,
+          "instrument_id": null,
+          "is_default": false,
+          "known_through": null,
+          "next_roll": null,
+          "product": "GC",
+          "raw_symbol": null,
+          "reason": "no sessions held for GC",
+          "roll_no_later_than": null,
+          "rule": "c.0",
+          "session_date": null,
+          "unresolved": []
+        }
+      ],
+      "sessions_held": 0,
+      "spreads_hidden": 0,
+      "stype_in": "parent",
+      "symbols": [
+        "GC.FUT"
+      ],
+      "tier": null,
+      "wanted_end": null,
+      "wanted_start": null
+    }
+  ]
+}

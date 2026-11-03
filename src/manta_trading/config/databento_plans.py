@@ -38,5 +38,6 @@ PLAN_INCLUDED_HISTORY: Final[
         TickSchema.TBBO: _STANDARD_TICK_WINDOW,
         TickSchema.MBP_1: _STANDARD_TICK_WINDOW,
         TickSchema.DEFINITION: None,
+        TickSchema.OHLCV_1M: None,
     },
 }

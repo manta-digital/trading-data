@@ -27,17 +27,19 @@ from manta_trading.data.tick.constants import (
     TickSchema,
     UnitState,
 )
+from manta_trading.data.tick.raw_reads import raw_counts
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.status_reads import (
     Shape,
     conditions,
     contract_lines,
     dataset_edge,
     ledger_totals,
-    raw_counts,
     shape_units,
 )
 
 AConn = psycopg.AsyncConnection[Any]
+TIER = SchemaFamily.TICK_TIER
 SHAPE = Shape(CME_DATASET, ("ES.FUT",), SType.PARENT)
 DAY = date(2024, 9, 3)
 NS = 1_000_000_000
@@ -71,10 +73,13 @@ async def test_units_and_ledger_exclude_superseded_units(db: Any, aconn: AConn) 
     trades = _unit(db, superseded_by_unit_id=tbbo)
     insert_ledger_row(db, tbbo, record_count=5)
     insert_ledger_row(db, trades, record_count=7)
-    units = await shape_units(aconn, SHAPE)
+    units = await shape_units(aconn, SHAPE, TIER)
     assert [u.unit_id for u in units[DAY]] == [tbbo]
-    assert await ledger_totals(aconn, SHAPE, DAY, DAY) == {(42_035_063, DAY): 5}
-    assert await ledger_totals(aconn, SHAPE, date(2024, 9, 4), date(2024, 9, 5)) == {}
+    assert await ledger_totals(aconn, SHAPE, TIER, DAY, DAY) == {(42_035_063, DAY): 5}
+    assert (
+        await ledger_totals(aconn, SHAPE, TIER, date(2024, 9, 4), date(2024, 9, 5))
+        == {}
+    )
 
 
 async def test_conditions_and_edge_return_the_seeded_values(
@@ -104,7 +109,7 @@ async def test_contract_lines_join_the_latest_definition(db: Any, aconn: AConn) 
         first_event_ns=None,
         last_event_ns=None,
     )
-    (line,) = await contract_lines(aconn, SHAPE)
+    (line,) = await contract_lines(aconn, SHAPE, TIER)
     assert (line.instrument_id, line.raw_symbol, line.records, line.volume) == (
         42_035_063,
         "ESZ4",

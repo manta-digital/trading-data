@@ -23,21 +23,25 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from manta_trading.data.tick.bar_constants import BAR_LEDGER_TABLE
 from manta_trading.data.tick.constants import UNIT_STATES_WITH_FILE
 
 REQUEST = "tick_request"
 UNIT = "tick_archive_unit"
 DEFINITION = "tick_definition"
 LEDGER = "tick_ingest_ledger"
+BAR_LEDGER = BAR_LEDGER_TABLE
 EDGE = "tick_dataset_edge"
 CONDITION = "tick_day_condition"
 
-#: Every tick bookkeeping table: every tick table except ``tick_trade``.
+#: Every tick bookkeeping table: every tick table except the fingerprinted
+#: row tables (``tick_trade``, ``tick_ohlcv_1m``).
 BOOKKEEPING_TABLES: tuple[str, ...] = (
     REQUEST,
     UNIT,
     DEFINITION,
     LEDGER,
+    BAR_LEDGER,
     EDGE,
     CONDITION,
 )
@@ -82,6 +86,7 @@ ID_REFERENCES: dict[tuple[str, str], str] = {
     (UNIT, "repurchase_of_unit_id"): UNIT,
     (DEFINITION, "unit_id"): UNIT,
     (LEDGER, "unit_id"): UNIT,
+    (BAR_LEDGER, "unit_id"): UNIT,
 }
 
 #: Natural key columns per table, read after id translation.
@@ -90,6 +95,7 @@ NATURAL_KEYS: dict[str, tuple[str, ...]] = {
     UNIT: ("request_id", "unit_date"),
     DEFINITION: ("instrument_id", "activation_ns"),
     LEDGER: ("unit_id", "instrument_id", "session_date"),
+    BAR_LEDGER: ("unit_id", "instrument_id", "session_date"),
     EDGE: ("dataset",),
     CONDITION: ("dataset", "condition_date"),
 }
@@ -230,13 +236,14 @@ JOB_COLUMN: dict[str, str] = {
     UNIT: "request_id",
     DEFINITION: "unit_id",
     LEDGER: "unit_id",
+    BAR_LEDGER: "unit_id",
 }
 
 
 def job_of(table: str, row: dict[str, Any]) -> Any:
     """The provider job id a translated row belongs to (tables with one)."""
     value = row[JOB_COLUMN[table]]
-    return value[0] if table in (DEFINITION, LEDGER) else value
+    return value[0] if table in (DEFINITION, LEDGER, BAR_LEDGER) else value
 
 
 def translate(tables: Rows) -> Translated:

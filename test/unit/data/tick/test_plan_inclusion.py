@@ -36,6 +36,11 @@ def test_every_plan_covers_every_schema(plan: DatabentoPlan) -> None:
     assert set(PLAN_INCLUDED_HISTORY[plan]) == set(TickSchema)
 
 
+def test_ohlcv_1m_history_is_all_included() -> None:
+    assert PLAN_INCLUDED_HISTORY[STANDARD][TickSchema.OHLCV_1M] is None
+    assert _included(TickSchema.OHLCV_1M, date(2012, 3, 6))
+
+
 def test_plans_cover_the_cme_dataset() -> None:
     assert PLAN_DATASET == CME_DATASET
 

@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The tick archive stores Databento `ohlcv-1m` bars** (slice 302). A verified `ohlcv-1m` unit loads into the new `tick_ohlcv_1m` hypertable (one provider bar per contract and minute, columnstore after 14 days) with its own ledger `tick_bar_ledger`, in the same one-transaction ingest and with the same checks plus `unit_day:` (every bar lies in the unit's UTC day). Bars are their own schema family, so a bar unit and a tick unit of one day never supersede each other. Migration `tick_009_ohlcv_1m` adds the tables; apply it with `mt data migrate apply --track tick`, and `provision_tick_roles.sql` already lists both tables. Bars from before 2020 place into the CME calendars slice 301 filled; a definition with an undefined window still fails its unit, naming the instrument, and that day's bars wait.
+- **A universe entry can want history** (slice 302). `TickUniverseEntry.history` takes `HistoryWant(schema, start, end)` for `ohlcv-1m` and `definition`, validated at import (start not before 2010-06-06, an explicit tier, bars inside a definition want), and the purchase planner plans them beside the tier. Production configures none, so today's plan is unchanged.
+- `mt data tick status` shows a separate `ohlcv-1m` section headed `load-complete only` for a product that wants bars, and `--json` gains a `families` list. `mt data tick coverage --schema ohlcv-1m` proves the ledger's bar count and volume against the stored bars. `mt data tick estimate` prices `ohlcv-1m` in its own row, judged alone against the ceiling.
+- The restore drill fingerprints `tick_ohlcv_1m` and compares `tick_bar_ledger` beside the trade tables.
+
 ## [0.25.0] - 2026-11-03
 
 ### Added

@@ -8,7 +8,11 @@ acquisition), all handed in by the caller.
 **Wants** are the union of
 
 * tier wants: for each universe entry with a tier, the product's session days
-  in its range (an open end runs to the availability edge); and
+  in its range (an open end runs to the availability edge);
+* history wants (slice 302 D5): for each of an entry's ``history`` wants
+  (``ohlcv-1m``, ``definition``), the session days in the want's range, on the
+  entry's symbols and stype. A ``definition`` history want is a want of its own
+  and unions with the companion set below; and
 * companion definitions: for every tier day the manifest owns, or is about to
   be bought, the same ``dataset``, ``symbols``, ``stype_in`` and day at
   ``TickSchema.DEFINITION`` (TD5),
@@ -135,26 +139,54 @@ def _in_window(day: date, inputs: PlanInputs) -> bool:
     return inputs.window_end is None or day < inputs.window_end
 
 
+def _session_days(
+    entry: TickUniverseEntry, start: date, end: date | None, inputs: PlanInputs
+) -> set[date]:
+    """The entry product's session days in ``[start, end)`` and the run window."""
+    stop = end if end is not None else inputs.edge_end.get(CME_DATASET)
+    if stop is None:
+        raise ValueError(
+            f"{entry.product}: the universe range is open-ended but no "
+            f"availability edge is recorded for {CME_DATASET}"
+        )
+    return {
+        day
+        for day in inputs.sessions.get(entry.product, ())
+        if start <= day < stop and _in_window(day, inputs)
+    }
+
+
 def _tier_wants(inputs: PlanInputs) -> dict[_Shape, set[date]]:
     """Universe tier days: session days in each entry's range (TD3, TD4)."""
     wants: dict[_Shape, set[date]] = {}
     for entry in inputs.universe:
         if entry.tier is None or entry.start is None:
             continue
-        end = entry.end if entry.end is not None else inputs.edge_end.get(CME_DATASET)
-        if end is None:
-            raise ValueError(
-                f"{entry.product}: the universe range is open-ended but no "
-                f"availability edge is recorded for {CME_DATASET}"
-            )
         shape = _Shape(
             entry.product, CME_DATASET, entry.tier, entry.symbols, entry.stype_in
         )
-        wants[shape] = {
-            day
-            for day in inputs.sessions.get(entry.product, ())
-            if entry.start <= day < end and _in_window(day, inputs)
-        }
+        wants[shape] = _session_days(entry, entry.start, entry.end, inputs)
+    return wants
+
+
+def _history_wants(inputs: PlanInputs) -> dict[_Shape, set[date]]:
+    """Each entry's history wants: session days in the want's own range (D5)."""
+    wants: dict[_Shape, set[date]] = {}
+    for entry in inputs.universe:
+        for want in entry.history:
+            shape = _Shape(
+                entry.product, CME_DATASET, want.schema, entry.symbols, entry.stype_in
+            )
+            wants[shape] = _session_days(entry, want.start, want.end, inputs)
+    return wants
+
+
+def _union(*sources: dict[_Shape, set[date]]) -> dict[_Shape, set[date]]:
+    """Per shape, the union of the days every source wants."""
+    wants: dict[_Shape, set[date]] = {}
+    for source in sources:
+        for shape, days in source.items():
+            wants.setdefault(shape, set()).update(days)
     return wants
 
 
@@ -261,7 +293,7 @@ def _order(planned: PlannedRequest) -> tuple[date, bool, str, str, tuple[str, ..
 def plan_purchases(inputs: PlanInputs) -> Plan:
     """The purchase plan for one run. Pure; see the module docstring."""
     tier = _tier_wants(inputs)
-    wants = {**tier, **_companion_wants(tier, inputs)}
+    wants = _union(tier, _companion_wants(tier, inputs), _history_wants(inputs))
     tallies = _Tallies()
     requests: list[PlannedRequest] = []
     for shape, days in wants.items():

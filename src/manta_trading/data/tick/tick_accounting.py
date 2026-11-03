@@ -16,9 +16,10 @@ from datetime import date
 
 from manta_trading.data.tick.constants import CME_DATASET
 from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.status_reads import dataset_edge, ledger_totals, shape_of
 from manta_trading.data.tick.tick_status import TickSessionStatus
-from manta_trading.data.tick.tick_status_build import bucket_counts, product_scope
+from manta_trading.data.tick.tick_status_scope import bucket_counts, product_scope
 from manta_trading.data.tick.universe import TickUniverseEntry
 
 
@@ -39,7 +40,9 @@ async def accounting_lines(
     for entry in universe:
         scope = await product_scope(conn, calendar_url, entry, edge)
         buckets = bucket_counts(scope.verdicts)
-        totals = await ledger_totals(conn, shape_of(entry), date.min, date.max)
+        totals = await ledger_totals(
+            conn, shape_of(entry), SchemaFamily.TICK_TIER, date.min, date.max
+        )
         lines.append(
             TickAccountingLine(
                 product=entry.product,

@@ -34,7 +34,7 @@ from drill_228_context import (
     rebuild_env,
     scratch_url,
 )
-from drill_228_fingerprint import diff_fingerprints, fingerprint
+from drill_228_fingerprint import diff_databases
 from drill_228_host import run
 from drill_228_lifecycle import MT_COMMAND_TIMEOUT, PG_BIN
 
@@ -134,8 +134,8 @@ def step_compare_rebuild(ctx: DrillContext, step: Step) -> None:
         connect_scratch(ctx, TICK_DB) as restored,
         connect_scratch(ctx, DRILL_DB) as rebuilt,
     ):
-        diffs = diff_fingerprints(fingerprint(restored), fingerprint(rebuilt))
-        check(step, "tick_trade fingerprint differences", [], diffs[:SHOWN_FAILURES])
+        diffs = diff_databases(restored, rebuilt)
+        check(step, "row-table fingerprint differences", [], diffs[:SHOWN_FAILURES])
         result = compare_bookkeeping(restored, rebuilt)
     for (table, column), count in sorted(result.allowed_differences.items()):
         step.seen.append(f"allowed difference: {table}.{column} on {count} row(s)")

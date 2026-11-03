@@ -30,6 +30,7 @@ from manta_trading.data.tick.constants import TICK_ENV_PREFIX, TickSchema
 from manta_trading.data.tick.tick_coverage import build_coverage
 from manta_trading.data.tick.universe import TICK_UNIVERSE
 
+GOLDEN = Path(__file__).resolve().parents[2] / "fixtures" / "tick_status"
 runner = CliRunner(env={"COLUMNS": "200"})
 START, END = date(2024, 9, 3), date(2024, 9, 5)
 COVERAGE = ["data", "tick", "coverage", "--start", f"{START}", "--end", f"{END}"]
@@ -111,13 +112,22 @@ def test_coverage_json_is_to_dict_plus_exit_code(
         async with connect(migrated_tick_db) as conn:
             return [
                 (
-                    await build_coverage(conn, session_migrated_db, e, START, END)
+                    await build_coverage(conn, session_migrated_db, e, START, END, None)
                 ).to_dict()
                 for e in TICK_UNIVERSE
             ]
 
     body = json.loads(result.stdout)
     assert body == {"products": asyncio.run(expected()), "exit_code": 0}
+
+
+def test_coverage_without_schema_matches_the_pre_302_output(ingested: None) -> None:
+    """Golden files captured from the commit before ``--schema`` existed."""
+    text = runner.invoke(app, COVERAGE)
+    assert text.exit_code == 0, text.output
+    assert text.stdout == (GOLDEN / "coverage_cli.txt").read_text()
+    body = runner.invoke(app, [*COVERAGE, "--json"])
+    assert body.stdout == (GOLDEN / "coverage_cli.json").read_text()
 
 
 def test_a_coverage_mismatch_exits_3(ingested: None, migrated_tick_db: str) -> None:

@@ -22,6 +22,8 @@ Copied unmodified from the `databento/dbn` repository, `tests/data/`.
 | `test_data.tbbo.v3.dbn.zst` | `GLBX.MDP3` | yes | `tbbo` | 3 | ESH1 (5482), 2 records, 2020-12-28 |
 | `test_data.mbp-1.v3.dbn.zst` | `GLBX.MDP3` | yes | `mbp-1` | 3 | ESH1 (5482), 2 records, 2020-12-28 |
 | `test_data.trades.v2.dbn.zst` | `GLBX.MDP3` | yes | `trades` | 2 | Same records as the v3 trades file; proves the reader does not assume the current DBN version |
+| `test_data.ohlcv-1m.v1.dbn.zst` | `GLBX.MDP3` | yes | `ohlcv-1m` | 1 | ESH1 (5482), 2 one-minute bars at 13:00 and 13:01 UTC, 2020-12-28; fetched 2026-11-03 (slice 302) |
+| `test_data.ohlcv-1m.v3.dbn.zst` | `GLBX.MDP3` | yes | `ohlcv-1m` | 3 | Same bars as the v1 file; fetched 2026-11-03 (slice 302) |
 | `test_data.definition.v3.dbn.zst` | `XNAS.ITCH` | **no** | `definition` | 3 | MSFT, 2 records — **not a CME definition**; use for record-shape tests only |
 
 These are correctness fixtures for the DBN file reader (slice 220, Technical
@@ -49,5 +51,6 @@ records of every other instrument (calendar spreads, back months).
 | `glbx-mdp3-20240903.trades.dbn.zst` | `GLBX-20240930-USM7UXXJBA` | 3,774 | 6 instruments incl. 3 spreads; 73 repeated `(instrument_id, ts_event, sequence)` triples |
 | `glbx-mdp3-20241203.tbbo.dbn.zst` | `GLBX-20250123-XT4GD5UM6C` | 3,718 | 5 instruments incl. 2 spreads; 53 repeated triples |
 | `glbx-mdp3-20241203.trades.dbn.zst` | derived | 3,718 | **Not purchased.** The adopted jobs share no day, so the supersession fixture (225 FR6) is the `tbbo` slice's records cut to their leading trade fields, with the header's schema set to `trades` |
+| `glbx-mdp3-20241203.ohlcv-1m.dbn.zst` | derived | 2,281 | **Not purchased.** Trade-only one-minute bars (open, high, low, close, volume per instrument and minute; `ts_event` at the minute's open) computed by `scripts/cut_tick_fixtures.py` from the whole `GLBX-20250123-XT4GD5UM6C` `tbbo` file for the day (265,996 trades, 930,064 contracts), under that file's header with its schema field set to `ohlcv-1m`. 5 instruments incl. 2 spreads; bars on both sides of the daily break. It makes **no claim of provider parity**: a purchased `ohlcv-1m` file is built from the same trades but may differ (provider conventions for spreads and for minutes with no trade are not reproduced) |
 | `glbx-mdp3-20240903.definition.dbn.zst` | `GLBX-20260930-DLDYL5DM8Q` | 61 | whole file |
 | `glbx-mdp3-20241203.definition.dbn.zst` | `GLBX-20260930-HVGRLYKHRN` | 61 | whole file |

@@ -24,6 +24,7 @@ if str(SCRIPTS) not in sys.path:
 import drill_228_bookkeeping as bk  # noqa: E402
 from tick_support.rows import (  # noqa: E402
     FILE_COLUMNS,
+    insert_bar_ledger_row,
     insert_dataset_edge,
     insert_day_condition,
     insert_definition,
@@ -49,7 +50,8 @@ def _ingested(conn: Conn, request_id: int, day: date) -> int:
 
 
 def seed(conn: Conn, *, shift_ids: bool = False) -> dict[str, int]:
-    """One adopted job with two ingested days, a definition, two ledger rows,
+    """One adopted job with two ingested days, a definition, two ledger rows, a bar
+    ledger row,
     the dataset edge and one day condition. ``shift_ids`` burns identity
     values first so the same rows get different ids."""
     if shift_ids:
@@ -70,6 +72,7 @@ def seed(conn: Conn, *, shift_ids: bool = False) -> dict[str, int]:
     insert_definition(conn, unit_1)
     insert_ledger_row(conn, unit_1, session_date=DAY_1)
     insert_ledger_row(conn, unit_2, session_date=DAY_2)
+    insert_bar_ledger_row(conn, unit_1, session_date=DAY_1)
     insert_dataset_edge(conn)
     insert_day_condition(conn)
     return {"request": request, "unit_1": unit_1, "unit_2": unit_2}
@@ -119,6 +122,20 @@ def test_an_allowed_column_differing_passes_and_is_counted(seeded: Any) -> None:
     assert result.allowed_differences[(bk.REQUEST, "requested_at")] == 1
     assert result.allowed_differences[(bk.UNIT, "attempt_count")] == 2
     assert result.allowed_differences[(bk.CONDITION, "observed_at")] == 1
+
+
+def test_the_bar_ledger_is_compared_by_natural_key(seeded: Any) -> None:
+    restored, rebuilt, _, _ = seeded
+    assert compare(restored, rebuilt).failures == []
+    rebuilt.execute("UPDATE tick_bar_ledger SET volume = 99")
+    failures = compare(restored, rebuilt).failures
+    assert len(failures) == 1
+    assert "tick_bar_ledger" in failures[0] and "column volume" in failures[0]
+    rebuilt.execute("DELETE FROM tick_bar_ledger")
+    failures = compare(restored, rebuilt).failures
+    assert any(
+        "tick_bar_ledger" in f and "missing from the rebuild" in f for f in failures
+    )
 
 
 @pytest.mark.parametrize(

@@ -25,7 +25,6 @@ from manta_trading.data.tick.constants import (
     TICK_SPEND_CEILING_ENV,
     TICK_SPEND_WINDOW,
     TICK_SUBMIT_RESOLVE_AGE,
-    TICK_TIER_RANK,
     TICK_TIERS,
     TICK_TRADE_CHUNK_INTERVAL,
     TICK_WAIT_BUDGET_SECONDS,
@@ -43,7 +42,13 @@ from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_CALE
 
 
 def test_schema_values_are_provider_spellings() -> None:
-    assert [s.value for s in TickSchema] == ["trades", "tbbo", "mbp-1", "definition"]
+    assert [s.value for s in TickSchema] == [
+        "trades",
+        "tbbo",
+        "mbp-1",
+        "definition",
+        "ohlcv-1m",
+    ]
 
 
 def test_stype_values_are_provider_spellings() -> None:
@@ -73,8 +78,10 @@ def test_companion_is_definition_only() -> None:
     assert not COMPANION_SCHEMAS & set(TICK_TIERS)
 
 
-def test_estimate_schemas_are_every_tier_then_definition() -> None:
-    assert ESTIMATE_SCHEMAS[-1] is TickSchema.DEFINITION
+def test_estimate_schemas_are_every_tier_then_definition_then_bars() -> None:
+    assert ESTIMATE_SCHEMAS[: len(TICK_TIERS)] == TICK_TIERS
+    assert ESTIMATE_SCHEMAS[len(TICK_TIERS)] is TickSchema.DEFINITION
+    assert ESTIMATE_SCHEMAS[-1] is TickSchema.OHLCV_1M
     assert set(TICK_TIERS) <= set(ESTIMATE_SCHEMAS)
     assert len(ESTIMATE_SCHEMAS) == len(set(ESTIMATE_SCHEMAS))
 
@@ -140,11 +147,12 @@ def test_unit_states_with_file_come_after_delivery() -> None:
     assert all(order.index(s) > delivered for s in UNIT_STATES_WITH_FILE)
 
 
-def test_archived_schemas_are_stored_tiers_and_definition() -> None:
+def test_archived_schemas_are_stored_tiers_definition_and_bars() -> None:
     assert ARCHIVED_SCHEMAS == {
         TickSchema.TRADES,
         TickSchema.TBBO,
         TickSchema.DEFINITION,
+        TickSchema.OHLCV_1M,
     }
     assert TickSchema.MBP_1 not in ARCHIVED_SCHEMAS
 
@@ -191,6 +199,9 @@ def test_ingest_workers_is_positive() -> None:
     assert TICK_INGEST_WORKERS >= 1
 
 
-def test_tier_rank_follows_tier_order() -> None:
-    assert sorted(TICK_TIER_RANK, key=TICK_TIER_RANK.__getitem__) == list(TICK_TIERS)
-    assert TICK_TIER_RANK[TickSchema.TBBO] > TICK_TIER_RANK[TickSchema.TRADES]
+def test_ohlcv_1m_is_archived_but_neither_a_tier_nor_a_companion() -> None:
+    assert TickSchema.OHLCV_1M == "ohlcv-1m"
+    assert TickSchema.OHLCV_1M in ARCHIVED_SCHEMAS
+    assert TickSchema.OHLCV_1M in ESTIMATE_SCHEMAS
+    for collection in (TICK_TIERS, STORED_TIERS, COMPANION_SCHEMAS):
+        assert TickSchema.OHLCV_1M not in collection

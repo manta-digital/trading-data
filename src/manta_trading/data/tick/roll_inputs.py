@@ -21,6 +21,7 @@ from manta_trading.data.tick.roll_types import (
     RollInputError,
     SessionVolume,
 )
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.status_reads import SHAPE_WHERE, Shape
 
 _LEDGER_UNITS = (
@@ -67,7 +68,8 @@ async def session_volumes(
         f" FROM {_LEDGER_UNITS} WHERE {SHAPE_WHERE} AND {_IS_OUTRIGHT}"
         " AND l.session_date BETWEEN %(first)s AND %(last)s"
         " ORDER BY l.session_date, l.instrument_id, l.unit_id",
-        shape.params() | {"outright": OUTRIGHT_CLASS, "first": first, "last": last},
+        shape.params(SchemaFamily.TICK_TIER)
+        | {"outright": OUTRIGHT_CLASS, "first": first, "last": last},
     )
     return tuple(SessionVolume(*row) for row in await cursor.fetchall())
 
@@ -77,7 +79,7 @@ async def held_session_bounds(conn: Conn, shape: Shape) -> tuple[date, date] | N
     cursor = await conn.execute(
         "SELECT min(l.session_date), max(l.session_date)"
         f" FROM {_LEDGER_UNITS} WHERE {SHAPE_WHERE}",
-        shape.params(),
+        shape.params(SchemaFamily.TICK_TIER),
     )
     row = await cursor.fetchone()
     if row is None or row[0] is None:
@@ -93,7 +95,7 @@ async def definitions_as_of(conn: Conn, shape: Shape) -> date:
         " WHERE r.dataset = %(dataset)s AND r.symbols = %(symbols)s"
         " AND r.stype_in = %(stype_in)s AND r.schema = %(schema)s"
         f" AND u.state = %(state)s AND {COVERAGE_PREDICATE}",
-        shape.params()
+        shape.params(SchemaFamily.TICK_TIER)
         | {"schema": TickSchema.DEFINITION.value, "state": UnitState.INGESTED.value},
     )
     row = await cursor.fetchone()

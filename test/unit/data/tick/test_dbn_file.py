@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import databento_dbn
+import numpy as np
 import pytest
 from tick_support.dbn_files import BAD_HEADERS, bad_header_bytes, day_file_bytes
 from tick_support.tier_units import TRADES_DAY, real_file
@@ -66,6 +67,68 @@ def test_es_batches(name: str, schema: TickSchema, itemsize: int, price: int) ->
     assert int(first.records["instrument_id"][0]) == 5482
 
 
+#: The two ohlcv-1m samples: same two ESH1 bars, DBN v1 and v3.
+BAR_FILES = ["test_data.ohlcv-1m.v1.dbn.zst", "test_data.ohlcv-1m.v3.dbn.zst"]
+BAR_MINUTES_NS = [
+    int(datetime(2020, 12, 28, 13, 0, tzinfo=UTC).timestamp()) * 1_000_000_000,
+    int(datetime(2020, 12, 28, 13, 1, tzinfo=UTC).timestamp()) * 1_000_000_000,
+]
+
+
+@pytest.mark.parametrize("name", BAR_FILES)
+def test_ohlcv_1m_header_and_records(name: str) -> None:
+    tick_file = _open(name)
+    assert tick_file.dataset == CME_DATASET
+    assert tick_file.schema is TickSchema.OHLCV_1M
+    assert dict(tick_file.mappings) == ESH1
+    batches = list(tick_file.iter_batches())
+    assert sum(b.count for b in batches) == 2
+    records = batches[0].records
+    assert batches[0].schema is TickSchema.OHLCV_1M
+    assert records.dtype.names == (
+        "length",
+        "rtype",
+        "publisher_id",
+        "instrument_id",
+        "ts_event",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    )
+    assert records.dtype.itemsize == 56
+    assert {int(i) for i in records["instrument_id"]} == {5482}
+    # ts_event is the minute's open.
+    assert [int(t) for t in records["ts_event"]] == BAR_MINUTES_NS
+    # Prices are fixed-point at 1e-9. The sample's bars are 100x the trades
+    # samples' prices (372025.0): the provider's synthetic values, not a scale.
+    assert int(records["open"][0]) == 372025000000000
+    assert int(records["volume"][0]) == 353
+
+
+def test_ohlcv_1m_v1_matches_v3() -> None:
+    v1 = next(_open(BAR_FILES[0]).iter_batches()).records
+    v3 = next(_open(BAR_FILES[1]).iter_batches()).records
+    assert v1.tobytes() == v3.tobytes()
+
+
+def test_the_derived_bar_day_decodes_with_both_sessions_and_spreads() -> None:
+    """The derived 2024-12-03 bar slice (302): not purchased, see SOURCES.md."""
+    tick_file = DbnFileReader().open_file(
+        real_file(TRADES_DAY.replace(month=12, day=3), TickSchema.OHLCV_1M)
+    )
+    assert tick_file.schema is TickSchema.OHLCV_1M
+    records = [b.records for b in tick_file.iter_batches()]
+    bars = records[0] if len(records) == 1 else np.concatenate(records)
+    ts = bars["ts_event"].astype("int64")
+    assert (ts % 60_000_000_000 == 0).all()  # each bar is stamped at its minute
+    break_gap = int(np.diff(np.unique(ts)).max())
+    assert break_gap > 3_000_000_000_000  # the daily break lies inside the day
+    assert len(set(bars["instrument_id"].tolist())) == 5  # incl. calendar spreads
+    assert (bars["high"] >= bars["low"]).all()
+
+
 def test_v2_trades_match_v3() -> None:
     v2 = next(_open("test_data.trades.v2.dbn.zst").iter_batches()).records
     v3 = next(_open("test_data.trades.v3.dbn.zst").iter_batches()).records
@@ -113,18 +176,18 @@ def test_budget_below_one_record_raises(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_unknown_schema_raises_naming_it(tmp_path: Path) -> None:
-    """An OHLCV file is a valid DBN file this reader does not accept."""
-    path = tmp_path / "ohlcv.dbn"
+    """An ohlcv-1s file is a valid DBN file this reader does not accept."""
+    path = tmp_path / "ohlcv-1s.dbn"
     metadata = databento_dbn.Metadata(
         dataset=CME_DATASET,
-        schema=databento_dbn.Schema("ohlcv-1m"),
+        schema=databento_dbn.Schema("ohlcv-1s"),
         start=0,
         stype_in=databento_dbn.SType(SType.RAW_SYMBOL.value),
         stype_out=databento_dbn.SType(SType.INSTRUMENT_ID.value),
         ts_out=False,
     )
     path.write_bytes(bytes(metadata.encode()))
-    with pytest.raises(TickFileDecodeError, match="unsupported DBN schema 'ohlcv-1m'"):
+    with pytest.raises(TickFileDecodeError, match="unsupported DBN schema 'ohlcv-1s'"):
         DbnFileReader().open_file(path)
 
 

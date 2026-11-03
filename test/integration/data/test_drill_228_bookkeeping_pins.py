@@ -27,7 +27,7 @@ def _public(conn: psycopg.Connection[Any], query: str) -> set[tuple[str, ...]]:
     return {tuple(r) for r in conn.execute(query).fetchall()}
 
 
-def test_bookkeeping_list_plus_trades_is_every_tick_table(
+def test_bookkeeping_list_plus_row_tables_is_every_tick_table(
     migrated_tick_db: str,
 ) -> None:
     with psycopg.connect(migrated_tick_db) as conn:
@@ -37,7 +37,7 @@ def test_bookkeeping_list_plus_trades_is_every_tick_table(
             " WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
         )
     found = {t for (t,) in tables} - {MIGRATION_LEDGER}
-    assert found == {*bk.BOOKKEEPING_TABLES, fp.TABLE}
+    assert found == {*bk.BOOKKEEPING_TABLES, *fp.FINGERPRINTED_KEYS}
 
 
 def test_allowed_set_names_real_columns_and_covers_reobserved_values(

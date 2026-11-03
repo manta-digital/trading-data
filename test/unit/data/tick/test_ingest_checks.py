@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pytest
 
 from manta_trading.data.base.session_index import Session
@@ -19,8 +20,11 @@ from manta_trading.data.tick.ingest_checks import (
     planning_span_reason,
     resolution_reason,
     shape_reason,
+    unit_day_reason,
     utc_of_ns,
 )
+from manta_trading.data.tick.ingest_records import UnitCheckFailed
+from manta_trading.data.tick.unit_day_check import check_unit_day, unit_day_bounds_ns
 
 CHICAGO = ZoneInfo("America/Chicago")
 OPEN = datetime(2024, 9, 2, 22, tzinfo=UTC)
@@ -43,6 +47,7 @@ REASONS = [
     ),
     (IngestCheck.SHAPE, shape_reason("raw_symbol")),
     (IngestCheck.DECODE, decode_reason(Path("JOB/f.dbn.zst"), OSError("gone"))),
+    (IngestCheck.UNIT_DAY, unit_day_reason(2, date(2024, 9, 3), TS_NS)),
 ]
 
 
@@ -69,3 +74,35 @@ def test_no_session_reason_names_both_zones_and_the_sessions() -> None:
 
 def test_utc_of_ns() -> None:
     assert utc_of_ns(TS_NS) == datetime(2024, 9, 3, 22, tzinfo=UTC)
+
+
+def test_unit_day_reason_text_for_one_and_for_several_records() -> None:
+    day = date(2024, 9, 3)
+    assert (
+        unit_day_reason(1, day, TS_NS)
+        == "unit_day: 1 records outside 2024-09-03; first at 2024-09-03T22:00:00+00:00"
+    )
+    assert unit_day_reason(7, day, TS_NS).startswith(
+        "unit_day: 7 records outside 2024-09-03;"
+    )
+
+
+def test_unit_day_boundaries_are_midnight_inclusive_then_exclusive() -> None:
+    day = date(2024, 9, 3)
+    start, end = unit_day_bounds_ns(day)
+    assert start == 1_725_321_600_000_000_000
+    assert end - start == 86_400 * 1_000_000_000
+    check_unit_day(np.array([start, end - 1], dtype=np.int64), day)  # inside
+    with pytest.raises(UnitCheckFailed, match="unit_day: 1 records") as raised:
+        check_unit_day(np.array([start, end], dtype=np.int64), day)
+    assert raised.value.check is IngestCheck.UNIT_DAY
+    assert raised.value.reason == unit_day_reason(1, day, end)
+
+
+def test_unit_day_counts_all_outside_and_names_the_first() -> None:
+    day = date(2024, 9, 3)
+    start, end = unit_day_bounds_ns(day)
+    ts = np.array([start + 5, end + 9, start - 1, end], dtype=np.int64)
+    with pytest.raises(UnitCheckFailed) as raised:
+        check_unit_day(ts, day)
+    assert raised.value.reason == unit_day_reason(3, day, end + 9)

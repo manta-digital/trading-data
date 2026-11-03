@@ -24,6 +24,7 @@ class IngestCheck(StrEnum):
     OVERLAP = "overlap"
     SHAPE = "shape"
     DECODE = "decode"
+    UNIT_DAY = "unit_day"
 
 
 def utc_of_ns(ts_ns: int) -> datetime:
@@ -110,6 +111,14 @@ def overlap_reason(detail: str | None, day: date, other_units: Sequence[int]) ->
     return (
         f"{IngestCheck.OVERLAP}: {detail or 'a tick_trade key already exists'}"
         f" other current units on {day}: {list(other_units)}"
+    )
+
+
+def unit_day_reason(count: int, unit_date: date, first_ts_ns: int) -> str:
+    """Bars stamped outside the unit's UTC day (a bar unit is one whole day)."""
+    return (
+        f"{IngestCheck.UNIT_DAY}: {count} records outside {unit_date};"
+        f" first at {utc_of_ns(first_ts_ns).isoformat()}"
     )
 
 

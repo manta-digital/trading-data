@@ -33,3 +33,18 @@ def test_a_new_contract_column_is_hashed_automatically() -> None:
     widened = {**TICK_TRADE_COLUMNS, "new_field": "new_column"}
     rendered = fp.fingerprint_sql(fp.hashed_columns(widened)).as_string(None)
     assert '"new_column"' in rendered.split("ROW(")[1]
+
+
+def test_every_bar_column_but_unit_id_is_hashed() -> None:
+    from manta_trading.data.tick.bar_constants import BAR_1M_COLUMNS
+
+    assert fp.bar_hashed_columns() == [c for c in BAR_1M_COLUMNS if c != "unit_id"]
+    row_part = fp.BAR_FINGERPRINT_SQL.as_string(None).split("ROW(")[1].split(")")[0]
+    assert '"unit_id"' not in row_part
+    assert '"close"' in row_part
+    assert 'FROM "tick_ohlcv_1m"' in fp.BAR_FINGERPRINT_SQL.as_string(None)
+
+
+def test_the_bar_hash_orders_by_the_bar_key() -> None:
+    rendered = fp.BAR_FINGERPRINT_SQL.as_string(None)
+    assert 'ORDER BY "instrument_id", "ts_event"' in rendered

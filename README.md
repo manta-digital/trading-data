@@ -703,14 +703,18 @@ failed verification; `4` storage (archive write, the calendar, or the tick
 database).
 
 **Ingest.** `ingest` loads every verified `trades`/`tbbo` unit into
-`tick_trade`, two units at a time, each in one transaction: the rows, their
+`tick_trade`, and every verified `ohlcv-1m` unit into `tick_ohlcv_1m` (one
+provider bar per contract and minute, with its own ledger, `tick_bar_ledger`),
+two units at a time, each in one transaction: the rows, their
 ledger (one row per contract and session, zero-record rows included) and the
 unit's move to *ingested* commit together or not at all. Three checks guard
-each unit: the provider's record count, the records decoded and the rows
+each unit (a bar unit adds a fourth, `unit_day:`, that every bar lies in the
+unit's UTC day): the provider's record count, the records decoded and the rows
 stored must agree; every record must belong to a known contract of the
 product; and every record must fall in a trading session. A unit that fails is
 marked exhausted with the check named first in its reason (`counts:`,
-`resolution:`, `session_boundary:`, `overlap:`, `shape:` or `decode:`); fix the
+`resolution:`, `session_boundary:`, `overlap:`, `shape:`, `decode:` or
+`unit_day:`); fix the
 cause, then `mt data tick reset --unit-id N`. A unit waits (it is skipped, not
 failed) while its day's definitions are not loaded yet, or while a
 higher-tier unit (`tbbo` over `trades`) holds its day. A `tbbo` unit loaded
@@ -736,10 +740,20 @@ means every unit covering the session is ingested; `coverage` proves the raw
 rows for a date range: it counts `tick_trade` rows per contract and session
 and compares them with the ledger.
 
+A product that wants `ohlcv-1m` bars (a `history` want on its universe entry;
+production configures none yet) gets a second section in `status`, headed
+`load-complete only`, with the same buckets over the bars' own range, and
+`status --json` gains a `families` list (the existing fields stay the tick
+tier's). `coverage --schema ohlcv-1m` compares the ledger's bar count and
+volume with `count(*)` and `sum(volume)` over `tick_ohlcv_1m`, per contract and
+session; a schema the product does not want exits `1`. `mt data tick estimate`
+prices `ohlcv-1m` in its own row.
+
 ```sh
 mt data tick status
 mt data tick status --all-instruments --json
 mt data tick coverage --start 2024-09-03 --end 2024-09-07   # --end EXCLUSIVE
+mt data tick coverage --schema ohlcv-1m --start 2024-12-03 --end 2024-12-05
 ```
 
 Neither command needs the API key or `MT_TICK_ARCHIVE_DIR`, and neither takes

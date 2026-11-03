@@ -1,7 +1,7 @@
 """Session classification for ``status`` and ``coverage``: pure, no I/O (225).
 
 LLD 225 TD9. A session's days are the UTC days it touches; a day's unit is
-the highest-ranked current tier unit of the shape that day (TD5's rule). A
+the highest-ranked current unit of the family and shape that day (TD5's rule). A
 session takes the worst status of its days, by :data:`STATUS_PRECEDENCE`, the
 one statement of the order. Its condition is the worst condition of its days
 (``missing`` > ``degraded`` > ``pending`` > ``available``), or ``unknown`` when
@@ -19,11 +19,11 @@ from enum import StrEnum
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import (
     CONDITION_ABSENT_WEEKDAY,
-    TICK_TIER_RANK,
     DatasetCondition,
     TickSchema,
     UnitState,
 )
+from manta_trading.data.tick.schema_families import FAMILY_SCHEMAS, SchemaFamily
 
 
 class TickSessionStatus(StrEnum):
@@ -84,9 +84,15 @@ class DayFacts:
     condition: DatasetCondition | None
 
 
-def day_unit(units: Iterable[DayUnit]) -> DayUnit | None:
-    """The highest-ranked current tier unit of a day (TD5); newest on a tie."""
-    return max(units, key=lambda u: (TICK_TIER_RANK[u.schema], u.unit_id), default=None)
+def day_unit(units: Iterable[DayUnit], family: SchemaFamily) -> DayUnit | None:
+    """The highest-ranked current unit of ``family`` on a day (TD5); newest on a
+    tie. Rank is the schema's place in ``FAMILY_SCHEMAS``; a unit of another
+    family is not a candidate, so it can neither outrank nor mask one (302 D6)."""
+    schemas = FAMILY_SCHEMAS[family]
+    members = [u for u in units if u.schema in schemas]
+    return max(
+        members, key=lambda u: (schemas.index(u.schema), u.unit_id), default=None
+    )
 
 
 def classify_day(facts: DayFacts) -> TickSessionStatus:

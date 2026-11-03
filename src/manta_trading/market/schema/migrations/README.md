@@ -45,6 +45,10 @@ the application credential for `status`, the maintenance credential for `apply`
   Slice 300 adds `tick_008_plan_inclusion`: `tick_request.is_plan_included`
   `BOOLEAN NOT NULL`, backfilled `FALSE` (existing requests were usage-billed),
   then its default dropped so every writer must name it.
+  Slice 302 adds `tick_009_ohlcv_1m`: `ohlcv-1m` joins the archivable schemas
+  (the request CHECK is re-rendered), the `tick_ohlcv_1m` hypertable with the
+  `tick_trade` chunk and columnstore layout from `bar_constants.py`, and
+  `tick_bar_ledger`, the bar family's ledger.
 - **Misroute guard.** Before applying, `apply` reads the target ledger and
   refuses if it holds ids of a track routed to another database (for example a
   tick maintenance URL that points at `trading`). It checks the ledger, not
