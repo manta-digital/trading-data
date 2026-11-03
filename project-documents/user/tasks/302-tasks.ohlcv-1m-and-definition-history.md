@@ -44,24 +44,28 @@ revision_number: 2
 
 ### 1. Schema, family, plan row (D1)
 
-- [ ] **1.1 Add `TickSchema.OHLCV_1M` and archived membership**
-  - [ ] Read `src/manta_trading/data/tick/constants.py` and `test/unit/data/tick/test_constants.py` first.
-  - [ ] Add `TickSchema.OHLCV_1M = "ohlcv-1m"` only. Do not add it to `ARCHIVED_SCHEMAS` yet (task 3.2 does that with the migration, so the constant never runs ahead of the database check constraint) or to `ESTIMATE_SCHEMAS` (task 11.1 does that with its row and tests, so `mt data tick estimate` output does not change before then). Do not touch `STORED_TIERS`, `TICK_TIERS` or `COMPANION_SCHEMAS`.
-  - [ ] Success: the existing constants tests pass (update any that enumerate the schemas), and `OHLCV_1M` exists and is in no schema collection.
+- [x] **1.1 Add `TickSchema.OHLCV_1M` and archived membership**
+  - [x] Read `src/manta_trading/data/tick/constants.py` and `test/unit/data/tick/test_constants.py` first.
+  - [x] Add `TickSchema.OHLCV_1M = "ohlcv-1m"` only. Do not add it to `ARCHIVED_SCHEMAS` yet (task 3.2 does that with the migration, so the constant never runs ahead of the database check constraint) or to `ESTIMATE_SCHEMAS` (task 11.1 does that with its row and tests, so `mt data tick estimate` output does not change before then). Do not touch `STORED_TIERS`, `TICK_TIERS` or `COMPANION_SCHEMAS`.
+  - [x] Success: the existing constants tests pass (update any that enumerate the schemas), and `OHLCV_1M` exists and is in no schema collection.
 
-- [ ] **1.2 Add `SchemaFamily.BAR_1M` and `FAMILY_LEDGER`**
-  - [ ] In `schema_families.py`, add `BAR_1M: (OHLCV_1M,)` to `FAMILY_SCHEMAS` and a `FAMILY_LEDGER` mapping: `TICK_TIER` to `tick_ingest_ledger`, `BAR_1M` to `tick_bar_ledger`. `DEFINITION` is deliberately absent (projected by the acquisition pass).
-  - [ ] Success: families stay total and disjoint over `TickSchema`.
+- [x] **1.2 Add `SchemaFamily.BAR_1M` and `FAMILY_LEDGER`**
+  - [x] In `schema_families.py`, add `BAR_1M: (OHLCV_1M,)` to `FAMILY_SCHEMAS` and a `FAMILY_LEDGER` mapping: `TICK_TIER` to `tick_ingest_ledger`, `BAR_1M` to `tick_bar_ledger`. `DEFINITION` is deliberately absent (projected by the acquisition pass).
+  - [x] Success: families stay total and disjoint over `TickSchema`.
+  
+  Note: `BAR_LEDGER_TABLE` is created in `bar_constants.py` here (3.1 adds the rest); `TICK_LEDGER_TABLE` is in `constants.py`.
 
-- [ ] **1.3 Add the plan-inclusion row**
-  - [ ] In `config/databento_plans.py` set `STANDARD[OHLCV_1M] = None` (all history).
-  - [ ] Success: the plan table is total over `TickSchema`; `is_plan_included` answers for `ohlcv-1m`.
+- [x] **1.3 Add the plan-inclusion row**
+  - [x] In `config/databento_plans.py` set `STANDARD[OHLCV_1M] = None` (all history).
+  - [x] Success: the plan table is total over `TickSchema`; `is_plan_included` answers for `ohlcv-1m`.
 
-- [ ] **1.4 Tests for 1.1–1.3** (extend `test_constants.py`, `test_schema_families.py`, `test_plan_inclusion.py`)
-  - [ ] Families total and disjoint; `BAR_1M` holds `ohlcv-1m` only.
-  - [ ] `FAMILY_LEDGER` has a key for every family that is a key of `INGEST_PROJECTORS`'s schemas (`TICK_TIER`, `BAR_1M`) and none for `DEFINITION`.
-  - [ ] Plan table total over `TickSchema`.
-  - [ ] Success: `uv run pytest test/unit/data/tick -q` passes.
+- [x] **1.4 Tests for 1.1–1.3** (extend `test_constants.py`, `test_schema_families.py`, `test_plan_inclusion.py`)
+  - [x] Families total and disjoint; `BAR_1M` holds `ohlcv-1m` only.
+  - [x] `FAMILY_LEDGER` has a key for every family that is a key of `INGEST_PROJECTORS`'s schemas (`TICK_TIER`, `BAR_1M`) and none for `DEFINITION`.
+  - [x] Plan table total over `TickSchema`.
+  - [x] Success: `uv run pytest test/unit/data/tick -q` passes.
+
+  Note: two existing tests changed because the reader now accepts ohlcv-1m: `test_schema_values_are_provider_spellings` lists it, and `test_unknown_schema_raises_naming_it` uses an ohlcv-1s header.
 
 **Commit**: `feat: add ohlcv-1m schema, BAR_1M family and plan row`
 

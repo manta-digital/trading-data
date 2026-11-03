@@ -3,8 +3,8 @@
 Supersession is a rule *within* a family: a higher-ranked schema of the same
 family replaces a lower one for the same shape and day. Schemas of different
 families never compete (a definition unit and a tick-tier unit of the same day
-are both kept). A new archived schema joins by adding one family here (301 adds
-bars, 302 adds statistics); nothing else states the rank order.
+are both kept). A new archived schema joins by adding one family here (302 adds
+bars, 303 adds statistics); nothing else states the rank order.
 """
 
 from __future__ import annotations
@@ -13,12 +13,18 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Final
 
-from manta_trading.data.tick.constants import TICK_TIERS, TickSchema
+from manta_trading.data.tick.bar_constants import BAR_LEDGER_TABLE
+from manta_trading.data.tick.constants import (
+    TICK_LEDGER_TABLE,
+    TICK_TIERS,
+    TickSchema,
+)
 
 
 class SchemaFamily(StrEnum):
     TICK_TIER = "tick_tier"
     DEFINITION = "definition"
+    BAR_1M = "bar_1m"
 
 
 #: Family -> schemas, lowest rank first. The tick-tier order is ``TICK_TIERS``,
@@ -26,6 +32,14 @@ class SchemaFamily(StrEnum):
 FAMILY_SCHEMAS: Final[Mapping[SchemaFamily, tuple[TickSchema, ...]]] = {
     SchemaFamily.TICK_TIER: TICK_TIERS,
     SchemaFamily.DEFINITION: (TickSchema.DEFINITION,),
+    SchemaFamily.BAR_1M: (TickSchema.OHLCV_1M,),
+}
+
+#: Family -> the ledger table its ingest writes. ``DEFINITION`` is absent on
+#: purpose: the acquisition pass projects definitions, ingest never does.
+FAMILY_LEDGER: Final[Mapping[SchemaFamily, str]] = {
+    SchemaFamily.TICK_TIER: TICK_LEDGER_TABLE,
+    SchemaFamily.BAR_1M: BAR_LEDGER_TABLE,
 }
 
 

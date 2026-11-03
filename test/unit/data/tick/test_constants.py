@@ -41,7 +41,13 @@ from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_CALE
 
 
 def test_schema_values_are_provider_spellings() -> None:
-    assert [s.value for s in TickSchema] == ["trades", "tbbo", "mbp-1", "definition"]
+    assert [s.value for s in TickSchema] == [
+        "trades",
+        "tbbo",
+        "mbp-1",
+        "definition",
+        "ohlcv-1m",
+    ]
 
 
 def test_stype_values_are_provider_spellings() -> None:
@@ -163,3 +169,15 @@ def test_ingest_workers_is_positive() -> None:
 def test_tier_rank_follows_tier_order() -> None:
     assert sorted(TICK_TIER_RANK, key=TICK_TIER_RANK.__getitem__) == list(TICK_TIERS)
     assert TICK_TIER_RANK[TickSchema.TBBO] > TICK_TIER_RANK[TickSchema.TRADES]
+
+
+def test_ohlcv_1m_is_a_schema_in_no_collection_yet() -> None:
+    assert TickSchema.OHLCV_1M == "ohlcv-1m"
+    for collection in (
+        TICK_TIERS,
+        STORED_TIERS,
+        COMPANION_SCHEMAS,
+        ARCHIVED_SCHEMAS,
+        ESTIMATE_SCHEMAS,
+    ):
+        assert TickSchema.OHLCV_1M not in collection

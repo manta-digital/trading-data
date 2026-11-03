@@ -28,6 +28,7 @@ class TickSchema(StrEnum):
     TBBO = "tbbo"
     MBP_1 = "mbp-1"
     DEFINITION = "definition"
+    OHLCV_1M = "ohlcv-1m"
 
 
 #: The candidate tiers the preflight compares, cheapest first.
@@ -46,6 +47,9 @@ COMPANION_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.DEFINITION})
 #: What a ``tick_request`` may archive. ``mbp-1`` stays estimate-only
 #: (slice 222 TD9).
 ARCHIVED_SCHEMAS: frozenset[TickSchema] = STORED_TIERS | COMPANION_SCHEMAS
+
+#: The table of per-unit, per-session trade totals (the tick-tier ledger).
+TICK_LEDGER_TABLE: Final = "tick_ingest_ledger"
 
 #: The one tuple the preflight iterates: every tier, then the companion.
 ESTIMATE_SCHEMAS: tuple[TickSchema, ...] = (*TICK_TIERS, TickSchema.DEFINITION)

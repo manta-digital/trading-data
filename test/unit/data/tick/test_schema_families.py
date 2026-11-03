@@ -8,7 +8,9 @@ import pytest
 
 from manta_trading.data.tick import schema_families
 from manta_trading.data.tick.constants import TICK_TIERS, TickSchema
+from manta_trading.data.tick.projectors import INGEST_PROJECTORS
 from manta_trading.data.tick.schema_families import (
+    FAMILY_LEDGER,
     FAMILY_SCHEMAS,
     SCHEMA_FAMILY,
     SchemaFamily,
@@ -26,6 +28,24 @@ def test_schema_family_agrees_with_the_table() -> None:
     for family, schemas in FAMILY_SCHEMAS.items():
         assert all(SCHEMA_FAMILY[schema] is family for schema in schemas)
     assert FAMILY_SCHEMAS[SchemaFamily.TICK_TIER] is TICK_TIERS
+
+
+def test_the_bar_family_holds_ohlcv_1m_only() -> None:
+    assert FAMILY_SCHEMAS[SchemaFamily.BAR_1M] == (TickSchema.OHLCV_1M,)
+
+
+def test_the_families_are_disjoint() -> None:
+    listed = [schema for schemas in FAMILY_SCHEMAS.values() for schema in schemas]
+    assert len(listed) == len(set(listed))
+
+
+def test_every_ingested_family_has_a_ledger_and_definition_has_none() -> None:
+    ingested = {SCHEMA_FAMILY[schema] for schema in INGEST_PROJECTORS}
+    assert ingested <= set(FAMILY_LEDGER)
+    assert set(FAMILY_LEDGER) == {SchemaFamily.TICK_TIER, SchemaFamily.BAR_1M}
+    assert SchemaFamily.DEFINITION not in FAMILY_LEDGER
+    assert FAMILY_LEDGER[SchemaFamily.TICK_TIER] == "tick_ingest_ledger"
+    assert FAMILY_LEDGER[SchemaFamily.BAR_1M] == "tick_bar_ledger"
 
 
 def test_a_schema_in_two_families_fails_explicitly() -> None:

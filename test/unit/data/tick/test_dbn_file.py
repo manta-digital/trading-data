@@ -113,18 +113,18 @@ def test_budget_below_one_record_raises(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_unknown_schema_raises_naming_it(tmp_path: Path) -> None:
-    """An OHLCV file is a valid DBN file this reader does not accept."""
-    path = tmp_path / "ohlcv.dbn"
+    """An ohlcv-1s file is a valid DBN file this reader does not accept."""
+    path = tmp_path / "ohlcv-1s.dbn"
     metadata = databento_dbn.Metadata(
         dataset=CME_DATASET,
-        schema=databento_dbn.Schema("ohlcv-1m"),
+        schema=databento_dbn.Schema("ohlcv-1s"),
         start=0,
         stype_in=databento_dbn.SType(SType.RAW_SYMBOL.value),
         stype_out=databento_dbn.SType(SType.INSTRUMENT_ID.value),
         ts_out=False,
     )
     path.write_bytes(bytes(metadata.encode()))
-    with pytest.raises(TickFileDecodeError, match="unsupported DBN schema 'ohlcv-1m'"):
+    with pytest.raises(TickFileDecodeError, match="unsupported DBN schema 'ohlcv-1s'"):
         DbnFileReader().open_file(path)
 
 
