@@ -67,7 +67,7 @@ def _host(
     monkeypatch.setattr(cutover, "NOTES_DIR", tmp_path)
     monkeypatch.setattr(cutover, "say", lambda _text: None)
     monkeypatch.setattr(cutover, "preflight", lambda _ref: "c" * 40)
-    monkeypatch.setattr(cutover, "hold_timers", lambda: held)
+    monkeypatch.setattr(cutover, "hold_timers", lambda into: into.extend(held))
     monkeypatch.setattr(cutover, "release_timers", released.append)
     monkeypatch.setattr(cutover, "install", lambda _ref, _commit: "mt 1.2.3")
     monkeypatch.setattr(cutover, "restart_serve_if_active", lambda: None)
@@ -85,6 +85,20 @@ def test_timers_are_released_after_a_failed_verify(
     cutover: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     released = _host(cutover, monkeypatch, tmp_path, failing="verify")
+    assert cutover.main(["cutover", "v1.2.3"]) == 1
+    assert released == [["mt-minute.timer"]]
+
+
+def test_timers_stopped_before_a_failed_hold_are_released(
+    cutover: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    released = _host(cutover, monkeypatch, tmp_path, failing="none")
+
+    def half_hold(into: list[str]) -> None:
+        into.append("mt-minute.timer")
+        raise cutover.CutoverError("second stop failed")
+
+    monkeypatch.setattr(cutover, "hold_timers", half_hold)
     assert cutover.main(["cutover", "v1.2.3"]) == 1
     assert released == [["mt-minute.timer"]]
 

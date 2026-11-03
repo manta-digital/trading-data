@@ -20,7 +20,10 @@ Not idempotent by design: the runner records it and never re-runs it.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import psycopg
 
 from manta_trading.data.base.session_extension import extend_calendar_sessions
 from manta_trading.market.schema.seed_cme_calendar import (
@@ -79,7 +82,7 @@ class CalendarHistoryError(RuntimeError):
     """A precondition or proof of migration 066 failed; nothing is applied."""
 
 
-def apply_cme_calendar_history(conn: Any) -> None:
+def apply_cme_calendar_history(conn: psycopg.Connection[Any]) -> None:
     """Python callable for migration 066 (the six steps in the docstring)."""
     calendar_ids = list(_HISTORY)
     _refuse_existing_history(conn, calendar_ids)
@@ -123,7 +126,17 @@ def _history_seed(
     )
 
 
-def _refuse_existing_history(conn: Any, calendar_ids: list[str]) -> None:
+def _count(cur: psycopg.Cursor[Any]) -> int:
+    """The single ``count(*)`` value of the statement just executed."""
+    row = cur.fetchone()
+    if row is None:
+        raise CalendarHistoryError("count(*) returned no row")
+    return int(row[0])
+
+
+def _refuse_existing_history(
+    conn: psycopg.Connection[Any], calendar_ids: list[str]
+) -> None:
     params = (calendar_ids, UNTOUCHED_FROM)
     with conn.cursor() as cur:
         cur.execute(
@@ -131,13 +144,13 @@ def _refuse_existing_history(conn: Any, calendar_ids: list[str]) -> None:
             "WHERE calendar_id = ANY(%s) AND holiday_date < %s",
             params,
         )
-        counts = {"trading_holidays": cur.fetchone()[0]}
+        counts = {"trading_holidays": _count(cur)}
         cur.execute(
             "SELECT count(*) FROM trading_sessions "
             "WHERE calendar_id = ANY(%s) AND session_date < %s",
             params,
         )
-        counts["trading_sessions"] = cur.fetchone()[0]
+        counts["trading_sessions"] = _count(cur)
     if any(counts.values()):
         raise CalendarHistoryError(
             f"CME rows already exist before {UNTOUCHED_FROM}: "
@@ -146,7 +159,7 @@ def _refuse_existing_history(conn: Any, calendar_ids: list[str]) -> None:
 
 
 def _sessions_from(
-    conn: Any, calendar_ids: list[str], first: date
+    conn: psycopg.Connection[Any], calendar_ids: list[str], first: date
 ) -> list[tuple[Any, ...]]:
     with conn.cursor() as cur:
         cur.execute(
@@ -158,7 +171,9 @@ def _sessions_from(
         return list(cur.fetchall())
 
 
-def _check_latest_era(conn: Any, calendar_id: str, latest: HoursEra) -> None:
+def _check_latest_era(
+    conn: psycopg.Connection[Any], calendar_id: str, latest: HoursEra
+) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT market_open, market_close FROM trading_calendars "

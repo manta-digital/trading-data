@@ -72,9 +72,13 @@ PRIMARY_TRACKS = tuple(
 )
 
 
-def hold_timers() -> list[str]:
-    """Stop each active timer first, then wait out its pass; return those held."""
-    held: list[str] = []
+def hold_timers(held: list[str] | None = None) -> list[str]:
+    """Stop each active timer first, then wait out its pass; return those held.
+
+    A caller that must release what was stopped even when this fails part-way
+    passes its own ``held`` list, which gets each timer as it stops.
+    """
+    held = [] if held is None else held
     for service, timer in ACQUISITION_UNITS:
         if unit_active(timer):
             run(["systemctl", "stop", timer], sudo=True)

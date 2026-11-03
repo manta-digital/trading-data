@@ -133,7 +133,7 @@ def main(argv: list[str]) -> int:
         commit = preflight(ref)
 
         say("2/7 hold the acquisition timers")
-        held = hold_timers()
+        hold_timers(held)
 
         say(f"3/7 install {ref}")
         version = install(ref, commit)
