@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-03
+
 ### Added
 - **Search Kalshi by plain-language title** (#63). `GET /api/v1/kalshi/search?q=fed rate` returns the best matches at each level, grouped series, then events, then open markets, and every hit names its parents. Words are stemmed ("rates" finds "rate"), all words must appear, a close misspelling still matches ("bitcon"), and a series is also found by the start of its ticker. `limit` (1 to 50, default 10) applies per group. Only open markets are searched; there are no synonyms ("rate cut" does not find "funds rate"). Migration `kalshi_009_search` installs `pg_trgm` and builds the indexes; production gets it through `scripts/cutover_063_kalshi_search.py`.
 - **Futures products have a display name** (#64). `/api/v1/futures/products` returns `name` per product (ES "E-mini S&P 500", GC "Gold"), so a client can find ES by typing "S&P". A configured product with no name fails at startup.
