@@ -64,9 +64,8 @@ revision_number: 2
   - [ ] In `config/databento_plans.py` set `PLAN_INCLUDED_HISTORY[STANDARD][STATISTICS] = None` (all history).
   - [ ] Success: the plan table is total over `TickSchema`; `is_plan_included` answers for `statistics`.
 
-- [ ] **1.5 Tests for 1.1–1.4** (extend `test_constants.py`, `test_schema_families.py`, `test_plan_inclusion.py`, `test_estimate.py`)
+- [ ] **1.5 Tests for 1.1–1.4** (extend `test_constants.py`, `test_schema_families.py`, `test_plan_inclusion.py`; the estimate tests are updated in 7.3)
   - [ ] Families total and disjoint; `STATISTICS` holds `statistics` only; `FAMILY_LEDGER` has a key for every family that is a key of `INGEST_PROJECTORS`'s schemas except those not yet registered (the projector is registered in task 4); plan table total.
-  - [ ] `ESTIMATE_SCHEMAS` membership is covered; if estimate tests enumerate rows, update them (row judged on its own marginal cost, as `ohlcv-1m`'s is).
   - [ ] Success: `uv run pytest test/unit/data/tick -q` passes.
 
 **Commit**: `feat: add statistics schema, family, constants and plan row`
@@ -122,7 +121,7 @@ revision_number: 2
 
 - [ ] **4.5 Projector tests** (new `test_statistics_projector.py` unit; new `test/integration/data/test_tick_statistics_ingest.py`)
   - [ ] Unit: undefined values to NULL; `record_ordinal` increments for a repeated key across a batch boundary; ledger rows hold referenced records only; the registry includes `STATISTICS`.
-  - [ ] Integration, on seeded definitions and a synthetic statistics file built with the project's file-writing test helpers: provider = decoded = stored; a unit skipped as `awaiting definitions` until its definition unit ingests; failures for `stat_reference`, `unit_day`, `resolution`, and `overlap` (a key held by two current units); re-ingest after `delete_unit` is idempotent.
+  - [ ] Integration, on seeded definitions and a synthetic statistics file built with the project's file-writing test helpers: provider = decoded = stored; a unit skipped as `awaiting definitions` until its definition unit ingests; failures for `stat_reference`, `unit_day`, `resolution`, and `overlap` (a key held by two current units); a record whose `ts_ref` precedes `CME_DATASET_START` is stored with NULL `session_date` and `calendar_id`, and the unit result's pre-2010 count is 1; re-ingest after `delete_unit` is idempotent.
   - [ ] Success: tests pass; `test_tick_ingest_families.py` still passes.
 
 **Commit**: `feat: add statistics projector and stat_reference check`
@@ -213,7 +212,7 @@ revision_number: 2
   - [ ] Success: every statistics unit ingests; no `stat_reference` failure. If one fails, diagnose from the error text and fix the projector or design assumption (tests first) before continuing.
 
 - [ ] **8.3 Record job ids and charges**
-  - [ ] Create `user/notes/303-statistics-evaluation.md` (front matter per `file-naming-conventions.md`). Record the job ids, each request's estimate from the manifest, and the charge Databento reports for the jobs.
+  - [ ] Create `user/notes/303-statistics-evaluation.md` (front matter per `file-naming-conventions.md`). Record the job ids, each request's estimate from the manifest, and the charge Databento reports for the jobs. Also record what later tasks (14.2, 15.1, 15.3) reuse: the primary and tick database names, the wrapper's path, the scratch archive path, and the names (not values) of the environment variables set in 8.1.
   - [ ] Success: note exists with the job ids; the note's "adopt in 304" instruction names the scratch archive path.
 
 - [ ] **8.4 Measure and record the data facts**
@@ -255,7 +254,8 @@ revision_number: 2
 
 - [ ] **11.1 Types: basis family on answers**
   - [ ] In `roll_types.py` add `basis_family` to `ActiveContract` (`tick_tier`, `bar_1m`, `statistics` as an enum shared with `SchemaFamily` values; NULL for `c`). `RollSchedule.segments()` also breaks a run where the basis family changes.
-  - [ ] Success: the field is set by every resolver and is NULL only for the calendar rule; existing roll tests pass.
+  - [ ] The field exists; the calendar rule sets NULL; the volume rule sets `tick_tier` for now so existing constructors compile (11.3 makes the choice per session, 12.4 sets `statistics` for `n`).
+  - [ ] Success: existing roll tests pass. That every resolver sets the field and only the calendar rule leaves it NULL is checked in 11.4 and 12.5.
 
 - [ ] **11.2 Tests for 11.1** (extend `test_roll_next.py` or a new `test_roll_types_basis.py`)
   - [ ] Segments split at a basis change even when the contract is unchanged; calendar answers carry NULL.
@@ -269,6 +269,7 @@ revision_number: 2
 - [ ] **11.4 Tests for 11.3** (extend `test_roll_resolve_volume.py`; extend `test_tick_active_contract.py`)
   - [ ] Ticks complete means tick basis, even when bars are also complete; tick incomplete and bars complete means bar basis; neither means unresolved with both statuses in the reason; a bar session missing a contract row raises I13.
   - [ ] Every `v.0`/`v.1` answer over the recorded 229/232 fixtures is unchanged (the equivalence test still passes).
+  - [ ] Every `c` answer has a NULL `basis_family`; every `v` answer has `tick_tier` or `bar_1m`.
   - [ ] Success: tests pass.
 
 **Commit**: `feat: choose the volume rule's basis per session`
@@ -294,6 +295,7 @@ revision_number: 2
 - [ ] **12.5 Tests for 12.3–12.4** (new `test_roll_resolve_open_interest.py`; extend `test_tick_active_contract.py`)
   - [ ] Unit, synthetic inputs: the highest open interest wins at lag; ties go to the earlier expiration; a candidate not listed at L is excluded; missing value gives `Unresolved` naming contract and L; incomplete lag session gives `Unresolved` naming L and status; the rule never reads S's own open interest (a value seeded only at S changes nothing); `n.1` is the second-ranked.
   - [ ] Integration: `active_contract` with seeded statistics reads exactly the inputs `n` needs; `c` and `v` run without any statistics rows.
+  - [ ] Every `n` answer has `basis_family` `statistics`.
   - [ ] Success: tests pass.
 
 **Commit**: `feat: add the open-interest roll rule n`
