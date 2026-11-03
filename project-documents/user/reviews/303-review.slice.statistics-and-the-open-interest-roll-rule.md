@@ -14,60 +14,61 @@ aiProfile: sdk
 status: complete
 dateCreated: 20261103
 dateUpdated: 20261103
-reviewedSha: 9cd38b19262351b3e52f63e6164186a90da355b0
+reviewedSha: 788193b328198007abed63c34648b937cbaf9f58
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 4
-turns: 5
-promptTokens: 289050
-cachedTokens: 185759
-cacheWriteTokens: 103283
-completionTokens: 7084
-durationSeconds: 66.0
-costUsd: 0.503333
+toolCallsMade: 2
+turns: 3
+promptTokens: 106377
+cachedTokens: 11162
+cacheWriteTokens: 95211
+completionTokens: 6946
+durationSeconds: 64.6
+costUsd: 0.452197
 costBasis: provider
 runId: run-20261103-p4-7756c473
 squadronVersion: 0.24.16
 findings:
   - id: F001
-    severity: pass
-    category: alignment
-    summary: "Statistics semantics and the family model follow the architecture"
-    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md#D4 — Session assignment from `ts_ref`"
+    severity: concern
+    category: cost-accounting
+    summary: "Purchase cost and plan-inclusion marking are inconsistent"
+    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md:168"
   - id: F002
-    severity: pass
-    category: alignment
-    summary: "Completeness ships with the tier, and the split with 305 is consistent with the slice plan"
-    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md#D7 — The family's verdict: load, then content"
+    severity: concern
+    category: nfr-performance
+    summary: "The resolved-read performance claim is not backed by the planned measurement"
+    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md:233"
   - id: F003
-    severity: concern
-    category: integration
-    summary: "Tick and bar volume are mixed per session, but the API surface does not name the basis"
-    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md#D10 — The volume rule's basis per session"
+    severity: note
+    category: scope-boundary
+    summary: "Completeness principle is met in two steps, with health and accounting deferred to 305"
+    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md:76"
   - id: F004
-    severity: concern
-    category: integration
-    summary: "The 305 interface for the volume check is under-specified"
+    severity: note
+    category: architecture-alignment
+    summary: "The cross-tier check refines the architecture's \"agrees\" to under, over and no_trades"
     location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md:269"
   - id: F005
-    severity: concern
-    category: proportionality
-    summary: "Proportionality: some mechanisms exceed what this slice needs"
-    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md#Technical Scope"
+    severity: note
+    category: architecture-alignment
+    summary: "The architecture's single-purchase-test spend rule is amended explicitly"
+    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md:306"
   - id: F006
     severity: note
-    category: scope
-    summary: "Real spend in this slice departs from the architecture's wording"
-    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md#D11 — The real purchase and the evaluation"
+    category: proportionality
+    summary: "Proportionality: one separable piece if the slice grows"
+    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md:290"
   - id: F007
-    severity: note
-    category: error-handling
-    summary: "Failure modes for the purchase and ingest are handled by reuse, with one hard-fail policy to watch"
-    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md#D4 — Session assignment from `ts_ref`"
+    severity: pass
+    category: architecture-alignment
+    summary: "Layering, dependency direction and integration points"
+    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md#Architecture"
   - id: F008
-    severity: note
-    category: alignment
-    summary: "Dependency directions and the roll-path timeout are stated correctly"
-    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md#Data Flow"
+    severity: pass
+    category: error-handling
+    summary: "Failure modes on new ingest and read paths are enumerated"
+    location: "project-documents/user/slices/303-slice.statistics-and-the-open-interest-roll-rule.md:213"
 ---
 
 # Review: slice — slice 303
@@ -77,65 +78,61 @@ findings:
 
 ## Findings
 
-### [PASS] Statistics semantics and the family model follow the architecture
+### [CONCERN] Purchase cost and plan-inclusion marking are inconsistent
 
-- Sessions come from the reference time, not the event time (D4).
-- Revisions use update action and receive time, resolved at read time (D5).
-- `statistics` is its own family with its own projector, table and ledger (D1–D3). It is never written into `tick_trade` or `minute_ohlcv`, as the architecture's "Provider bars are a tier of their own" principle requires.
-- The architecture said the rules would be confirmed against the DBN record definition at slice design. This slice does that against `v0.70.0` and says what remains unconfirmed (the flag bit layout and the instant `ts_ref` carries). The purchase confirms the second, and the first is deferred explicitly.
+D1 sets `PLAN_INCLUDED_HISTORY[STANDARD][STATISTICS] = None` (included for all history). The architecture's cost-accounting rule says the guard counts only marginal spend for plan-included pulls. D11 and the walkthrough step 2 treat the same pull as $0.037 of real, usage-billed money "inside the existing $0.50 ceiling". Only one of these can hold for this purchase. The architecture says in-plan pulls cost the guard nothing, and that usage-billed purchases outside a subscription are where invoice reconciliation applies. If the throwaway pass marks these requests plan-included while Databento bills them by usage, the guard and the reconciliation will not see them. The design also does not say which plan state applies to the throwaway run.
 
-### [PASS] Completeness ships with the tier, and the split with 305 is consistent with the slice plan
+The "inside the ceiling" figure also leaves out the October `definition` purchase (line 306). That cost is never quantified.
 
-- The slice carries its own load-complete and content checks and the cross-tier volume check.
-- `health`, `accounting` and `overview` go to 305. The slice plan's Notes assign the cross-tier layer and operator surfaces to 305 and say 303 carries its own check, so the architecture principle is met.
-- D8 narrows the architecture's "agrees" to `agree / under / over / no_trades`. It states the reason (off-Globex cleared volume) and a measurement-based tightening rule. This is a documented refinement, not drift.
+State the plan state under which the pass runs. State how the guard and the manifest record these requests. Give the combined statistics-plus-definition estimate against the ceiling.
 
-### [CONCERN] Tick and bar volume are mixed per session, but the API surface does not name the basis
+### [CONCERN] The resolved-read performance claim is not backed by the planned measurement
 
-- D10 chooses tick volume or bar volume per session, so a `v.0` schedule over 2010–2024 will use bars before 2024 and ticks after. Its roll dates can differ between bases.
-- The new `basis_family` field appears only on `ActiveContract` and in `mt data tick active --json`.
-- D13 says no route change, and the API Contracts section never mentions the field. The `/api/v1/futures/*` rule answers (schedule and the others) would therefore blend two tiers without saying so.
-- This conflicts with the architecture's "never splice tiers silently" and "response names its source" principles. Those principles are written for bars, but this is the same hazard applied to roll answers.
-- Fix: either carry `basis_family` (or per-segment basis) through the route payloads and `openapi.json`, or state explicitly that this is deferred to 306 and why that is acceptable.
+D5 chooses read-time `DISTINCT ON` resolution. The justification is that a five-year schedule read "stays inside its statement timeout". The only measurement D11 plans is over the 2024-08-30 to 2025-01-01 window, about four months. The same claim is repeated at line 467 for `TICK_ROLL_MAX_SESSIONS`. The table reaches 19.4M rows over full history (line 199). Compressed chunks and the `(session_date, stat_type)` index behave differently at that size than on four months of data.
 
-### [CONCERN] The 305 interface for the volume check is under-specified
+The design also does not say what a roll call does if the read hits the statement timeout. It should be a loud error naming the range, never a partial or empty schedule.
 
-- D8 says the check lives "in `coverage` only" and reads resolved values from the raw statistics table. D7 says status reads only the manifest, ledger and definitions.
-- The Integration Requirements then say "305 can read the family's verdicts and the volume check without new reads."
-- Those statements pull in different directions. The first two imply 305 needs a new raw-table read for `health`. The third claims it does not.
-- The design should name the callable that returns the volume verdicts, in `statistics_reads` or elsewhere. It should say whether it is a pure function over inputs or a connection-bound query, and what it costs per session. As written, 305 inherits the ambiguity.
+Either state the timeout behaviour and measure or extrapolate to `TICK_ROLL_MAX_SESSIONS` (for example by timing a synthetic or replicated table), or record the scale limit explicitly for 304 and 307 to re-check.
 
-### [CONCERN] Proportionality: some mechanisms exceed what this slice needs
+### [NOTE] Completeness principle is met in two steps, with health and accounting deferred to 305
 
-This is an effort-4/5 slice with 13 decisions. The following items can be cut or deferred without losing anything the slice plan assigns:
-- **A separate `OPEN_INTEREST_RANK_LAG_SESSIONS` constant (D9).** It starts at 2, the same as `VOLUME_RANK_LAG_SESSIONS`, and both rest on the same publication fact. Share one constant until the equivalence test shows they must differ, then split.
-- **The `over`/`no_trades` verdict taxonomy for both families (D8).** Bars are not purchased in this slice, and the only bar day is derived from ticks. The bar-versus-cleared-volume check therefore cannot meet real data here. Build the check once over a family-parameterised read, and let the tick-tier run be the evidence. Do not specify the "tightened to equality if everything agrees" branch, which is conditional design for an outcome that may not occur.
-- **`ActiveContract.basis_family` (D10).** If the API concern above is resolved by deferring to 306, this field has no consumer in this slice other than the CLI JSON.
-- **Storing and ledgering decisions for non-referenced stat types.** Storing every record for the counts check is justified. Make sure the projector does not grow type-specific logic for them.
+The architecture principle says the slice that adds a schema also extends `status`, `coverage`, `health` and `accounting`. This slice delivers `status` and `coverage` and defers the rest to 305. That matches the architecture's "Futures completeness surfaces" anticipated slice, and `statistics_reads.volume_check` is the stated hand-off, so I don't flag it. The Integration Requirements make 305 depend on a raw-table volume check. Its cost is proportional to the range (D8), so 305 must choose that range deliberately for `health`.
 
-### [NOTE] Real spend in this slice departs from the architecture's wording
+### [NOTE] The cross-tier check refines the architecture's "agrees" to under, over and no_trades
 
-- The architecture says "Only the purchase test spends money before a subscription." D11 buys about $0.037 of `statistics` plus the October definitions.
-- The reasoning is sound: the rule cannot be evaluated and `ts_ref` cannot be confirmed without data. The amount is far inside the $0.50 ceiling, and 304 adopts the jobs, so the invoice-reconciliation purpose of 304 is kept.
-- It is a literal departure from the architecture text, so note it in the architecture or the slice plan to keep the two consistent.
+The architecture says `ohlcv-1m` volume "agrees" with cleared volume. D8 refines this because off-Globex volume (blocks, EFP and EFR) makes V < C normal. The reasoning is sound, and only `over` and `no_trades` fail. The slice acknowledges the change. Fold it back into the architecture's wording when it is next revised.
 
-### [NOTE] Failure modes for the purchase and ingest are handled by reuse, with one hard-fail policy to watch
+### [NOTE] The architecture's single-purchase-test spend rule is amended explicitly
 
-- Spend-guard refusal is handled ("the reason is recorded and the window is not forced through"). Download and verify failures use the existing pass.
-- Ingest failures are enumerated as named checks: `stat_reference`, `unit_day`, `resolution`, `overlap`, `counts`.
-- Content gaps become answers (`Unresolved`), not exceptions. That matches the "no silent fallback" rule.
-- Hard-failing a whole unit when a `ts_ref` date is not a calendar session is correct for explicit failure. It has only been checked against about four months of data. The first 2010–2023 ingest (304 and 307) may meet partial-session or holiday-reference dates. The evaluation note should record how many distinct reference dates were checked against the calendar.
+The $0.04 purchase is an exception to "only the purchase test spends money". The architecture's Anticipated Slices preamble already names it, so the two documents agree. Running it on throwaway databases, with production's universe and manifest untouched, keeps the change bounded.
 
-### [NOTE] Dependency directions and the roll-path timeout are stated correctly
+### [NOTE] Proportionality: one separable piece if the slice grows
 
-- Resolution stays pure, and `roll_inputs` does the reads. The `statistics` projector is registered through the existing registry. The new tables sit in the tick database and follow the existing role and backup mechanics (D12).
-- The roll path's statement timeout is restated and measured in D11. No other NFR in the parent architecture applies to this slice.
+The slice carries 13 decisions at effort 4/5. Most of that is justified: the tier, the rule, and the evaluation that proves them on real data. The one piece that cannot be checked on real data here is the bar-basis path. It covers D10's bar-first fallback, the `basis` field on API segments, and the bar-family `volume_check` run. No provider bars are held until 304, so it is exercised only on the derived 2024-12-03 day. It is assigned to this slice by 302's hand-over and by the architecture's "never splice tiers silently", so I don't recommend cutting it. If the slice overruns, this is the part to defer to 304 or 307, together with the `RollSchedule.segments()` basis break.
+
+### [PASS] Layering, dependency direction and integration points
+
+- **Layering:** Statistics get their own family, table and projector, never `minute_ohlcv` or `tick_trade`.
+- **Session assignment:** It comes from `ts_ref`, not event time, and revisions resolve by update action and receive time, as the architecture requires.
+- **Status reads:** They use the manifest, the ledger and definitions only, never the raw table.
+- **Dependencies:** Roll resolution stays pure and reads through `roll_inputs`, so dependencies run from the rule to the data layer, not the reverse.
+- **Rule lag:** `RANK_LAG_SESSIONS` is shared by `v` and `n`, which avoids look-ahead and a second constant.
+- **Hand-offs:** The ones to 304, 305, 306 and 307 are concrete and consistent with the architecture's slice list.
+
+### [PASS] Failure modes on new ingest and read paths are enumerated
+
+- **Ingest failures:** Each has a named check: `stat_reference` with three reasons, `unit_day`, `resolution`, `overlap`, and the provider = decoded = stored count check.
+- **Pre-2010 references:** They are stored with `session_date` NULL and counted, not silently dropped or failed.
+- **Missing values in the roll rule:** An absent open interest or an incomplete lag session gives `Unresolved` with a reason naming the contract and session. It never produces a zero.
+- **Missing bar ledger rows:** They raise I13 rather than reading 0.
+- **Spend guard refusals:** They are recorded, not forced through.
+- **Revision edge case:** A `DELETE` winner means no value, and the status check admits it reads only presence.
 
 ### Run Digest
 
-- Response length: 7754 chars
+- Response length: 7329 chars
 - Response is newline-free: no
-- Tool calls made: 4
+- Tool calls made: 2
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -143,10 +140,10 @@ This is an effort-4/5 slice with 13 decisions. The following items can be cut or
 - Settings sources: project
 - Reasoning characters: 0
 - Effort: backend default
-- Turns: 5
-- Tokens — prompt / cached / cache write / completion / reasoning: 289050 / 185759 / 103283 / 7084 / not computed
-- Duration: 66.0 s
-- Cost: $0.50 (provider)
+- Turns: 3
+- Tokens — prompt / cached / cache write / completion / reasoning: 106377 / 11162 / 95211 / 6946 / not computed
+- Duration: 64.6 s
+- Cost: $0.45 (provider)
 - `## Summary` located: yes
 - `## Findings` located: yes
 - Finding-shaped matches — whole response: 8

@@ -15,20 +15,21 @@ interfaces:
 dateCreated: 20261103
 dateUpdated: 20261103
 status: not_started
-turns: 38
-promptTokens: 3994628
-cachedTokens: 3837012
-cacheWriteTokens: 157542
-completionTokens: 48800
-durationSeconds: 612.1
-costUsd: 3.004375
-usageRounds: 1
-pricedRounds: 1
+turns: 47
+promptTokens: 5587518
+cachedTokens: 5416199
+cacheWriteTokens: 171227
+completionTokens: 55156
+durationSeconds: 673.1
+costUsd: 3.556884
+usageRounds: 2
+pricedRounds: 2
 usageByModel:
   claude-opus-5-5:
-    rounds: 1
-    costUsd: 3.0043749
-    completionTokens: 48800
+    rounds: 2
+    costUsd: 3.5568843000000006
+    completionTokens: 55156
+revision_number: 1
 ---
 
 # Slice Design: Statistics and the Open-Interest Roll Rule
