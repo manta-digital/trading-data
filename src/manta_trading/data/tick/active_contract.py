@@ -51,6 +51,7 @@ from manta_trading.data.tick.roll_types import (
     RollInputs,
     RollSchedule,
 )
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.status_reads import (
     open_calendar,
@@ -143,7 +144,7 @@ async def _inputs(
     shape = shape_of(entry)
     contracts = await outright_definitions(conn, entry.product)
     as_of = await definitions_as_of(conn, shape)
-    verdicts = await session_verdicts(conn, entry, context)
+    verdicts = await session_verdicts(conn, entry, context, SchemaFamily.TICK_TIER)
     volumes = await session_volumes(
         conn, shape, context[0].session_date, context[-1].session_date
     )

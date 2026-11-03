@@ -8,6 +8,7 @@ import pytest
 
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import DatasetCondition, TickSchema, UnitState
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_status import (
     STATUS_PRECEDENCE,
     DayFacts,
@@ -87,8 +88,25 @@ def test_a_session_takes_the_worst_of_its_days() -> None:
 def test_the_day_unit_is_the_highest_ranked_tier() -> None:
     trades = _unit(schema=TickSchema.TRADES, unit_id=9)
     tbbo = _unit(UnitState.REQUESTED, schema=TickSchema.TBBO, unit_id=4)
-    assert day_unit([trades, tbbo]) is tbbo
-    assert day_unit([]) is None
+    assert day_unit([trades, tbbo], SchemaFamily.TICK_TIER) is tbbo
+    assert day_unit([], SchemaFamily.TICK_TIER) is None
+
+
+def test_the_day_unit_ranks_within_each_family() -> None:
+    older_bar = _unit(schema=TickSchema.OHLCV_1M, unit_id=3)
+    newer_bar = _unit(schema=TickSchema.OHLCV_1M, unit_id=8)
+    assert day_unit([older_bar, newer_bar], SchemaFamily.BAR_1M) is newer_bar
+    trades = _unit(schema=TickSchema.TRADES, unit_id=9)
+    tbbo = _unit(schema=TickSchema.TBBO, unit_id=4)
+    assert day_unit([trades, tbbo], SchemaFamily.TICK_TIER) is tbbo
+
+
+def test_a_bar_unit_never_outranks_or_masks_a_tick_tier_unit() -> None:
+    bar = _unit(schema=TickSchema.OHLCV_1M, unit_id=99)
+    trades = _unit(schema=TickSchema.TRADES, unit_id=1)
+    assert day_unit([bar, trades], SchemaFamily.TICK_TIER) is trades
+    assert day_unit([bar, trades], SchemaFamily.BAR_1M) is bar
+    assert day_unit([trades], SchemaFamily.BAR_1M) is None
 
 
 def test_condition_is_the_worst_day_and_unknown_when_a_day_lacks_a_row() -> None:

@@ -8,18 +8,20 @@ or tick-database outage raises (→ exit 4); there is no degraded output.
 
 ``complete`` is unit-level (TD10, ``complete_basis: "units"``); ``coverage``
 adds the raw-count proof for a date range.
+
+Slice 302 (D6): the verdicts are per *family*. The tick tier is judged as
+before and fills the product's own fields; each other wanted family (the
+``ohlcv-1m`` bars) is judged the same way over its want's range and reported
+in ``families`` as load-complete only.
 """
 
 from __future__ import annotations
 
-import asyncio
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any
 
-from manta_trading.data.base.session_index import Session
 from manta_trading.data.tick.active_contract import latest_active
 from manta_trading.data.tick.constants import (
     CME_DATASET,
@@ -31,26 +33,46 @@ from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.roll_payload import active_line_dict
 from manta_trading.data.tick.roll_rules import STATUS_ROLL_RULES
 from manta_trading.data.tick.roll_types import ActiveLine
-from manta_trading.data.tick.session_days import days_touched, utc_midnight
+from manta_trading.data.tick.schema_families import FAMILY_SCHEMAS, SchemaFamily
 from manta_trading.data.tick.status_reads import (
     ContractLine,
     Edge,
-    calendar_sessions,
     contract_lines,
     dataset_edge,
-    session_verdicts,
     shape_of,
-    shape_units,
 )
 from manta_trading.data.tick.tick_status import (
     SessionVerdict,
     TickSessionStatus,
     caught_up,
 )
+from manta_trading.data.tick.tick_status_scope import (
+    ProductScope,
+    bucket_counts,
+    family_scope,
+    family_wants,
+    overlaps,
+    product_scope,
+)
 from manta_trading.data.tick.universe import TickUniverseEntry
 
 COMPLETE_BASIS = "units"
 DEGRADED = DatasetCondition.DEGRADED.value
+
+
+@dataclass(frozen=True)
+class FamilyStatus:
+    """One wanted family's verdicts: the same buckets, over its own range."""
+
+    family: str
+    schemas: tuple[str, ...]
+    wanted_start: date | None
+    wanted_end: datetime | None
+    sessions_held: int
+    buckets: dict[str, int]
+    degraded: int
+    caught_up: bool | None
+    holed_sessions: tuple[date, ...]
 
 
 @dataclass(frozen=True)
@@ -75,6 +97,8 @@ class ProductStatus:
     spreads_hidden: int
     #: One line per ``STATUS_ROLL_RULES`` rule (229); its own snapshot.
     rolls: tuple[ActiveLine, ...]
+    #: One entry per wanted family, the tick tier first (302 D6).
+    families: tuple[FamilyStatus, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -99,83 +123,54 @@ def jsonable(value: Any) -> Any:
     return value
 
 
-def _wanted_end(entry: TickUniverseEntry, edge: Edge | None) -> datetime | None:
-    """``min(end, the dataset's available end)``; ``None`` when neither is known."""
-    ends = [] if entry.end is None else [utc_midnight(entry.end)]
-    ends += [] if edge is None else [edge.available_end]
-    return min(ends) if ends else None
+def _judged(scope: ProductScope) -> list[SessionVerdict]:
+    """TD9 (226): caught up is judged over the wanted range only; sessions in
+    scope because other units touch them neither help nor hurt it."""
+    wanted = scope.wanted
+    return [
+        v
+        for session, v in zip(scope.sessions, scope.verdicts, strict=True)
+        if wanted is not None and overlaps(session, wanted)
+    ]
 
 
-def overlaps(session: Session, wanted: tuple[datetime, datetime]) -> bool:
-    """The session meets the wanted UTC window ``[start, end)``."""
-    return session.close_utc > wanted[0] and session.open_utc < wanted[1]
+def _family_status(family: SchemaFamily, scope: ProductScope) -> FamilyStatus:
+    verdicts = scope.verdicts
+    return FamilyStatus(
+        family=family.value,
+        schemas=tuple(schema.value for schema in FAMILY_SCHEMAS[family]),
+        wanted_start=scope.wanted_start,
+        wanted_end=scope.wanted_end,
+        sessions_held=sum(v.held for v in verdicts),
+        buckets=bucket_counts(verdicts),
+        degraded=sum(v.condition == DEGRADED for v in verdicts),
+        caught_up=caught_up(_judged(scope), wanted=scope.wanted_start is not None),
+        holed_sessions=tuple(
+            v.session_date
+            for v in verdicts
+            if v.status is TickSessionStatus.PROVIDER_HOLE
+        ),
+    )
 
 
-async def _scope(
+async def _families(
     conn: Conn,
     calendar_url: str,
     entry: TickUniverseEntry,
-    wanted: tuple[datetime, datetime] | None,
-) -> list[Session]:
-    """Sessions in scope (TD9): the wanted range, plus every session a current
-    tier unit of the shape touches."""
-    held = set(await shape_units(conn, shape_of(entry)))
-    bounds = [utc_midnight(d) for d in held]
-    bounds += [utc_midnight(d + timedelta(days=1)) for d in held]
-    bounds += list(wanted or ())
-    if not bounds:
-        return []
-    found = await asyncio.to_thread(
-        calendar_sessions,
-        calendar_url,
-        calendar_for_product(entry.product),
-        min(bounds),
-        max(bounds),
-    )
-
-    def in_scope(session: Session) -> bool:
-        if held.intersection(days_touched(session)):
-            return True
-        return wanted is not None and overlaps(session, wanted)
-
-    return [session for session in found if in_scope(session)]
-
-
-@dataclass(frozen=True)
-class ProductScope:
-    """The sessions ``status`` judges a product on, and their verdicts (TD9).
-
-    ``sessions`` is the wanted range plus every session a current tier unit
-    touches; ``wanted`` is the UTC window, ``None`` for an untiered product.
-    """
-
-    wanted_start: date | None
-    wanted_end: datetime | None
-    wanted: tuple[datetime, datetime] | None
-    sessions: list[Session]
-    verdicts: list[SessionVerdict]
-
-
-async def product_scope(
-    conn: Conn, calendar_url: str, entry: TickUniverseEntry, edge: Edge | None
-) -> ProductScope:
-    """The one bucket step: ``status`` and 230's accounting line both call it."""
-    wanted_start = entry.start if entry.tier is not None else None
-    wanted_end = None if wanted_start is None else _wanted_end(entry, edge)
-    wanted = (
-        None
-        if wanted_start is None or wanted_end is None
-        else (utc_midnight(wanted_start), wanted_end)
-    )
-    sessions = await _scope(conn, calendar_url, entry, wanted)
-    verdicts = await session_verdicts(conn, entry, sessions)
-    return ProductScope(wanted_start, wanted_end, wanted, sessions, verdicts)
-
-
-def bucket_counts(verdicts: Sequence[SessionVerdict]) -> dict[str, int]:
-    """Sessions per status, every status present (zeros included)."""
-    counted = Counter(v.status.value for v in verdicts)
-    return {s.value: counted.get(s.value, 0) for s in TickSessionStatus}
+    edge: Edge | None,
+    tier_scope: ProductScope,
+) -> tuple[FamilyStatus, ...]:
+    """One status per wanted family; the tier reuses the scope already read."""
+    statuses = []
+    for want in family_wants(entry):
+        if want.family is SchemaFamily.TICK_TIER:
+            scope = tier_scope
+        else:
+            scope = await family_scope(
+                conn, calendar_url, entry, edge, want.family, want.start, want.end
+            )
+        statuses.append(_family_status(want.family, scope))
+    return tuple(statuses)
 
 
 async def _product_status(
@@ -188,20 +183,10 @@ async def _product_status(
     tick_url, calendar_url = urls
     edge = await dataset_edge(conn, CME_DATASET)
     scope = await product_scope(conn, calendar_url, entry, edge)
-    wanted_start, wanted_end, wanted = (
-        scope.wanted_start,
-        scope.wanted_end,
-        scope.wanted,
-    )
-    sessions, verdicts = scope.sessions, scope.verdicts
-    # TD9 (226): caught up is judged over the wanted range only; sessions in
-    # scope because another tier's units touch them neither help nor hurt it.
-    judged = [
-        v
-        for session, v in zip(sessions, verdicts, strict=True)
-        if wanted is not None and overlaps(session, wanted)
-    ]
-    lines = await contract_lines(conn, shape_of(entry))
+    wanted_start, wanted_end = scope.wanted_start, scope.wanted_end
+    verdicts = scope.verdicts
+    judged = _judged(scope)
+    lines = await contract_lines(conn, shape_of(entry), SchemaFamily.TICK_TIER)
     spreads = [c for c in lines if c.instrument_class == SPREAD_CLASS]
     return ProductStatus(
         product=entry.product,
@@ -232,6 +217,7 @@ async def _product_status(
         spreads_hidden=0 if all_instruments else len(spreads),
         # After status's own reads, on the roll path's own connections (TD9).
         rolls=await latest_active(tick_url, calendar_url, entry, STATUS_ROLL_RULES),
+        families=await _families(conn, calendar_url, entry, edge, scope),
     )
 
 

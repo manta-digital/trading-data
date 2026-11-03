@@ -259,28 +259,34 @@ revision_number: 2
 
 ### 9. Status per family (D6)
 
-- [ ] **9.1 Family-aware reads**
-  - [ ] Read `status_reads.py`, `tick_status.py`, `tick_status_build.py`. `Shape.params` takes a family's schemas instead of `STORED_TIERS`; ledger reads take the family's ledger from `FAMILY_LEDGER`; `ledger_totals` and contract lines get the family from the caller. `day_unit` ranks within the unit's family via `FAMILY_SCHEMAS` instead of `TICK_TIER_RANK`.
-  - [ ] Success: the tick tier's result is unchanged; existing status tests pass.
+- [x] **9.1 Family-aware reads**
+  - [x] Read `status_reads.py`, `tick_status.py`, `tick_status_build.py`. `Shape.params` takes a family's schemas instead of `STORED_TIERS`; ledger reads take the family's ledger from `FAMILY_LEDGER`; `ledger_totals` and contract lines get the family from the caller. `day_unit` ranks within the unit's family via `FAMILY_SCHEMAS` instead of `TICK_TIER_RANK`.
+  - [x] Success: the tick tier's result is unchanged; existing status tests pass.
 
-- [ ] **9.2 Tests for 9.1** (extend `test_tick_status.py`)
-  - [ ] `day_unit` ranks within each family; a bar unit never outranks or masks a tick-tier unit of the same day.
-  - [ ] Success: tests pass.
+  Note: the scope step moved to the new `tick_status_scope.py` so `tick_status_build.py` stays under 300 lines; callers pass `SchemaFamily.TICK_TIER` explicitly.
 
-- [ ] **9.3 One verdict set per wanted family**
-  - [ ] `tick_status_build` builds the tick-tier verdicts as today and `BAR_1M` verdicts when the entry has an `ohlcv-1m` want, over that want's range. Day conditions come from `tick_day_condition`. A session whose units are ingested is `complete` however few bars exist; a `missing` day with no unit is `provider_hole`.
-  - [ ] Unit test (in `test_tick_status.py`): an entry with no bar want produces no bar verdicts; an entry with one produces `BAR_1M` verdicts over the want's range.
-  - [ ] Success: the test passes.
+- [x] **9.2 Tests for 9.1** (extend `test_tick_status.py`)
+  - [x] `day_unit` ranks within each family; a bar unit never outranks or masks a tick-tier unit of the same day.
+  - [x] Success: tests pass.
 
-- [ ] **9.4 Status rendering and JSON**
-  - [ ] In `cli/commands/tick_status_render.py` print one section per wanted family; the `ohlcv-1m` section is headed `load-complete only` and shows session counts by status, condition findings and `caught up`. A family with no want is not printed.
-  - [ ] `--json` gains a `families` list; existing top-level product fields stay the tick tier's.
-  - [ ] Golden-output test: text and `--json` output for today's universe (no bar want) equal the pre-change output, captured from the base commit before this task's edit.
-  - [ ] Success: the golden test passes.
+- [x] **9.3 One verdict set per wanted family**
+  - [x] `tick_status_build` builds the tick-tier verdicts as today and `BAR_1M` verdicts when the entry has an `ohlcv-1m` want, over that want's range. Day conditions come from `tick_day_condition`. A session whose units are ingested is `complete` however few bars exist; a `missing` day with no unit is `provider_hole`.
+  - [x] Unit test (in `test_tick_status.py`): an entry with no bar want produces no bar verdicts; an entry with one produces `BAR_1M` verdicts over the want's range.
+  - [x] Success: the test passes.
 
-- [ ] **9.5 Status integration tests**
-  - [ ] Using the 6.1 helper and a test universe with a bar want: separate `ohlcv-1m` section headed `load-complete only`; sparse-bar session is `complete`; `missing` day with no unit is `provider_hole`; entry without a bar want prints no bar section; `--json` top-level fields unchanged and `families` present.
-  - [ ] Success: tests pass.
+  Note: the unit-level check for "no bar want, no bar verdicts" is `family_wants` in test_tick_status_scope.py; `tick_day_condition` supplies the day conditions unchanged.
+
+- [x] **9.4 Status rendering and JSON**
+  - [x] In `cli/commands/tick_status_render.py` print one section per wanted family; the `ohlcv-1m` section is headed `load-complete only` and shows session counts by status, condition findings and `caught up`. A family with no want is not printed.
+  - [x] `--json` gains a `families` list; existing top-level product fields stay the tick tier's.
+  - [x] Golden-output test: text and `--json` output for today's universe (no bar want) equal the pre-change output, captured from the base commit before this task's edit.
+  - [x] Success: the golden test passes.
+
+  Note: the `--json` golden compares the old shape: `families` is the one added key, and the tier is the first entry of it.
+
+- [x] **9.5 Status integration tests**
+  - [x] Using the 6.1 helper and a test universe with a bar want: separate `ohlcv-1m` section headed `load-complete only`; sparse-bar session is `complete`; `missing` day with no unit is `provider_hole`; entry without a bar want prints no bar section; `--json` top-level fields unchanged and `families` present.
+  - [x] Success: tests pass.
 
 **Commit**: `feat: report ohlcv-1m family in mt data tick status`
 

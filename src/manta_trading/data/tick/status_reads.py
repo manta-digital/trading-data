@@ -27,7 +27,6 @@ from manta_trading.data.base.trading_calendar import (
 from manta_trading.data.quality.fetch_status import FetchStatus
 from manta_trading.data.tick.constants import (
     CME_DATASET,
-    STORED_TIERS,
     TICK_DB_CONNECT_TIMEOUT_SECONDS,
     DatasetCondition,
     SType,
@@ -35,6 +34,11 @@ from manta_trading.data.tick.constants import (
     UnitState,
 )
 from manta_trading.data.tick.manifest_reads import COVERAGE_PREDICATE, Conn
+from manta_trading.data.tick.schema_families import (
+    FAMILY_LEDGER,
+    FAMILY_SCHEMAS,
+    SchemaFamily,
+)
 from manta_trading.data.tick.session_days import days_touched
 from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.tick_calendar import TickCalendarError
@@ -56,23 +60,30 @@ class Shape:
     symbols: tuple[str, ...]
     stype_in: SType
 
-    def params(self) -> dict[str, Any]:
+    def params(self, family: SchemaFamily) -> dict[str, Any]:
+        """Query parameters; ``tiers`` is the schemas of ``family`` (302 D6)."""
         return {
             "dataset": self.dataset,
             "symbols": list(self.symbols),
             "stype_in": self.stype_in.value,
-            "tiers": sorted(tier.value for tier in STORED_TIERS),
+            "tiers": sorted(schema.value for schema in FAMILY_SCHEMAS[family]),
         }
 
 
-#: The unit/request join, and "current tier units of the shape" over it.
+#: The unit/request join, and "current units of the shape" over it.
 #: ``COVERAGE_PREDICATE``'s columns exist only on the unit, so they need no
 #: alias here or when the ledger joins in.
 _UNITS = "tick_archive_unit u JOIN tick_request r USING (request_id)"
-_LEDGER_UNITS = (
-    "tick_ingest_ledger l JOIN tick_archive_unit u USING (unit_id)"
-    " JOIN tick_request r USING (request_id)"
-)
+
+
+def _ledger_units(family: SchemaFamily) -> str:
+    """The family's ledger joined to its unit and request (a code constant)."""
+    return (
+        f"{FAMILY_LEDGER[family]} l JOIN tick_archive_unit u USING (unit_id)"
+        " JOIN tick_request r USING (request_id)"
+    )
+
+
 SHAPE_WHERE = (
     "r.dataset = %(dataset)s AND r.symbols = %(symbols)s"
     " AND r.stype_in = %(stype_in)s AND r.schema = ANY(%(tiers)s)"
@@ -99,12 +110,14 @@ class ContractLine:
     last_session: date
 
 
-async def shape_units(conn: Conn, shape: Shape) -> dict[date, list[DayUnit]]:
-    """Every current tier unit of the shape, by day."""
+async def shape_units(
+    conn: Conn, shape: Shape, family: SchemaFamily
+) -> dict[date, list[DayUnit]]:
+    """Every current unit of the shape in ``family``, by day."""
     cursor = await conn.execute(
         "SELECT u.unit_date, u.unit_id, r.schema, u.state, u.fetch_status"
         f" FROM {_UNITS} WHERE {SHAPE_WHERE} ORDER BY u.unit_date, u.unit_id",
-        shape.params(),
+        shape.params(family),
     )
     by_day: dict[date, list[DayUnit]] = defaultdict(list)
     for day, unit_id, schema, state, status in await cursor.fetchall():
@@ -115,14 +128,14 @@ async def shape_units(conn: Conn, shape: Shape) -> dict[date, list[DayUnit]]:
 
 
 async def ledger_totals(
-    conn: Conn, shape: Shape, first: date, last: date
+    conn: Conn, shape: Shape, family: SchemaFamily, first: date, last: date
 ) -> dict[tuple[int, date], int]:
     """``record_count`` per (instrument, session) over current units."""
     cursor = await conn.execute(
         "SELECT l.instrument_id, l.session_date, sum(l.record_count)"
-        f" FROM {_LEDGER_UNITS} WHERE {SHAPE_WHERE}"
+        f" FROM {_ledger_units(family)} WHERE {SHAPE_WHERE}"
         " AND l.session_date BETWEEN %(first)s AND %(last)s GROUP BY 1, 2",
-        shape.params() | {"first": first, "last": last},
+        shape.params(family) | {"first": first, "last": last},
     )
     return {(i, d): int(n) for i, d, n in await cursor.fetchall()}
 
@@ -158,7 +171,9 @@ async def dataset_edge(conn: Conn, dataset: str) -> Edge | None:
     return None if row is None else Edge(row[0], row[1])
 
 
-async def contract_lines(conn: Conn, shape: Shape) -> list[ContractLine]:
+async def contract_lines(
+    conn: Conn, shape: Shape, family: SchemaFamily
+) -> list[ContractLine]:
     """Per instrument with records: sessions, records, volume and span, with
     the latest definition's symbol, class and expiration."""
     cursor = await conn.execute(
@@ -166,7 +181,7 @@ async def contract_lines(conn: Conn, shape: Shape) -> list[ContractLine]:
         " SELECT l.instrument_id, count(DISTINCT l.session_date) AS sessions,"
         " sum(l.record_count) AS records, sum(l.volume) AS volume,"
         " min(l.session_date) AS first_session, max(l.session_date) AS last_session"
-        f" FROM {_LEDGER_UNITS} WHERE {SHAPE_WHERE}"
+        f" FROM {_ledger_units(family)} WHERE {SHAPE_WHERE}"
         " AND l.record_count > 0 GROUP BY 1),"
         " latest AS (SELECT DISTINCT ON (instrument_id) instrument_id, raw_symbol,"
         " instrument_class, expiration_ns FROM tick_definition"
@@ -175,7 +190,7 @@ async def contract_lines(conn: Conn, shape: Shape) -> list[ContractLine]:
         " h.sessions, h.records, h.volume, h.first_session, h.last_session"
         " FROM held h LEFT JOIN latest d USING (instrument_id)"
         " ORDER BY d.expiration_ns NULLS LAST, h.instrument_id",
-        shape.params(),
+        shape.params(family),
     )
     return [
         ContractLine(i, sym, cls, exp, int(s), int(r), int(v), first, last)
@@ -248,17 +263,23 @@ def shape_of(entry: TickUniverseEntry) -> Shape:
 
 
 async def session_verdicts(
-    conn: Conn, entry: TickUniverseEntry, sessions: Sequence[Session]
+    conn: Conn,
+    entry: TickUniverseEntry,
+    sessions: Sequence[Session],
+    family: SchemaFamily,
 ) -> list[SessionVerdict]:
     if not sessions:
         return []
-    units = await shape_units(conn, shape_of(entry))
+    units = await shape_units(conn, shape_of(entry), family)
     days = [days_touched(s) for s in sessions]
     held = await conditions(conn, CME_DATASET, days[0][0], days[-1][-1])
     return [
         verdict(
             session.session_date,
-            [DayFacts(d, day_unit(units.get(d, [])), held.get(d)) for d in touched],
+            [
+                DayFacts(d, day_unit(units.get(d, []), family), held.get(d))
+                for d in touched
+            ],
         )
         for session, touched in zip(sessions, days, strict=True)
     ]

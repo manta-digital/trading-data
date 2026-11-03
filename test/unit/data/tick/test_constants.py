@@ -25,7 +25,6 @@ from manta_trading.data.tick.constants import (
     TICK_SPEND_CEILING_ENV,
     TICK_SPEND_WINDOW,
     TICK_SUBMIT_RESOLVE_AGE,
-    TICK_TIER_RANK,
     TICK_TIERS,
     TICK_TRADE_CHUNK_INTERVAL,
     TICK_WAIT_BUDGET_SECONDS,
@@ -165,11 +164,6 @@ def test_ingest_lock_key_is_its_own() -> None:
 
 def test_ingest_workers_is_positive() -> None:
     assert TICK_INGEST_WORKERS >= 1
-
-
-def test_tier_rank_follows_tier_order() -> None:
-    assert sorted(TICK_TIER_RANK, key=TICK_TIER_RANK.__getitem__) == list(TICK_TIERS)
-    assert TICK_TIER_RANK[TickSchema.TBBO] > TICK_TIER_RANK[TickSchema.TRADES]
 
 
 def test_ohlcv_1m_is_archived_but_neither_a_tier_nor_a_companion() -> None:

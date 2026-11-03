@@ -17,6 +17,7 @@ from typing import Any
 from manta_trading.data.tick.constants import calendar_for_product
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
 from manta_trading.data.tick.status_reads import (
     calendar_sessions,
@@ -105,9 +106,13 @@ async def build_coverage(
         utc_midnight(end),
     )
     sessions = [s for s in found if start <= s.session_date < end]
-    verdicts = await session_verdicts(tick_conn, entry, sessions)
+    verdicts = await session_verdicts(
+        tick_conn, entry, sessions, SchemaFamily.TICK_TIER
+    )
     last = end - timedelta(days=1)
-    ledger = await ledger_totals(tick_conn, shape_of(entry), start, last)
+    ledger = await ledger_totals(
+        tick_conn, shape_of(entry), SchemaFamily.TICK_TIER, start, last
+    )
     raw = await raw_counts(
         tick_conn,
         entry.product,

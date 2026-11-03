@@ -16,11 +16,18 @@ from rich.markup import escape
 
 from manta_trading.cli.commands.tick_active_render import active_line_text
 from manta_trading.cli.output import make_table, print_result
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_coverage import TickCoverage
 from manta_trading.data.tick.tick_status import TickSessionStatus
-from manta_trading.data.tick.tick_status_build import ProductStatus, TickStatus
+from manta_trading.data.tick.tick_status_build import (
+    FamilyStatus,
+    ProductStatus,
+    TickStatus,
+)
 
 COMPLETE_NOTE = "complete = every unit ingested; raw-count proof: mt data tick coverage"
+#: Heads a non-tick family's section: it reports units loaded, not tick truth.
+LOAD_COMPLETE_ONLY = "load-complete only"
 _BUCKET_ROWS = (
     (
         TickSessionStatus.COMPLETE,
@@ -55,6 +62,33 @@ def _label(status: TickSessionStatus) -> str:
     return status.value.replace("_", " ")
 
 
+def _bucket_lines(buckets: dict[str, int], degraded: int) -> list[str]:
+    lines = [
+        "    " + "   ".join(f"{_label(s)} {buckets[s.value]}" for s in row)
+        for row in _BUCKET_ROWS
+    ]
+    lines[-1] += f"   (degraded {degraded})"
+    return lines
+
+
+def _caught_up_line(caught_up: bool | None, holed: tuple[Any, ...]) -> str:
+    if caught_up is None:
+        return "  caught up: n/a (no wanted range)"
+    holes = f"; holed {[str(d) for d in holed]}" if holed else ""
+    return f"  caught up: {'yes' if caught_up else 'no'}{holes}"
+
+
+def _family_lines(family: FamilyStatus) -> list[str]:
+    """A non-tick family's section: the same buckets, headed load-complete only."""
+    schemas = ", ".join(family.schemas)
+    return [
+        f"  {schemas}   {LOAD_COMPLETE_ONLY}   wanted from {family.wanted_start}",
+        f"  sessions held: {family.sessions_held}",
+        *_bucket_lines(family.buckets, family.degraded),
+        _caught_up_line(family.caught_up, family.holed_sessions),
+    ]
+
+
 def _product_lines(p: ProductStatus) -> list[str]:
     tier = (
         f"tier: {p.tier}, wanted from {p.wanted_start}"
@@ -74,18 +108,8 @@ def _product_lines(p: ProductStatus) -> list[str]:
             f" observed {age(p.edge_age_seconds)} ago"
         )
     lines.append(f"  sessions held: {p.sessions_held}")
-    for row in _BUCKET_ROWS:
-        lines.append(
-            "    " + "   ".join(f"{_label(s)} {p.buckets[s.value]}" for s in row)
-        )
-    lines[-1] += f"   (degraded {p.degraded})"
-    if p.caught_up is None:
-        lines.append("  caught up: n/a (no wanted range)")
-    else:
-        holed = (
-            f"; holed {[str(d) for d in p.holed_sessions]}" if p.holed_sessions else ""
-        )
-        lines.append(f"  caught up: {'yes' if p.caught_up else 'no'}{holed}")
+    lines.extend(_bucket_lines(p.buckets, p.degraded))
+    lines.append(_caught_up_line(p.caught_up, p.holed_sessions))
     lines.append(f"  {COMPLETE_NOTE}")
     hidden = (
         f"outrights; {p.spreads_hidden} spreads hidden, --all-instruments to list"
@@ -94,7 +118,7 @@ def _product_lines(p: ProductStatus) -> list[str]:
     )
     if not p.contracts and not p.spreads_hidden:
         lines.append("  contracts: none with ingested records yet")
-        return lines
+        return [*lines, *_other_family_lines(p)]
     lines.append(f"  contracts ({hidden}):")
     for c in p.contracts:
         expiry = (
@@ -108,7 +132,17 @@ def _product_lines(p: ProductStatus) -> list[str]:
             f"   records {c.records}   volume {c.volume}"
             f"   {c.first_session} → {c.last_session}"
         )
-    return lines
+    return [*lines, *_other_family_lines(p)]
+
+
+def _other_family_lines(p: ProductStatus) -> list[str]:
+    """Sections for every wanted family but the tick tier (printed above)."""
+    return [
+        line
+        for family in p.families
+        if family.family != SchemaFamily.TICK_TIER
+        for line in _family_lines(family)
+    ]
 
 
 def print_status(status: TickStatus, exit_code: int, *, json_mode: bool) -> None:

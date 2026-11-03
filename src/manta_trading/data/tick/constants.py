@@ -263,13 +263,6 @@ TICK_INGEST_LOCK_KEY = 220_000_002
 #: pass showed no contention (``user/notes/2026-10-03-226-proof-contention.md``).
 TICK_INGEST_WORKERS = 2
 
-#: Tier → rank, higher supersedes lower (TD5). Derived from ``TICK_TIERS``
-#: order, the one place the order is stated.
-TICK_TIER_RANK: Final[Mapping[TickSchema, int]] = {
-    tier: rank for rank, tier in enumerate(TICK_TIERS)
-}
-
-
 #: A worker's ``lock_timeout`` (TD8): a unit row or trade chunk held longer
 #: than this aborts the run as ``storage_abort`` instead of hanging. Rule (226
 #: TD6): at least 4 × the slowest supersession delete on compressed chunks,

@@ -1,0 +1,12 @@
+ES  (CME_EQUITY, GLBX.MDP3, ES.FUT parent)   tier: tbbo, wanted from 2024-09-02
+  edge: available to 2024-09-04 00:00 UTC, observed 1h 0m ago
+  sessions held: 5
+    complete 1   awaiting ingest 0   in flight 0   pending 1   missing 1
+    failed 0   retry exhausted 0   provider hole 0   edge unknown 2   (degraded 2)
+  caught up: no
+  complete = every unit ingested; raw-count proof: mt data tick coverage
+  contracts (outrights; 4 spreads hidden, --all-instruments to list):
+    ESU4   exp 2024-09-20   sessions 2   records 3413   volume 8784   2024-09-03 → 2024-09-04
+    ESZ4   exp 2024-12-20   sessions 4   records 3617   volume 24042   2024-09-03 → 2024-12-04
+    ESH5   exp 2025-03-21   sessions 4   records 177   volume 206   2024-09-03 → 2024-12-04
+    ESM5   exp 2025-06-20   sessions 1   records 31   volume 47   2024-12-03 → 2024-12-03
