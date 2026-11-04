@@ -187,23 +187,23 @@ revision_number: 2
 
 ### 7. History wants, estimate row, drill and roles (D6, D12)
 
-- [ ] **7.1 `statistics` as a `HistoryWant` schema**
-  - [ ] In `universe.py`, `HISTORY_SCHEMAS` already carries `statistics` (task 1.2); add only the validation, which follows the bar want's: one want per schema, start no earlier than `CME_DATASET_START`, explicit tier, range inside the entry's `definition` want. The refusal message names the entry and field. Confirm the planner plans a statistics want like a bar want (session days in range, covered days dropped, month runs, definitions first within a day) and fix `planner.py` only if it does not.
-  - [ ] Success: production `history=()` unchanged.
+- [x] **7.1 `statistics` as a `HistoryWant` schema**
+  - [x] In `universe.py`, `HISTORY_SCHEMAS` already carries `statistics` (task 1.2); add only the validation, which follows the bar want's: one want per schema, start no earlier than `CME_DATASET_START`, explicit tier, range inside the entry's `definition` want. The refusal message names the entry and field. Confirm the planner plans a statistics want like a bar want (session days in range, covered days dropped, month runs, definitions first within a day) and fix `planner.py` only if it does not.
+  - [x] Success: production `history=()` unchanged.
 
-- [ ] **7.2 Tests for 7.1** (extend `test_universe.py`, `test_planner.py`)
-  - [ ] A statistics want outside the definition want, before `CME_DATASET_START`, repeated, or on an entry with `tier=None` fails naming the field; a valid want plans the expected requests with definitions first.
-  - [ ] With the production universe the plan equals the pre-slice plan (pin on the existing planner fixtures).
-  - [ ] Success: tests pass.
+- [x] **7.2 Tests for 7.1** (extend `test_universe.py`, `test_planner.py`)
+  - [x] A statistics want outside the definition want, before `CME_DATASET_START`, repeated, or on an entry with `tier=None` fails naming the field; a valid want plans the expected requests with definitions first.
+  - [x] With the production universe the plan equals the pre-slice plan (pin on the existing planner fixtures).
+  - [x] Success: tests pass.
 
-- [ ] **7.3 Estimate row**
-  - [ ] Confirm `mt data tick estimate` prints a `statistics` row judged on its own marginal cost (via `ESTIMATE_SCHEMAS`, task 1.2) and update `test_estimate.py` for it.
-  - [ ] Success: other rows unchanged.
+- [x] **7.3 Estimate row**
+  - [x] Confirm `mt data tick estimate` prints a `statistics` row judged on its own marginal cost (via `ESTIMATE_SCHEMAS`, task 1.2) and update `test_estimate.py` for it.
+  - [x] Success: other rows unchanged.
 
-- [ ] **7.4 Backup and roles (D12)**
-  - [ ] `tick_statistics_ledger` joins `drill_228_bookkeeping.BOOKKEEPING_TABLES`; `drill_228_fingerprint.py` gains a `tick_statistics` fingerprint; both tables join the enumerated write surface in `scripts/provision_tick_roles.sql` and the privilege test (`test_tick_role_privileges.py`; find its path with `find test -name 'test_tick_role_privileges.py'`).
-  - [ ] Update the drill pin tests (`test_drill_228_bookkeeping_pins.py`, `test_drill_228_fingerprint.py`).
-  - [ ] Success: those tests pass.
+- [x] **7.4 Backup and roles (D12)**
+  - [x] `tick_statistics_ledger` joins `drill_228_bookkeeping.BOOKKEEPING_TABLES`; `drill_228_fingerprint.py` gains a `tick_statistics` fingerprint; both tables join the enumerated write surface in `scripts/provision_tick_roles.sql` and the privilege test (`test_tick_role_privileges.py`; find its path with `find test -name 'test_tick_role_privileges.py'`).
+  - [x] Update the drill pin tests (`test_drill_228_bookkeeping_pins.py`, `test_drill_228_fingerprint.py`).
+  - [x] Success: those tests pass.
 
 **Commit**: `feat: add statistics history wants, estimate row, drill and role coverage`
 

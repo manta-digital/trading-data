@@ -276,3 +276,42 @@ def test_the_tier_bundles_exclude_the_bar_cost() -> None:
     assert isinstance(rows, list)
     assert rows[-1]["schema"] == "statistics" and rows[-1]["bundle_cost_usd"] is None
     assert rows[-2]["schema"] == "ohlcv-1m" and rows[-2]["bundle_cost_usd"] is None
+
+
+# -- the statistics row (slice 303, D1) ----------------------------------------
+
+STATISTICS_COST = FIGURES[TickSchema.STATISTICS][2]
+
+
+def _statistics_row(
+    ceiling: Decimal | None, plan: DatabentoPlan | None = None, at: datetime = AT
+) -> SchemaEstimate:
+    report = build_estimate(_provider(), REQUEST, ceiling, plan, at)
+    (row,) = [r for r in report.rows if r.schema is TickSchema.STATISTICS]
+    return row
+
+
+def test_the_statistics_row_has_figures_and_is_not_included_under_no_plan() -> None:
+    row = _statistics_row(None)
+    assert (row.record_count, row.billable_bytes) == (2_892, 231_360)
+    assert row.cost_usd == STATISTICS_COST
+    assert row.is_plan_included is False
+    assert row.bundle_cost_usd is None
+
+
+@pytest.mark.parametrize("at", [RECENT, OLD])
+def test_the_statistics_row_is_plan_included_under_standard_at_any_age(
+    at: datetime,
+) -> None:
+    row = _statistics_row(Decimal("0.0000001"), DatabentoPlan.STANDARD, at)
+    assert row.is_plan_included is True
+    assert row.verdict is CeilingVerdict.WITHIN
+    assert row.cost_usd == STATISTICS_COST  # list price
+
+
+def test_the_statistics_verdict_judges_its_own_cost_alone() -> None:
+    fits = _verdicts(STATISTICS_COST + Decimal("0.000000001"))
+    assert fits[TickSchema.STATISTICS] is CeilingVerdict.WITHIN
+    assert fits[TickSchema.TRADES] is CeilingVerdict.OVER  # its bundle does not fit
+    assert _verdicts(STATISTICS_COST / 2)[TickSchema.STATISTICS] is CeilingVerdict.OVER
+    assert _verdicts(None)[TickSchema.STATISTICS] is CeilingVerdict.NO_CEILING

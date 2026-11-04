@@ -48,3 +48,26 @@ def test_every_bar_column_but_unit_id_is_hashed() -> None:
 def test_the_bar_hash_orders_by_the_bar_key() -> None:
     rendered = fp.BAR_FINGERPRINT_SQL.as_string(None)
     assert 'ORDER BY "instrument_id", "ts_event"' in rendered
+
+
+def test_every_statistics_column_but_unit_id_is_hashed() -> None:
+    from manta_trading.data.tick.statistics_constants import STATISTICS_COLUMNS
+
+    assert fp.statistics_hashed_columns() == [
+        c for c in STATISTICS_COLUMNS if c != "unit_id"
+    ]
+    rendered = fp.STATISTICS_FINGERPRINT_SQL.as_string(None)
+    row_part = rendered.split("ROW(")[1].split(")")[0]
+    assert '"unit_id"' not in row_part
+    assert '"session_date"' in row_part
+    assert 'FROM "tick_statistics"' in rendered
+
+
+def test_the_statistics_hash_orders_by_its_key_and_groups_by_receive_time() -> None:
+    rendered = fp.STATISTICS_FINGERPRINT_SQL.as_string(None)
+    assert (
+        'ORDER BY "instrument_id", "stat_type", "ts_recv", "sequence", "record_ordinal"'
+        in rendered
+    )
+    assert '"ts_recv" / ' in rendered
+    assert '"ts_event" / ' in fp.BAR_FINGERPRINT_SQL.as_string(None)

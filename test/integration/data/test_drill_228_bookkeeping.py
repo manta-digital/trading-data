@@ -30,6 +30,7 @@ from tick_support.rows import (  # noqa: E402
     insert_definition,
     insert_ledger_row,
     insert_request,
+    insert_statistics_ledger_row,
     insert_unit,
 )
 
@@ -51,7 +52,7 @@ def _ingested(conn: Conn, request_id: int, day: date) -> int:
 
 def seed(conn: Conn, *, shift_ids: bool = False) -> dict[str, int]:
     """One adopted job with two ingested days, a definition, two ledger rows, a bar
-    ledger row,
+    ledger row, a statistics ledger row,
     the dataset edge and one day condition. ``shift_ids`` burns identity
     values first so the same rows get different ids."""
     if shift_ids:
@@ -73,6 +74,7 @@ def seed(conn: Conn, *, shift_ids: bool = False) -> dict[str, int]:
     insert_ledger_row(conn, unit_1, session_date=DAY_1)
     insert_ledger_row(conn, unit_2, session_date=DAY_2)
     insert_bar_ledger_row(conn, unit_1, session_date=DAY_1)
+    insert_statistics_ledger_row(conn, unit_1, session_date=DAY_1)
     insert_dataset_edge(conn)
     insert_day_condition(conn)
     return {"request": request, "unit_1": unit_1, "unit_2": unit_2}

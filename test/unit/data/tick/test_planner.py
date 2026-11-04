@@ -388,3 +388,45 @@ def test_an_open_history_want_without_an_edge_has_no_span() -> None:
 
     bars = HistoryWant(TickSchema.OHLCV_1M, date(2012, 1, 3))
     assert wanted_spans([_entry(bars, tier=None)], [], {}) == {}
+
+
+# -- statistics wants (slice 303 D6) -------------------------------------------
+
+
+def test_statistics_are_planned_over_their_own_range_like_bars() -> None:
+    stats = HistoryWant(TickSchema.STATISTICS, date(2024, 9, 2), date(2024, 9, 7))
+    plan = plan_purchases(_inputs(universe=[_entry(stats)]))
+    assert _shape(plan) == [
+        ("definition", date(2024, 9, 2), date(2024, 9, 4)),  # the tier's only
+        ("statistics", date(2024, 9, 2), date(2024, 9, 7)),
+        ("tbbo", date(2024, 9, 2), date(2024, 9, 4)),
+    ]
+
+
+def test_definitions_are_ordered_before_statistics_within_a_day() -> None:
+    definitions = HistoryWant(TickSchema.DEFINITION, date(2024, 9, 2), date(2024, 9, 7))
+    stats = HistoryWant(TickSchema.STATISTICS, date(2024, 9, 2), date(2024, 9, 7))
+    plan = plan_purchases(_inputs(universe=[_entry(stats, definitions)]))
+    schemas = [p.schema for p in plan.requests]
+    assert schemas.index(TickSchema.DEFINITION) < schemas.index(TickSchema.STATISTICS)
+    assert schemas[0] is TickSchema.DEFINITION
+
+
+def test_a_multi_month_statistics_want_makes_one_request_per_month_run() -> None:
+    stats = HistoryWant(TickSchema.STATISTICS, date(2024, 8, 26), date(2024, 10, 3))
+    plan = plan_purchases(_inputs(universe=[_entry(stats, tier=None)]))
+    assert _shape(plan) == [
+        ("statistics", date(2024, 8, 26), date(2024, 8, 31)),
+        ("statistics", date(2024, 9, 1), date(2024, 10, 1)),
+        ("statistics", date(2024, 10, 1), date(2024, 10, 3)),
+    ]
+
+
+def test_covered_statistics_days_are_dropped() -> None:
+    stats = HistoryWant(TickSchema.STATISTICS, date(2024, 9, 2), date(2024, 9, 7))
+    covered = frozenset({_key(TickSchema.STATISTICS, date(2024, 9, 4))})
+    plan = plan_purchases(_inputs(universe=[_entry(stats, tier=None)], covered=covered))
+    assert _shape(plan) == [
+        ("statistics", date(2024, 9, 2), date(2024, 9, 4)),
+        ("statistics", date(2024, 9, 5), date(2024, 9, 7)),
+    ]

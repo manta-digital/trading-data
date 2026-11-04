@@ -22,8 +22,10 @@ if str(SCRIPTS) not in sys.path:
 import drill_228_fingerprint as fp  # noqa: E402
 from tick_support.rows import (  # noqa: E402
     BAR_1M_ROW,
+    STATISTICS_ROW,
     TBBO_TRADE,
     insert_bar,
+    insert_statistics,
     insert_trade,
 )
 
@@ -120,3 +122,39 @@ def test_a_missing_bar_day_is_named_with_its_table(pair: Any) -> None:
     assert problem.startswith(
         "tick_ohlcv_1m: instrument 42035063 day 2024-09-04: missing"
     )
+
+
+_STAT_NEXT_DAY = STATISTICS_ROW["ts_recv"] + 86_400 * 1_000_000_000
+
+
+def _seed_statistics(conn: psycopg.Connection[Any], unit_id: int) -> None:
+    insert_statistics(conn, unit_id)
+    insert_statistics(conn, unit_id, sequence=2)
+    insert_statistics(conn, unit_id, ts_recv=_STAT_NEXT_DAY)
+
+
+def test_statistics_fingerprints_group_by_receive_day_and_ignore_unit_id(
+    pair: Any,
+) -> None:
+    first, second = pair
+    _seed_statistics(first, 1)
+    _seed_statistics(second, 77)
+    a, b = (
+        fp.fingerprint(first, "tick_statistics"),
+        fp.fingerprint(second, "tick_statistics"),
+    )
+    assert len(a) == 2  # two receive days
+    assert sorted(count for count, _ in a.values()) == [1, 2]
+    assert fp.diff_fingerprints(a, b) == []
+
+
+def test_a_changed_statistic_is_named_with_its_table(pair: Any) -> None:
+    first, second = pair
+    _seed_statistics(first, 1)
+    _seed_statistics(second, 1)
+    second.execute(
+        "UPDATE tick_statistics SET price = price + 1 WHERE ts_recv = %s",
+        (_STAT_NEXT_DAY,),
+    )
+    (problem,) = fp.diff_databases(first, second)
+    assert problem.startswith("tick_statistics: ") and "md5" in problem

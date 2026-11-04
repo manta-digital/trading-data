@@ -162,3 +162,67 @@ def test_an_open_bar_end_with_a_closed_definition_end_is_rejected() -> None:
 def test_an_inverted_want_range_is_rejected() -> None:
     inverted = replace(DEFINITIONS, end=DEFINITIONS.start)
     _rejects(replace(GOOD, history=(inverted,)), "history[definition].end")
+
+
+# -- statistics wants (slice 303 D6) ------------------------------------------
+
+STATISTICS = HistoryWant(TickSchema.STATISTICS, date(2012, 1, 1), date(2013, 1, 1))
+
+
+def test_an_entry_with_a_statistics_want_validates() -> None:
+    validate_universe([replace(GOOD, history=(DEFINITIONS, STATISTICS))])
+    validate_universe([replace(GOOD, history=(DEFINITIONS, BARS, STATISTICS))])
+    open_ended = (replace(DEFINITIONS, end=None), replace(STATISTICS, end=None))
+    validate_universe([replace(GOOD, history=open_ended)])
+
+
+def test_a_statistics_want_outside_the_definition_range_is_rejected() -> None:
+    late = replace(STATISTICS, end=date(2013, 3, 1))
+    _rejects(
+        replace(GOOD, history=(DEFINITIONS, late)), "history[statistics]", "not inside"
+    )
+    early = replace(STATISTICS, start=date(2011, 6, 1))
+    _rejects(
+        replace(GOOD, history=(DEFINITIONS, early)), "history[statistics]", "not inside"
+    )
+
+
+def test_a_statistics_want_with_no_definition_want_is_rejected() -> None:
+    _rejects(
+        replace(GOOD, history=(STATISTICS,)),
+        "history[statistics]",
+        "needs a definition",
+    )
+
+
+def test_a_statistics_start_before_the_dataset_start_is_rejected() -> None:
+    early = date(2010, 6, 5)
+    wants = (replace(DEFINITIONS, start=early), replace(STATISTICS, start=early))
+    _rejects(replace(GOOD, history=wants), "history[definition].start", str(early))
+    _rejects(
+        replace(GOOD, history=(DEFINITIONS, replace(STATISTICS, start=early))),
+        "history[statistics].start",
+    )
+
+
+def test_a_repeated_statistics_want_is_rejected() -> None:
+    _rejects(
+        replace(GOOD, history=(DEFINITIONS, STATISTICS, STATISTICS)),
+        "history lists statistics more than once",
+    )
+
+
+def test_a_statistics_want_on_an_entry_with_no_tier_is_rejected() -> None:
+    _rejects(
+        replace(GOOD, tier=None, history=(DEFINITIONS, STATISTICS)),
+        "tier",
+        "not chosen",
+    )
+
+
+def test_the_production_universe_wants_no_statistics() -> None:
+    assert all(
+        want.schema is not TickSchema.STATISTICS
+        for entry in TICK_UNIVERSE
+        for want in entry.history
+    )

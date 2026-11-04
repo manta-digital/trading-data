@@ -11,7 +11,9 @@ out: a rebuild numbers units in adopt order, so it is not comparable across
 databases. TD4 checks which unit wrote each row, through the ledger.
 
 Slice 302 adds ``tick_ohlcv_1m`` beside ``tick_trade``: the same query shape
-over the bar table's columns (``BAR_1M_COLUMNS``) and key.
+over the bar table's columns (``BAR_1M_COLUMNS``) and key. Slice 303 adds
+``tick_statistics`` the same way (``STATISTICS_COLUMNS``), grouped by the
+record's receive time (``ts_recv``), the column the table is partitioned on.
 """
 
 from __future__ import annotations
@@ -29,6 +31,11 @@ from manta_trading.data.tick.bar_constants import (
     BAR_1M_KEY,
     BAR_1M_TABLE,
 )
+from manta_trading.data.tick.statistics_constants import (
+    STATISTICS_COLUMNS,
+    STATISTICS_KEY,
+    STATISTICS_TABLE,
+)
 from manta_trading.data.tick.storage_columns import (
     TICK_TRADE_COLUMNS,
     TICK_TRADE_DERIVED_COLUMNS,
@@ -41,11 +48,16 @@ TABLE = "tick_trade"
 FINGERPRINTED_KEYS: dict[str, tuple[str, ...]] = {
     TABLE: tuple(TICK_TRADE_KEY),
     BAR_1M_TABLE: BAR_1M_KEY,
+    STATISTICS_TABLE: STATISTICS_KEY,
+}
+#: The time column each table's day groups are cut from (integer ns, UTC).
+TIME_COLUMNS: dict[str, str] = {
+    TABLE: "ts_event",
+    BAR_1M_TABLE: "ts_event",
+    STATISTICS_TABLE: "ts_recv",
 }
 #: Identity values that differ between databases holding the same rows.
 EXCLUDED_COLUMNS: frozenset[str] = frozenset({"unit_id"})
-#: The time column the day groups are cut from (integer nanoseconds, UTC).
-TIME_COLUMN = "ts_event"
 #: The column naming a group's instrument.
 INSTRUMENT_COLUMN = "instrument_id"
 _NS_PER_DAY = interval_to_ns(timedelta(days=1))
@@ -69,11 +81,17 @@ def bar_hashed_columns() -> list[str]:
     return [c for c in BAR_1M_COLUMNS if c not in EXCLUDED_COLUMNS]
 
 
+def statistics_hashed_columns() -> list[str]:
+    """Every ``tick_statistics`` column, in table order, except the excluded ones."""
+    return [c for c in STATISTICS_COLUMNS if c not in EXCLUDED_COLUMNS]
+
+
 def fingerprint_sql(columns: Iterable[str], table: str = TABLE) -> sql.Composed:
     """Per-group count and md5 over ``columns``, ordered by the table's key."""
     row = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
     order = sql.SQL(", ").join(sql.Identifier(c) for c in FINGERPRINTED_KEYS[table])
-    time, instrument = sql.Identifier(TIME_COLUMN), sql.Identifier(INSTRUMENT_COLUMN)
+    time = sql.Identifier(TIME_COLUMNS[table])
+    instrument = sql.Identifier(INSTRUMENT_COLUMN)
     return sql.SQL(
         "SELECT {instrument}, {time} / {ns_per_day} AS day_index, count(*),"
         " md5(string_agg(ROW({row})::text, E'\\n' ORDER BY {order}))"
@@ -91,10 +109,14 @@ def fingerprint_sql(columns: Iterable[str], table: str = TABLE) -> sql.Composed:
 #: The one fingerprint query (TD3).
 FINGERPRINT_SQL = fingerprint_sql(hashed_columns())
 BAR_FINGERPRINT_SQL = fingerprint_sql(bar_hashed_columns(), BAR_1M_TABLE)
+STATISTICS_FINGERPRINT_SQL = fingerprint_sql(
+    statistics_hashed_columns(), STATISTICS_TABLE
+)
 
 _QUERIES: dict[str, sql.Composed] = {
     TABLE: FINGERPRINT_SQL,
     BAR_1M_TABLE: BAR_FINGERPRINT_SQL,
+    STATISTICS_TABLE: STATISTICS_FINGERPRINT_SQL,
 }
 
 

@@ -10,8 +10,9 @@ wants (the pass still buys definitions for tier days the manifest already
 owns). ES's tier and range were set by slice 226's go/no-go.
 ``--start/--end`` on ``pass`` only narrow the configured range.
 
-``history`` (slice 302 D5) lists wants beyond the tick tier: ``ohlcv-1m`` bars
-and the ``definition`` days they need. Production configures none.
+``history`` (slice 302 D5, 303 D6) lists wants beyond the tick tier: ``ohlcv-1m``
+bars, ``statistics`` and the ``definition`` days they need. Production configures
+none.
 """
 
 from __future__ import annotations
@@ -104,25 +105,29 @@ def _validate_want(label: str, want: HistoryWant) -> None:
         )
 
 
-def _validate_bars_inside_definitions(label: str, entry: TickUniverseEntry) -> None:
-    """A bar day with no definition day would wait forever (D5)."""
+def _validate_inside_definitions(label: str, entry: TickUniverseEntry) -> None:
+    """A bar or statistics day with no definition day would wait forever (D5, 303 D6).
+
+    Every history want but ``definition`` itself needs the definition want, and
+    its range must lie inside it.
+    """
     wants = {want.schema: want for want in entry.history}
-    bars = wants.get(TickSchema.OHLCV_1M)
-    if bars is None:
-        return
-    field = f"history[{TickSchema.OHLCV_1M}]"
     definitions = wants.get(TickSchema.DEFINITION)
-    if definitions is None:
-        raise ValueError(f"{label}: {field} needs a {TickSchema.DEFINITION} want")
-    starts_before = bars.start < definitions.start
-    ends_after = definitions.end is not None and (
-        bars.end is None or bars.end > definitions.end
-    )
-    if starts_before or ends_after:
-        raise ValueError(
-            f"{label}: {field} range {bars.start}..{bars.end} is not inside the"
-            f" {TickSchema.DEFINITION} want {definitions.start}..{definitions.end}"
+    for schema, want in wants.items():
+        if schema is TickSchema.DEFINITION:
+            continue
+        field = f"history[{schema}]"
+        if definitions is None:
+            raise ValueError(f"{label}: {field} needs a {TickSchema.DEFINITION} want")
+        starts_before = want.start < definitions.start
+        ends_after = definitions.end is not None and (
+            want.end is None or want.end > definitions.end
         )
+        if starts_before or ends_after:
+            raise ValueError(
+                f"{label}: {field} range {want.start}..{want.end} is not inside the"
+                f" {TickSchema.DEFINITION} want {definitions.start}..{definitions.end}"
+            )
 
 
 def _validate_history(label: str, entry: TickUniverseEntry) -> None:
@@ -137,7 +142,7 @@ def _validate_history(label: str, entry: TickUniverseEntry) -> None:
         if schemas.count(want.schema) > 1:
             raise ValueError(f"{label}: history lists {want.schema} more than once")
         _validate_want(label, want)
-    _validate_bars_inside_definitions(label, entry)
+    _validate_inside_definitions(label, entry)
 
 
 def _validate_entry(entry: TickUniverseEntry) -> None:
