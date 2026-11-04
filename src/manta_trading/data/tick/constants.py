@@ -372,13 +372,14 @@ OUTRIGHT_CLASS = "F"
 #: in ``status``; never a roll candidate).
 SPREAD_CLASS = "S"
 
-#: The volume rule ranks session S by the volume of the session this many
-#: before it (TD3). Why 2: Databento's ``ES.v.0`` switched on 2024-09-18 and
-#: 2024-12-18, two sessions after the ledger's volume crossed (09-16, 12-16);
-#: CME publishes session D's statistics during D + 1. Pinned by
+#: The volume (``v``) and open-interest (``n``) rules rank session S by the
+#: volume or open interest of the session this many before it (TD3). Why 2:
+#: Databento's ``ES.v.0`` switched on 2024-09-18 and 2024-12-18, two sessions
+#: after the ledger's volume crossed (09-16, 12-16); both rules rest on CME
+#: publishing session D's statistics during D + 1. Pinned by
 #: ``test/unit/data/tick/test_roll_provider_equivalence.py``. A change means the
 #: provider's convention changed: revisit it whole, never per roll.
-VOLUME_RANK_LAG_SESSIONS = 2
+RANK_LAG_SESSIONS = 2
 
 #: Most sessions one schedule request may span (TD10): about five years, which
 #: keeps one read inside the measured cost envelope. Longer ranges are refused.

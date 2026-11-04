@@ -1,6 +1,6 @@
 """The volume rule (229 TD3, FR4, FR6a) on synthetic inputs: no database.
 
-Session S ranks by the volume of S - 2 (``VOLUME_RANK_LAG_SESSIONS``).
+Session S ranks by the volume of S - 2 (``RANK_LAG_SESSIONS``).
 """
 
 from __future__ import annotations

@@ -26,13 +26,13 @@ from psycopg.conninfo import make_conninfo
 
 from manta_trading.data.base.session_index import Session
 from manta_trading.data.tick.constants import (
+    RANK_LAG_SESSIONS,
     TICK_DB_CONNECT_TIMEOUT_SECONDS,
     TICK_DB_KEEPALIVES_COUNT,
     TICK_DB_KEEPALIVES_IDLE_SECONDS,
     TICK_DB_KEEPALIVES_INTERVAL_SECONDS,
     TICK_ROLL_MAX_SESSIONS,
     TICK_ROLL_STATEMENT_TIMEOUT_SECONDS,
-    VOLUME_RANK_LAG_SESSIONS,
     calendar_for_product,
 )
 from manta_trading.data.tick.manifest_reads import Conn
@@ -177,7 +177,7 @@ async def build_schedule(
     calendar = await _calendar(
         calendar_url,
         entry.product,
-        utc_midnight(start) - _margin(VOLUME_RANK_LAG_SESSIONS),
+        utc_midnight(start) - _margin(RANK_LAG_SESSIONS),
     )
     days = [s.session_date for s in calendar.sessions]
     wanted = [i for i, day in enumerate(days) if start <= day < end]
@@ -197,7 +197,7 @@ async def build_schedule(
         )
     if not wanted:
         return RollSchedule(entry.product, rule, ())
-    first = max(wanted[0] - VOLUME_RANK_LAG_SESSIONS, 0)
+    first = max(wanted[0] - RANK_LAG_SESSIONS, 0)
     context = calendar.sessions[first : wanted[-1] + 1]
     async with _snapshot(tick_url) as conn:
         inputs = await _inputs(conn, entry, calendar, context)
@@ -256,7 +256,7 @@ async def latest_lines(
         calendar = await _calendar(
             calendar_url,
             entry.product,
-            utc_midnight(bounds[0]) - _margin(VOLUME_RANK_LAG_SESSIONS),
+            utc_midnight(bounds[0]) - _margin(RANK_LAG_SESSIONS),
         )
         held = [
             i
@@ -268,7 +268,7 @@ async def latest_lines(
                 f"held sessions {bounds[0]} → {bounds[1]} are outside the "
                 f"calendar; {EXTEND_REMEDY}"
             )
-        first = max(held[0] - VOLUME_RANK_LAG_SESSIONS, 0)
+        first = max(held[0] - RANK_LAG_SESSIONS, 0)
         context = calendar.sessions[first : held[-1] + 1]
         inputs = await _inputs(conn, entry, calendar, context)
     window = [calendar.sessions[i].session_date for i in held]

@@ -20,7 +20,7 @@ from collections import defaultdict
 from dataclasses import replace
 from datetime import date
 
-from manta_trading.data.tick.constants import VOLUME_RANK_LAG_SESSIONS, RollMethod
+from manta_trading.data.tick.constants import RANK_LAG_SESSIONS, RollMethod
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import (
@@ -124,11 +124,11 @@ class _Resolver:
         """TD3: eligible at S (offset 0) and listed in the lag session L,
         ranked by L's volume, ties to the earlier expiration."""
         day = self.sessions[index].session_date
-        lag = index - VOLUME_RANK_LAG_SESSIONS
+        lag = index - RANK_LAG_SESSIONS
         if lag < 0:
             return Unresolved(
                 day,
-                f"volume inputs: no session {VOLUME_RANK_LAG_SESSIONS} before {day}"
+                f"volume inputs: no session {RANK_LAG_SESSIONS} before {day}"
                 " in the calendar read",
             )
         basis = self.sessions[lag].session_date
@@ -228,7 +228,7 @@ def _volume_forecast(
     rank by L - 1 and L); beyond them only the bound: the first session after
     the active contract's expiration session."""
     day = current.session_date
-    last = resolver.session_at(index + VOLUME_RANK_LAG_SESSIONS, day)
+    last = resolver.session_at(index + RANK_LAG_SESSIONS, day)
     next_roll = None
     for later in range(index + 1, last + 1):
         answer = _changed(resolver.answer(rule, later), current)

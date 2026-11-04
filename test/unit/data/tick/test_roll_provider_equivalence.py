@@ -1,7 +1,7 @@
 """Our rules agree with Databento's continuous symbols on recorded real inputs.
 
 LLD 229 TD8, extended per product by LLD 232 TD8. Pins
-``VOLUME_RANK_LAG_SESSIONS``: for every product with recorded fixtures and for
+``RANK_LAG_SESSIONS``: for every product with recorded fixtures and for
 ``c.0``, ``c.1``, ``v.0`` and ``v.1``, every session resolved over the recorded
 span is the contract Databento maps on that session date, and the unresolved
 sessions are exactly those whose lag session is not complete. A failure after a
@@ -21,7 +21,7 @@ from tick_support.roll_fixture import (
     recorded_inputs,
 )
 
-from manta_trading.data.tick.constants import VOLUME_RANK_LAG_SESSIONS, RollMethod
+from manta_trading.data.tick.constants import RANK_LAG_SESSIONS, RollMethod
 from manta_trading.data.tick.roll_resolve import resolve_sessions
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import ActiveContract, Answer, Unresolved
@@ -84,7 +84,7 @@ def _lag_incomplete(product: str) -> set[date]:
         day
         for i, day in enumerate(days)
         if start <= day < end
-        and inputs.statuses[days[i - VOLUME_RANK_LAG_SESSIONS]]
+        and inputs.statuses[days[i - RANK_LAG_SESSIONS]]
         is not TickSessionStatus.COMPLETE
     }
 

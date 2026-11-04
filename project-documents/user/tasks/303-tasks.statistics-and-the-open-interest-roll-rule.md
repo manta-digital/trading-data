@@ -209,14 +209,16 @@ revision_number: 2
 
 ### 8. The purchase and ingest on throwaway databases (D11)
 
-- [ ] **8.1 Prepare the throwaway run**
-  - [ ] Create a primary and a tick database on the test cluster (names that this process creates; destructive statements only touch these), point `MT_TIMESCALE_DB_URL`, `MT_TIMESCALE_MAINTENANCE_URL`, `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` at them and at a scratch directory that is kept. Leave `MT_TICK_DATABENTO_PLAN` unset. Write a wrapper `CLI` (302's walkthrough method) with a universe giving ES and GC `definition` and `statistics` wants over 2024-08-30 to 2025-01-01. Production's manifest and universe are untouched.
-  - [ ] Run `mt data init` and `mt data init --database tick`; confirm the tick track reaches `tick_010_statistics`.
-  - [ ] Success: wrapper and databases exist; migration applied.
+- [x] **8.1 Prepare the throwaway run**
+  - [x] Create a primary and a tick database on the test cluster (names that this process creates; destructive statements only touch these), point `MT_TIMESCALE_DB_URL`, `MT_TIMESCALE_MAINTENANCE_URL`, `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` at them and at a scratch directory that is kept. Leave `MT_TICK_DATABENTO_PLAN` unset. Write a wrapper `CLI` (302's walkthrough method) with a universe giving ES and GC `definition` and `statistics` wants over 2024-08-30 to 2025-01-01. Production's manifest and universe are untouched.
+  - [x] Run `mt data init` and `mt data init --database tick`; confirm the tick track reaches `tick_010_statistics`.
+  - [x] Success: wrapper and databases exist; migration applied.
+  - Note: Throwaway databases `mt_303_primary_20261104163444` and `mt_303_tick_20261104163444` exist on the test cluster. The env file sets `MT_TIMESCALE_DB_URL`, `MT_TIMESCALE_MAINTENANCE_URL`, `MT_TICK_DB_URL`, `MT_TICK_MAINTENANCE_URL` and `MT_TICK_ARCHIVE_DIR` (the wrapper sets the archive to `~/scratch-303/archive`), with `MT_TICK_DATABENTO_PLAN` unset. `mt data init` applied 69 primary migrations and `mt data init --database tick` applied 11, through `tick_010_statistics`. The wrapper (`walk_cli.py` and `cli303.sh`, in the session scratchpad) gives ES and GC definition and statistics wants over 2024-08-30 to 2025-01-01 at the production tier range, with production's manifest and availability rows copied read-only into the throwaway tick database, so tier days are owned and no tbbo is planned.
 
 - [ ] **8.2 Estimate, buy, download, ingest**
   - [ ] `CLI data tick pass --estimate-only --json`: expect statistics about $0.0127 (ES) and $0.0242 (GC), October definitions about $0.0014 and $0.0129, plan-included false, verdict within the ceiling. Then `CLI data tick pass --json` (buy, download, verify, project definitions), then `CLI data tick ingest --json`.
   - [ ] If the guard refuses, write the reason into `user/notes/303-statistics-evaluation.md`, add a `BLOCKED:` line under this task naming it, leave the task unchecked and stop.
+  - BLOCKED: 8.2 (2026-11-04). The estimate ran (16 requests, $0.0647 planned; statistics ES $0.0127 and GC $0.0242 as designed, definitions about $0.028 because GC has none before November) and `pass --json` exited 5 with nothing bought: `MT_TICK_SPEND_30D_CEILING_USD` is unset (the development `.env` sets only the per-pass ceiling, and the runbook reserves the 30-day figure to the PM). Reason and resume steps are in `user/notes/303-statistics-evaluation.md`. Tasks 8.3 to 8.5, 9, 14 and 15.1 to 15.3 need the purchase; the guard was not forced.
   - [ ] Success: every statistics unit ingests; no `stat_reference` failure. If one fails, diagnose from the error text and fix the projector or design assumption (tests first) before continuing.
 
 - [ ] **8.3 Record job ids and charges**
@@ -252,9 +254,9 @@ revision_number: 2
 
 ### 10. Rename the shared lag constant (D9)
 
-- [ ] **10.1 Rename `VOLUME_RANK_LAG_SESSIONS` to `RANK_LAG_SESSIONS`**
-  - [ ] Rename in `constants.py` (value stays 2) and every reference found by `grep -rn VOLUME_RANK_LAG_SESSIONS src test scripts docs` (`roll_resolve.py`, `active_contract.py`, `test_roll_provider_equivalence.py`, and any others). Update the constant's comment: both the `v` and `n` rules rest on CME publishing D's statistics during D + 1.
-  - [ ] Success: grep finds no old name; `uv run pytest test/unit/data/tick -q` passes unchanged in behaviour.
+- [x] **10.1 Rename `VOLUME_RANK_LAG_SESSIONS` to `RANK_LAG_SESSIONS`**
+  - [x] Rename in `constants.py` (value stays 2) and every reference found by `grep -rn VOLUME_RANK_LAG_SESSIONS src test scripts docs` (`roll_resolve.py`, `active_contract.py`, `test_roll_provider_equivalence.py`, and any others). Update the constant's comment: both the `v` and `n` rules rest on CME publishing D's statistics during D + 1.
+  - [x] Success: grep finds no old name; `uv run pytest test/unit/data/tick -q` passes unchanged in behaviour.
 
 **Commit**: `refactor: rename volume rank lag to RANK_LAG_SESSIONS`
 

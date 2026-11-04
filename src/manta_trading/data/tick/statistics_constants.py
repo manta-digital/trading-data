@@ -89,7 +89,7 @@ REFERENCED_STAT_TYPES: Final[frozenset[StatType]] = frozenset(
 REQUIRED_STAT_TYPES: Final[frozenset[StatType]] = REFERENCED_STAT_TYPES
 
 #: CME publishes session D's statistics during the following session. This is
-#: the same fact the roll lag rests on (the rank lag constant in ``constants.py``,
-#: "CME publishes session D's statistics during D + 1"; 220's pinned timing), so
-#: the status window for D reaches the close day of the session this many after D.
+#: the same fact the roll lag rests on (``RANK_LAG_SESSIONS`` in ``constants.py``;
+#: 220's pinned timing), so the status window for D reaches the close day of the
+#: session this many after D.
 STATISTICS_PUBLICATION_SESSIONS: Final = 1

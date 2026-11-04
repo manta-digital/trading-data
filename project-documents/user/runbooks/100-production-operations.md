@@ -1228,7 +1228,7 @@ the PM sets the ceilings.
 10. **Roll.** `mt data tick active --product <ROOT> --start D --end D`, then
     `uv run python scripts/record_229_roll_fixture.py --product <ROOT>` and add
     the product to `PRODUCTS` in `test/unit/data/tick/test_roll_provider_equivalence.py`.
-    A disagreement at `VOLUME_RANK_LAG_SESSIONS` goes to the PM; there is no
+    A disagreement at `RANK_LAG_SESSIONS` goes to the PM; there is no
     per-product lag.
 11. **Surfaces.** `mt data tick status`, `mt data tick coverage --start D --end D`
     and `mt data overview` show the product with no code change.
