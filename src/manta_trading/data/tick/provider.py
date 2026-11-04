@@ -71,7 +71,8 @@ class ITickFile(Protocol):
     schema: TickSchema
     stype_in: SType
     start: datetime
-    end: datetime
+    #: ``None`` when the header's end is undefined; verification refuses it.
+    end: datetime | None
     #: Input symbol → the instrument-id intervals it resolved to.
     mappings: Mapping[str, tuple[SymbolInterval, ...]]
     partial: tuple[str, ...]

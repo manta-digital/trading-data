@@ -129,6 +129,59 @@ def test_the_derived_bar_day_decodes_with_both_sessions_and_spreads() -> None:
     assert (bars["high"] >= bars["low"]).all()
 
 
+#: The two statistics samples: same two GLBX records, DBN v1 and v3. Their
+#: header has no end, and ``ts_ref`` is undefined in both records.
+STATISTICS_FILES = [
+    ("test_data.statistics.v1.dbn.zst", 2_147_483_647, 24),
+    ("test_data.statistics.v3.dbn.zst", 9_223_372_036_854_775_807, 24),
+]
+UNDEF_TS_REF = 2**64 - 1
+
+
+@pytest.mark.parametrize(("name", "undef_quantity", "rtype"), STATISTICS_FILES)
+def test_statistics_header_and_records(
+    name: str, undef_quantity: int, rtype: int
+) -> None:
+    tick_file = _open(name)
+    assert tick_file.dataset == CME_DATASET
+    assert tick_file.schema is TickSchema.STATISTICS
+    assert tick_file.end is None
+    batches = list(tick_file.iter_batches())
+    assert sum(b.count for b in batches) == 2
+    records = batches[0].records
+    assert batches[0].schema is TickSchema.STATISTICS
+    for field in (
+        "ts_recv",
+        "ts_ref",
+        "price",
+        "quantity",
+        "sequence",
+        "ts_in_delta",
+        "stat_type",
+        "channel_id",
+        "update_action",
+        "stat_flags",
+    ):
+        assert field in records.dtype.names
+    assert {int(i) for i in records["instrument_id"]} == {146945}
+    assert [int(t) for t in records["stat_type"]] == [
+        int(databento_dbn.StatType.LOWEST_OFFER),
+        int(databento_dbn.StatType.TRADING_SESSION_HIGH_PRICE),
+    ]
+    assert {int(t) for t in records["ts_ref"]} == {UNDEF_TS_REF}
+    assert {int(q) for q in records["quantity"]} == {undef_quantity}
+    assert int(records["price"][0]) == 100_000_000_000
+    assert {int(a) for a in records["update_action"]} == {1}
+
+
+def test_statistics_v1_has_the_narrower_quantity() -> None:
+    v1 = next(_open(STATISTICS_FILES[0][0]).iter_batches()).records
+    v3 = next(_open(STATISTICS_FILES[1][0]).iter_batches()).records
+    assert v1["quantity"].dtype.itemsize == 4
+    assert v3["quantity"].dtype.itemsize == 8
+    assert v1.dtype.itemsize < v3.dtype.itemsize
+
+
 def test_v2_trades_match_v3() -> None:
     v2 = next(_open("test_data.trades.v2.dbn.zst").iter_batches()).records
     v3 = next(_open("test_data.trades.v3.dbn.zst").iter_batches()).records

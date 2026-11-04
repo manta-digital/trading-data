@@ -138,7 +138,11 @@ class DbnFile:
         self.schema: TickSchema = _tick_schema(store, path)
         self.stype_in: SType = _stype_in(metadata.stype_in, path)
         self.start: datetime = _utc_from_ns(metadata.start)
-        self.end: datetime = _utc_from_ns(metadata.end)
+        # An undefined end (the SDK's None, as in the DBN statistics samples) is
+        # exposed as None; verify then fails the unit on a header end mismatch.
+        self.end: datetime | None = (
+            None if metadata.end is None else _utc_from_ns(metadata.end)
+        )
         self.mappings: Mapping[str, tuple[SymbolInterval, ...]] = _mappings(
             metadata.mappings, metadata.stype_out, path
         )

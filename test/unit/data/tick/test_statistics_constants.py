@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import databento_dbn
+
 from manta_trading.data.tick.statistics_constants import (
     REFERENCED_STAT_TYPES,
     REQUIRED_STAT_TYPES,
@@ -21,6 +23,11 @@ def test_stat_types_are_the_dbn_values() -> None:
         ("CLEARED_VOLUME", 6),
         ("OPEN_INTEREST", 9),
     ]
+
+
+def test_stat_types_match_the_sdk() -> None:
+    for stat_type in StatType:
+        assert stat_type.value == int(getattr(databento_dbn.StatType, stat_type.name))
 
 
 def test_referenced_and_required_types_are_the_three() -> None:

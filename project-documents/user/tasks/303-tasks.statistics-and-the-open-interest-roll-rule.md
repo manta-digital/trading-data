@@ -90,14 +90,15 @@ revision_number: 2
 
 ### 3. Sample decoding (D3 prerequisite)
 
-- [ ] **3.1 Copy the DBN statistics samples and record them**
-  - [ ] Fetch `test_data.statistics.v1.dbn.zst` and `test_data.statistics.v3.dbn.zst` from `databento/dbn` `tests/data/` at tag `v0.70.0` (use `gh api`), unmodified, into `test/fixtures/databento/`.
-  - [ ] Add both to `test/fixtures/databento/SOURCES.md` in its existing format, with the tag and the check date.
-  - [ ] Success: both files exist; `SOURCES.md` lists them.
+- [x] **3.1 Copy the DBN statistics samples and record them**
+  - [x] Fetch `test_data.statistics.v1.dbn.zst` and `test_data.statistics.v3.dbn.zst` from `databento/dbn` `tests/data/` at tag `v0.70.0` (use `gh api`), unmodified, into `test/fixtures/databento/`.
+  - [x] Add both to `test/fixtures/databento/SOURCES.md` in its existing format, with the tag and the check date.
+  - [x] Success: both files exist; `SOURCES.md` lists them.
 
-- [ ] **3.2 Reader decode tests**
-  - [ ] Extend `test_dbn_file.py`: the reader decodes both samples as 2 records (instrument 146945, `GLBX.MDP3`, stat types `LOWEST_OFFER` and `TRADING_SESSION_HIGH_PRICE`, `ts_ref` undefined), exposing `ts_recv`, `ts_ref`, `price`, `quantity`, `sequence`, `ts_in_delta`, `stat_type`, `channel_id`, `update_action`, `stat_flags`. v1's narrower quantity is covered. If the reader cannot decode the statistics record, fix the reader here. Add the schema to the reader's accepted-header tests.
-  - [ ] Success: both versions decode; `uv run pytest test/unit/data/tick -q` passes.
+- [x] **3.2 Reader decode tests**
+  - [x] Extend `test_dbn_file.py`: the reader decodes both samples as 2 records (instrument 146945, `GLBX.MDP3`, stat types `LOWEST_OFFER` and `TRADING_SESSION_HIGH_PRICE`, `ts_ref` undefined), exposing `ts_recv`, `ts_ref`, `price`, `quantity`, `sequence`, `ts_in_delta`, `stat_type`, `channel_id`, `update_action`, `stat_flags`. v1's narrower quantity is covered. If the reader cannot decode the statistics record, fix the reader here. Add the schema to the reader's accepted-header tests.
+  - [x] Success: both versions decode; `uv run pytest test/unit/data/tick -q` passes.
+  - Note: The two statistics samples' DBN header has an undefined `end`, which the reader could not expose (it raised a TypeError). The reader's `end` is now `datetime | None`, and `ITickFile` in `provider.py` matches. `verify` fails such a unit on a header end mismatch (test added in `test_verify.py`). The accepted-header tests need no change: accepted schemas derive from `TickSchema`, and the statistics decode test covers it.
 
 **Commit**: `test: add statistics DBN samples and decode tests`
 

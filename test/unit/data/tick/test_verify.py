@@ -189,3 +189,30 @@ async def test_record_count_failure_raises(
     with pytest.raises(ProviderError):
         await verify.check(run, _unit(run), DbnFileReader())
     assert recorder.verified == [] and recorder.failures == []
+
+
+class _NoEndFile:
+    """A header whose end is undefined (as the DBN statistics samples')."""
+
+    def __init__(self, real: Any) -> None:
+        self.dataset, self.schema, self.stype_in = (
+            real.dataset,
+            real.schema,
+            real.stype_in,
+        )
+        self.start, self.end = real.start, None
+
+
+class _NoEndReader:
+    def open_file(self, path: Path) -> _NoEndFile:
+        return _NoEndFile(DbnFileReader().open_file(path))
+
+
+async def test_an_undefined_header_end_fails_the_unit(
+    run: TickRun, recorder: Recorder
+) -> None:
+    unit = _unit(run)
+    outcome = await verify.check(run, unit, _NoEndReader())  # type: ignore[arg-type]
+    assert outcome.failure is not None
+    assert outcome.failure.startswith("header end is None, expected 2024-09-04")
+    assert recorder.failures == [(7, outcome.failure, True)]
