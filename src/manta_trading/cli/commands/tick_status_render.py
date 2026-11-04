@@ -7,6 +7,7 @@ The layout is the LLD's API Contracts. ``--json`` is the result's
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -16,8 +17,10 @@ from rich.markup import escape
 
 from manta_trading.cli.commands.tick_active_render import active_line_text
 from manta_trading.cli.output import make_table, print_result
+from manta_trading.data.tick.constants import TickSchema
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.statistics_constants import StatType
+from manta_trading.data.tick.statistics_reads import VOLUME_FINDINGS
 from manta_trading.data.tick.tick_coverage import TickCoverage
 from manta_trading.data.tick.tick_status import TickSessionStatus
 from manta_trading.data.tick.tick_status_build import (
@@ -176,6 +179,25 @@ def print_status(status: TickStatus, exit_code: int, *, json_mode: bool) -> None
                 rprint(escape(f"  {line}"))
 
 
+def _volume_lines(result: TickCoverage) -> list[str]:
+    """Statistics only: verdict counts per family, then every finding."""
+    if result.volume_checks is None:
+        return []
+    counted = Counter((v.family.value, v.verdict.value) for v in result.volume_checks)
+    lines = [
+        f"  volume {family}: {verdict} {count}"
+        for (family, verdict), count in sorted(counted.items())
+    ] or ["  volume: no session complete in statistics and a volume family"]
+    for v in result.volume_checks:
+        if v.verdict in VOLUME_FINDINGS:
+            symbol = v.raw_symbol or v.instrument_id
+            lines.append(
+                f"  [red]{v.session_date} {symbol} {v.family.value}:"
+                f" {v.verdict.value} (traded {v.traded}, cleared {v.cleared})[/red]"
+            )
+    return lines
+
+
 def coverage_to_dict(results: Sequence[TickCoverage], exit_code: int) -> dict[str, Any]:
     return {"products": [r.to_dict() for r in results], "exit_code": exit_code}
 
@@ -187,7 +209,8 @@ def print_coverage(
         print_result(coverage_to_dict(results, exit_code), json_mode=True)
         return
     for result in results:
-        bars = result.schema is not None  # a non-tick family also compares volume
+        # A bar family also compares volume; statistics compares counts only.
+        bars = result.schema not in (None, TickSchema.STATISTICS)
         schema = f"  {result.schema}" if bars else ""
         volume_columns = [("ledger vol", ""), ("raw vol", "")] if bars else []
         table = make_table(
@@ -223,7 +246,10 @@ def print_coverage(
                     if bars
                     else ""
                 )
+                kind = "" if m.stat_type is None else f" stat type {m.stat_type}"
                 rprint(
-                    f"  [red]{s.session_date} instrument {m.instrument_id}:"
+                    f"  [red]{s.session_date} instrument {m.instrument_id}{kind}:"
                     f" ledger {m.ledger}, raw {m.raw}{extra}[/red]"
                 )
+        for line in _volume_lines(result):
+            rprint(line)

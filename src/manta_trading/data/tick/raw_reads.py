@@ -1,19 +1,22 @@
 """The raw-row scans ``coverage`` makes: the only reads of the row tables.
 
 Every other status read is of the manifest, the ledger, the conditions, the edge
-or the definitions. These scan ``tick_trade`` (225 TD10) or ``tick_ohlcv_1m``
-(302 D6), each bounded by the range's first open and last close, to prove the
+or the definitions. These scan ``tick_trade`` (225 TD10), ``tick_ohlcv_1m``
+(302 D6) or ``tick_statistics`` (303 D8), each bounded by the range, to prove the
 ledger against the stored rows.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import date
 from typing import Any
 
 from manta_trading.data.tick.bar_constants import BAR_1M_TABLE
 from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.schema_families import SchemaFamily
+from manta_trading.data.tick.statistics_constants import STATISTICS_TABLE, StatType
+from manta_trading.data.tick.status_reads import SHAPE_WHERE, Shape
 
 
 async def _raw_rows(
@@ -68,3 +71,29 @@ async def raw_bar_totals(
     aggregates = "count(*), sum(t.volume)"
     rows = await _raw_rows(conn, BAR_1M_TABLE, aggregates, product, sessions)
     return {(i, d): (int(n), int(v)) for i, d, n, v in rows}
+
+
+async def raw_statistics_counts(
+    conn: Conn,
+    shape: Shape,
+    stat_types: Collection[StatType],
+    first: date,
+    last: date,
+) -> dict[tuple[int, date, int], int]:
+    """``count(*)`` of ``tick_statistics`` per (instrument, session, stat type)
+    over the shape's current units. Rows carry their session, so the scan is
+    bounded by the session dates; records with no session never count."""
+    cursor = await conn.execute(
+        "SELECT s.instrument_id, s.session_date, s.stat_type, count(*)"
+        f" FROM {STATISTICS_TABLE} s JOIN tick_archive_unit u ON u.unit_id = s.unit_id"
+        " JOIN tick_request r ON r.request_id = u.request_id"
+        f" WHERE {SHAPE_WHERE} AND s.stat_type = ANY(%(stat_types)s)"
+        " AND s.session_date BETWEEN %(first)s AND %(last)s GROUP BY 1, 2, 3",
+        shape.params(SchemaFamily.STATISTICS)
+        | {
+            "stat_types": sorted(int(t) for t in stat_types),
+            "first": first,
+            "last": last,
+        },
+    )
+    return {(i, d, t): int(n) for i, d, t, n in await cursor.fetchall()}

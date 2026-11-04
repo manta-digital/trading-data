@@ -175,13 +175,13 @@ revision_number: 2
 
 **Commit**: `feat: add statistics volume check`
 
-- [ ] **6.6 `coverage --schema statistics`**
-  - [ ] In `tick_coverage.py`, report per session: status, condition, unit ids, ledger and raw record counts per required stat type (mismatch exits 3), and the volume verdicts per contract and family. `over` and `no_trades` exit 3; `under` does not.
-  - [ ] Success: existing coverage output for other schemas is unchanged.
+- [x] **6.6 `coverage --schema statistics`**
+  - [x] In `tick_coverage.py`, report per session: status, condition, unit ids, ledger and raw record counts per required stat type (mismatch exits 3), and the volume verdicts per contract and family. `over` and `no_trades` exit 3; `under` does not.
+  - [x] Success: existing coverage output for other schemas is unchanged.
 
-- [ ] **6.7 Tests for 6.6** (new `test/integration/data/test_tick_coverage_statistics.py`, modelled on `test_tick_coverage_bars.py`)
-  - [ ] Count mismatch exits 3; `over` exits 3; `no_trades` exits 3; `under` exits 0; `--json` shape.
-  - [ ] Success: tests pass.
+- [x] **6.7 Tests for 6.6** (new `test/integration/data/test_tick_coverage_statistics.py`, modelled on `test_tick_coverage_bars.py`)
+  - [x] Count mismatch exits 3; `over` exits 3; `no_trades` exits 3; `under` exits 0; `--json` shape.
+  - [x] Success: tests pass.
 
 **Commit**: `feat: add coverage for the statistics family`
 

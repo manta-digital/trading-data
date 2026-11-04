@@ -23,11 +23,20 @@ from typing import Any
 
 from manta_trading.data.base.session_index import Session
 from manta_trading.data.tick.constants import TickSchema, calendar_for_product
+from manta_trading.data.tick.coverage_rows import (
+    CoverageSession,
+    Mismatch,
+    drop_unset_keys,
+)
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.raw_reads import raw_bar_totals, raw_counts
 from manta_trading.data.tick.schema_families import SCHEMA_FAMILY, SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
+from manta_trading.data.tick.statistics_reads import (
+    VOLUME_FINDINGS,
+    VolumeVerdict,
+)
 from manta_trading.data.tick.status_reads import (
     calendar_sessions,
     ledger_totals,
@@ -36,47 +45,10 @@ from manta_trading.data.tick.status_reads import (
     shape_of,
 )
 from manta_trading.data.tick.store_context import TickPreflightError
+from manta_trading.data.tick.tick_coverage_statistics import statistics_sections
 from manta_trading.data.tick.tick_status import SessionVerdict
 from manta_trading.data.tick.tick_status_build import jsonable
 from manta_trading.data.tick.universe import TickUniverseEntry
-
-MISMATCH, OK = "mismatch", "ok"
-
-
-@dataclass(frozen=True)
-class Mismatch:
-    instrument_id: int
-    ledger: int
-    raw: int
-    ledger_volume: int | None = None  # bars only
-    raw_volume: int | None = None  # bars only
-
-
-@dataclass(frozen=True)
-class CoverageSession:
-    session_date: date
-    condition: str
-    status: str
-    unit_ids: tuple[int, ...]
-    ledger: int
-    raw: int
-    mismatches: tuple[Mismatch, ...]
-    ledger_volume: int | None = None  # bars only
-    raw_volume: int | None = None  # bars only
-
-    @property
-    def check(self) -> str:
-        return MISMATCH if self.mismatches else OK
-
-
-#: Keys that exist only on a bar family's result: dropped when ``None``.
-_BAR_ONLY_KEYS = ("ledger_volume", "raw_volume")
-
-
-def _drop_unset_bar_keys(row: dict[str, Any]) -> None:
-    for key in _BAR_ONLY_KEYS:
-        if row.get(key) is None:
-            row.pop(key, None)
 
 
 @dataclass(frozen=True)
@@ -87,21 +59,43 @@ class TickCoverage:
     end: date
     sessions: tuple[CoverageSession, ...]
     schema: str | None = None  # a non-tick family's schema; None = the tick tier
+    #: Statistics only (303 D8): traded against cleared volume per contract.
+    volume_checks: tuple[VolumeVerdict, ...] | None = None
 
     @property
     def mismatched(self) -> bool:
-        return any(s.mismatches for s in self.sessions)
+        """A count mismatch, or a volume ``over`` / ``no_trades`` (never ``under``)."""
+        return any(s.mismatches for s in self.sessions) or any(
+            v.verdict in VOLUME_FINDINGS for v in self.volume_checks or ()
+        )
 
     def to_dict(self) -> dict[str, Any]:
         body = jsonable(asdict(self))
         if body.pop("schema") is not None:
             body["schema"] = self.schema
+        if body.pop("volume_checks") is not None:
+            body["volume_checks"] = [
+                volume_verdict_dict(v) for v in self.volume_checks or ()
+            ]
         for session, out in zip(self.sessions, body["sessions"], strict=True):
             out["check"] = session.check
-            _drop_unset_bar_keys(out)
+            drop_unset_keys(out)
             for mismatch in out["mismatches"]:
-                _drop_unset_bar_keys(mismatch)
+                drop_unset_keys(mismatch)
         return body | {"mismatched": self.mismatched}
+
+
+def volume_verdict_dict(v: VolumeVerdict) -> dict[str, Any]:
+    return {
+        "session_date": v.session_date.isoformat(),
+        "instrument_id": v.instrument_id,
+        "raw_symbol": v.raw_symbol,
+        "family": v.family.value,
+        "cleared": v.cleared,
+        "traded": v.traded,
+        "verdict": v.verdict.value,
+        "ratio": v.ratio,
+    }
 
 
 Totals = Mapping[tuple[int, date], tuple[int, int | None]]
@@ -189,7 +183,7 @@ def coverage_family(
         return SchemaFamily.TICK_TIER, None
     family = SCHEMA_FAMILY[schema]
     wanted = schema == entry.tier or any(w.schema == schema for w in entry.history)
-    if not wanted or family not in _TOTALS:
+    if not wanted or family not in {*_TOTALS, SchemaFamily.STATISTICS}:
         raise CoverageSchemaError(
             f"product {entry.product} does not want {schema.value}"
             f" (tier: {entry.tier}; history: {[w.schema.value for w in entry.history]})"
@@ -220,6 +214,14 @@ async def build_coverage(
         utc_midnight(end),
     )
     sessions = [s for s in found if start <= s.session_date < end]
+    if family is SchemaFamily.STATISTICS:
+        stat_rows, volume = await statistics_sections(
+            tick_conn, calendar_url, entry, sessions, start, end
+        )
+        named_schema = None if named is None else named.value
+        return TickCoverage(
+            entry.product, calendar_id, start, end, stat_rows, named_schema, volume
+        )
     verdicts = await session_verdicts(tick_conn, entry, sessions, family)
     ledger, raw = await _TOTALS[family](
         tick_conn, entry, sessions, start, end - timedelta(days=1)
