@@ -26,6 +26,10 @@ from manta_trading.data.tick.constants import (
     UnitState,
     calendar_for_product,
 )
+from manta_trading.data.tick.statistics_constants import (
+    STATISTICS_LEDGER_TABLE,
+    STATISTICS_TABLE,
+)
 
 #: A fixed instant for timestamptz columns; tests never depend on its value.
 _AT = datetime(2024, 9, 4, tzinfo=UTC)
@@ -168,6 +172,55 @@ def insert_bar_ledger_row(
         "last_event_ns": ACTIVATION_NS + 1,
     }
     _insert(conn, BAR_LEDGER_TABLE, row | overrides, None)
+
+
+#: A valid statistics row for a referenced type (settlement price), with a
+#: session; ``unit_id`` is supplied by the caller.
+STATISTICS_ROW: dict[str, Any] = {
+    "ts_recv": ACTIVATION_NS,
+    "ts_event": ACTIVATION_NS,
+    "ts_ref": ACTIVATION_NS - 3_600_000_000_000,
+    "instrument_id": 42_035_063,
+    "publisher_id": 1,
+    "stat_type": 3,
+    "update_action": 1,
+    "stat_flags": 0,
+    "price": 5_600_250_000_000,
+    "quantity": None,
+    "sequence": 1,
+    "channel_id": 13,
+    "ts_in_delta": 0,
+    "record_ordinal": 0,
+    "calendar_id": "CME_EQUITY",
+    "session_date": date(2024, 9, 3),
+}
+
+
+def insert_statistics(
+    conn: psycopg.Connection[Any], unit_id: int, **overrides: Any
+) -> None:
+    _insert(
+        conn,
+        STATISTICS_TABLE,
+        STATISTICS_ROW | {"unit_id": unit_id} | overrides,
+        None,
+    )
+
+
+def insert_statistics_ledger_row(
+    conn: psycopg.Connection[Any], unit_id: int, **overrides: Any
+) -> None:
+    row: dict[str, Any] = {
+        "unit_id": unit_id,
+        "instrument_id": 42_035_063,
+        "calendar_id": calendar_for_product("ES"),
+        "session_date": date(2024, 9, 3),
+        "stat_type": 3,
+        "record_count": 1,
+        "first_event_ns": ACTIVATION_NS,
+        "last_event_ns": ACTIVATION_NS,
+    }
+    _insert(conn, STATISTICS_LEDGER_TABLE, row | overrides, None)
 
 
 def insert_ledger_row(

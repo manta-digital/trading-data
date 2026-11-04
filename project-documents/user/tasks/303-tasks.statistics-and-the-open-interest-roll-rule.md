@@ -134,13 +134,13 @@ revision_number: 2
 
 ### 5. Resolved read (D5)
 
-- [ ] **5.1 Implement `statistics_reads.resolved`**
-  - [ ] New `data/tick/statistics_reads.py`: `resolved(conn, shape, stat_types, first, last)` returns one row per `(instrument_id, stat_type, session_date)` over current units of the shape (`SHAPE_WHERE`), the record with the greatest `(ts_recv, sequence, record_ordinal)`; a winning `DELETE` yields no row. One `DISTINCT ON` written in code, all values bound; rows carry the winner's `unit_id`.
-  - [ ] Success: this is the only place a statistic value is chosen.
+- [x] **5.1 Implement `statistics_reads.resolved`**
+  - [x] New `data/tick/statistics_reads.py`: `resolved(conn, shape, stat_types, first, last)` returns one row per `(instrument_id, stat_type, session_date)` over current units of the shape (`SHAPE_WHERE`), the record with the greatest `(ts_recv, sequence, record_ordinal)`; a winning `DELETE` yields no row. One `DISTINCT ON` written in code, all values bound; rows carry the winner's `unit_id`.
+  - [x] Success: this is the only place a statistic value is chosen.
 
-- [ ] **5.2 Tests for 5.1** (new `test/integration/data/test_tick_statistics_resolved.py`)
-  - [ ] Latest receive time wins across units; ties broken by `sequence` then `record_ordinal`; a `DELETE` in a later unit removes the value; a `NEW` after a `DELETE` restores it; non-current (superseded) units are ignored; records with NULL `session_date` never appear.
-  - [ ] Success: tests pass.
+- [x] **5.2 Tests for 5.1** (new `test/integration/data/test_tick_statistics_resolved.py`)
+  - [x] Latest receive time wins across units; ties broken by `sequence` then `record_ordinal`; a `DELETE` in a later unit removes the value; a `NEW` after a `DELETE` restores it; non-current (superseded) units are ignored; records with NULL `session_date` never appear.
+  - [x] Success: tests pass.
 
 **Commit**: `feat: add resolved statistics read`
 
