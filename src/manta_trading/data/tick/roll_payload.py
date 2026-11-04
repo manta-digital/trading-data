@@ -16,6 +16,13 @@ from manta_trading.data.tick.roll_types import (
     Segment,
     Unresolved,
 )
+from manta_trading.data.tick.schema_families import SchemaFamily
+
+
+def basis_text(family: SchemaFamily | None) -> str | None:
+    """The family a roll answer was decided from, as its value; ``None`` for
+    calendar (303 D10)."""
+    return None if family is None else family.value
 
 
 def contract_dict(answer: ActiveContract) -> dict[str, Any]:
@@ -28,6 +35,7 @@ def contract_dict(answer: ActiveContract) -> dict[str, Any]:
         "definitions_as_of": answer.definitions_as_of.isoformat(),
         "definition_unit_id": answer.definition_unit_id,
         "basis_unit_ids": list(answer.basis_unit_ids),
+        "basis_family": basis_text(answer.basis_family),
     }
 
 
@@ -41,6 +49,7 @@ CONTRACT_KEYS = (
     "definitions_as_of",
     "definition_unit_id",
     "basis_unit_ids",
+    "basis_family",
 )
 
 
@@ -85,6 +94,7 @@ def _segment_dict(segment: Segment) -> dict[str, Any]:
         "instrument_id": c.instrument_id,
         "raw_symbol": c.raw_symbol,
         "expiration": c.expiration.astimezone(UTC).isoformat(),
+        "basis": basis_text(c.basis_family),
     }
 
 

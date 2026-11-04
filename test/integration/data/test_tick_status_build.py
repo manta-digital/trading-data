@@ -35,6 +35,7 @@ from manta_trading.cli.commands.tick_status_render import (
     _product_lines,
 )
 from manta_trading.data.tick.constants import DatasetCondition, TickSchema, UnitState
+from manta_trading.data.tick.roll_types import Unresolved
 from manta_trading.data.tick.tick_coverage import build_coverage
 from manta_trading.data.tick.tick_status_build import build_status
 from manta_trading.data.tick.universe import HistoryWant
@@ -275,8 +276,20 @@ async def test_an_entry_with_a_bar_want_reports_a_separate_load_complete_section
     }
     assert bars.holed_sessions == (date(2024, 12, 5),)
     assert bars.caught_up is True  # the hole is on a provider-missing day
-    # The tick tier's own fields are untouched by the bar want.
-    assert replace(es, families=()) == replace(plain_es, families=())
+    # The tick tier's own fields are untouched by the bar want; its roll lines
+    # differ only in naming the bar family's status where no basis is complete
+    # (303 D10).
+    assert replace(es, families=(), rolls=()) == replace(
+        plain_es, families=(), rolls=()
+    )
+    for line, plain_line in zip(es.rolls, plain_es.rolls, strict=True):
+        assert replace(line, answer=None) == replace(plain_line, answer=None)
+        if isinstance(line.answer, Unresolved):
+            assert isinstance(plain_line.answer, Unresolved)
+            assert line.answer.reason.startswith(plain_line.answer.reason)
+            assert "bar_1m" in line.answer.reason
+        else:
+            assert line.answer == plain_line.answer
     assert tier.buckets == es.buckets
     text = "\n".join(_product_lines(es))
     assert text.count(LOAD_COMPLETE_ONLY) == 1

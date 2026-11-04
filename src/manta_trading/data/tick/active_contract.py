@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 
 import psycopg
@@ -33,6 +33,7 @@ from manta_trading.data.tick.constants import (
     TICK_DB_KEEPALIVES_INTERVAL_SECONDS,
     TICK_ROLL_MAX_SESSIONS,
     TICK_ROLL_STATEMENT_TIMEOUT_SECONDS,
+    RollMethod,
     calendar_for_product,
 )
 from manta_trading.data.tick.manifest_reads import Conn
@@ -40,6 +41,7 @@ from manta_trading.data.tick.roll_inputs import (
     definitions_as_of,
     held_session_bounds,
     outright_definitions,
+    session_open_interest,
     session_volumes,
 )
 from manta_trading.data.tick.roll_resolve import active_line, resolve_sessions
@@ -53,6 +55,7 @@ from manta_trading.data.tick.roll_types import (
 )
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
+from manta_trading.data.tick.statistics_status import statistics_verdicts
 from manta_trading.data.tick.status_reads import (
     open_calendar,
     session_verdicts,
@@ -61,6 +64,7 @@ from manta_trading.data.tick.status_reads import (
 from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.tick_calendar import TickCalendarError
 from manta_trading.data.tick.tick_status import TickSessionStatus
+from manta_trading.data.tick.tick_status_scope import family_wants
 from manta_trading.data.tick.universe import TickUniverseEntry
 
 
@@ -134,28 +138,62 @@ async def _snapshot(tick_url: str) -> AsyncIterator[Conn]:
         await conn.close()
 
 
+def _wants_bars(entry: TickUniverseEntry) -> bool:
+    return any(want.family is SchemaFamily.BAR_1M for want in family_wants(entry))
+
+
 async def _inputs(
     conn: Conn,
     entry: TickUniverseEntry,
     calendar: _CalendarRead,
     context: Sequence[Session],
+    rules: Sequence[RollRule],
+    calendar_url: str,
 ) -> RollInputs:
-    """Definitions, volume and verdicts over ``context`` from the open snapshot."""
+    """Definitions and exactly what ``rules`` need, over ``context``, from the open
+    snapshot: nothing more for ``c``; tick volume for ``v`` (and the bar family's
+    when the entry wants bars); open interest and its statuses for ``n``."""
     shape = shape_of(entry)
-    contracts = await outright_definitions(conn, entry.product)
-    as_of = await definitions_as_of(conn, shape)
-    verdicts = await session_verdicts(conn, entry, context, SchemaFamily.TICK_TIER)
-    volumes = await session_volumes(
-        conn, shape, context[0].session_date, context[-1].session_date
-    )
-    return RollInputs(
+    first, last = context[0].session_date, context[-1].session_date
+    methods = {rule.method for rule in rules}
+    inputs = RollInputs(
         sessions=calendar.sessions,
-        contracts=contracts,
-        volumes=volumes,
-        statuses={v.session_date: v.status for v in verdicts},
-        definitions_as_of=as_of,
+        contracts=await outright_definitions(conn, entry.product),
+        volumes=(),
+        statuses={},
+        definitions_as_of=await definitions_as_of(conn, shape),
         calendar_horizon=calendar.horizon,
     )
+    # The tick tier's statuses are read for every rule: ``active`` picks its
+    # latest complete session from them.
+    tick = await session_verdicts(conn, entry, context, SchemaFamily.TICK_TIER)
+    inputs = replace(inputs, statuses={v.session_date: v.status for v in tick})
+    if RollMethod.VOLUME in methods:
+        inputs = replace(
+            inputs,
+            volumes=await session_volumes(
+                conn, shape, SchemaFamily.TICK_TIER, first, last
+            ),
+        )
+        if _wants_bars(entry):
+            bars = await session_verdicts(conn, entry, context, SchemaFamily.BAR_1M)
+            inputs = replace(
+                inputs,
+                bar_volumes=await session_volumes(
+                    conn, shape, SchemaFamily.BAR_1M, first, last
+                ),
+                bar_statuses={v.session_date: v.status for v in bars},
+            )
+    if RollMethod.OPEN_INTEREST in methods:
+        statistics = await statistics_verdicts(calendar_url)(
+            conn, entry, context, SchemaFamily.STATISTICS
+        )
+        inputs = replace(
+            inputs,
+            open_interest=await session_open_interest(conn, shape, first, last),
+            statistics_statuses={v.session_date: v.status for v in statistics},
+        )
+    return inputs
 
 
 async def build_schedule(
@@ -200,7 +238,7 @@ async def build_schedule(
     first = max(wanted[0] - RANK_LAG_SESSIONS, 0)
     context = calendar.sessions[first : wanted[-1] + 1]
     async with _snapshot(tick_url) as conn:
-        inputs = await _inputs(conn, entry, calendar, context)
+        inputs = await _inputs(conn, entry, calendar, context, [rule], calendar_url)
     answers = await asyncio.to_thread(resolve_sessions, rule, inputs, start, end)
     return RollSchedule(entry.product, rule, answers)
 
@@ -270,7 +308,7 @@ async def latest_lines(
             )
         first = max(held[0] - RANK_LAG_SESSIONS, 0)
         context = calendar.sessions[first : held[-1] + 1]
-        inputs = await _inputs(conn, entry, calendar, context)
+        inputs = await _inputs(conn, entry, calendar, context, rules, calendar_url)
     window = [calendar.sessions[i].session_date for i in held]
     complete = [d for d in window if inputs.statuses[d] is TickSessionStatus.COMPLETE]
     if not complete:

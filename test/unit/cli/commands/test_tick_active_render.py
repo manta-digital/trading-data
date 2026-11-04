@@ -23,6 +23,7 @@ from manta_trading.data.tick.roll_types import (
     RollSchedule,
     Unresolved,
 )
+from manta_trading.data.tick.schema_families import SchemaFamily
 
 L = date(2024, 12, 31)
 V0, C0 = RollRule.parse("v.0"), RollRule.parse("c.0")
@@ -38,6 +39,7 @@ def _contract(symbol: str, iid: int, day: date, basis: date) -> ActiveContract:
         definitions_as_of=L,
         definition_unit_id=131,
         basis_unit_ids=(301, 302),
+        basis_family=SchemaFamily.TICK_TIER,
     )
 
 
@@ -65,7 +67,8 @@ CALENDAR = ActiveLine(
 def test_volume_line_matches_td7() -> None:
     assert active_line_text(VOLUME) == [
         "ES  v.0 (default)  ESH5 (5002)  exp 2025-03-21 13:30 UTC   session 2024-12-31",
-        "    inputs: volume of session 2024-12-27; definitions as of 2024-12-31",
+        "    inputs: volume of session 2024-12-27 (tick_tier);"
+        " definitions as of 2024-12-31",
         "    next roll: none through session 2025-01-03 (held volume);",
         "               no later than session 2025-03-24 (expiry)",
     ]
@@ -129,13 +132,15 @@ def test_schedule_text_and_json() -> None:
     )
     schedule = RollSchedule("ES", V0, answers)
     assert schedule_text(schedule) == [
-        "ES  v.0 (default)  2024-09-17 → 2024-09-17  ESU4 (118)",
-        "                   2024-09-18 → 2024-09-19  ESZ4 (183748)",
+        "ES  v.0 (default)  2024-09-17 → 2024-09-17  ESU4 (118)  [tick_tier]",
+        "                   2024-09-18 → 2024-09-19  ESZ4 (183748)  [tick_tier]",
         "    unresolved 2024-09-16: volume inputs: session 2024-09-12 is missing",
     ]
     body = schedule_dict(schedule)
     assert json.loads(json.dumps(body)) == body
     assert [s["raw_symbol"] for s in body["segments"]] == ["ESU4", "ESZ4"]
+    assert [s["basis"] for s in body["segments"]] == ["tick_tier", "tick_tier"]
+    assert {a["basis_family"] for a in body["answers"]} == {"tick_tier"}
     assert len(body["answers"]) == 3
     assert body["unresolved"] == [
         {

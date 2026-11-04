@@ -8,6 +8,7 @@ values, so the CLI's ``--json`` and the API cannot drift.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -48,6 +49,7 @@ from manta_trading.data.tick.roll_types import (
     Segment,
     Unresolved,
 )
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_reads import BAR_COLUMNS, TICK_COLUMNS
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
@@ -62,6 +64,7 @@ ESU4 = ActiveContract(
     definitions_as_of=date(2024, 12, 31),
     definition_unit_id=7,
     basis_unit_ids=(11, 12),
+    basis_family=SchemaFamily.TICK_TIER,
 )
 ESZ4 = ActiveContract(
     session_date=date(2024, 9, 19),
@@ -72,6 +75,7 @@ ESZ4 = ActiveContract(
     definitions_as_of=date(2024, 12, 31),
     definition_unit_id=7,
     basis_unit_ids=(13,),
+    basis_family=SchemaFamily.TICK_TIER,
 )
 GAP = Unresolved(date(2024, 9, 18), "no volume held for the lag session")
 SCHEDULE = RollSchedule("ES", DEFAULT_ROLL_RULE, (ESU4, GAP, ESZ4))
@@ -133,7 +137,15 @@ def _plan() -> GetPlan:
         start=date(2024, 9, 18),
         end=date(2024, 9, 19),
         segments=(),
-        display=(DisplaySegment(date(2024, 9, 18), date(2024, 9, 18), "ESZ4", 1),),
+        display=(
+            DisplaySegment(
+                date(2024, 9, 18),
+                date(2024, 9, 18),
+                "ESZ4",
+                1,
+                SchemaFamily.BAR_1M,
+            ),
+        ),
         unresolved=(),
         incomplete=(Incomplete(date(2024, 9, 18), TickSessionStatus.MISSING),),
         definitions_as_of=date(2024, 12, 31),
@@ -191,3 +203,19 @@ def test_from_and_until_are_on_the_wire_under_their_names() -> None:
     )
     assert "from_" not in body
     assert body["incomplete"] == [{"session_date": "2024-09-18", "status": "missing"}]
+
+
+def test_every_segment_of_a_time_series_carries_its_basis() -> None:
+    ticks = _json(FuturesTicksResponse.from_plan(_plan(), [], (None, None)))
+    bars = _json(FuturesBarsResponse.from_plan(_plan(), "1m", []))
+    assert [s["basis"] for s in ticks["segments"]] == ["bar_1m"]
+    assert [s["basis"] for s in bars["segments"]] == ["bar_1m"]
+
+
+def test_a_contract_segment_has_no_basis_and_a_ranked_one_names_its_family() -> None:
+    segment = Segment(ESU4.session_date, ESU4.session_date, ESU4)
+    assert _json(ScheduleSegmentRecord.from_segment(segment))["basis"] == "tick_tier"
+    named = DisplaySegment(date(2024, 9, 18), date(2024, 9, 18), "ESZ4", 1, None)
+    plan = replace(_plan(), display=(named,))
+    body = _json(FuturesTicksResponse.from_plan(plan, [], (None, None)))
+    assert [s["basis"] for s in body["segments"]] == [None]

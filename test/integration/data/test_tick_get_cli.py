@@ -143,7 +143,7 @@ def test_an_incomplete_session_is_read_listed_and_exits_three(
         (["ticks", "--contract", "ESZ4", "--rule", "v.0"], "--rule goes with"),
         (["ticks", "--contract", "ESZ4", "--csv", "--json"], "exclusive"),
         (["2m", "--contract", "ESZ4"], "WHAT must be one of"),
-        (["1m", "--product", "ES", "--rule", "n.0"], "unknown roll method"),
+        (["1m", "--product", "ES", "--rule", "z.0"], "unknown roll method"),
         (["1m", "--product", "ZZ"], "--product ZZ is not in the universe"),
         (["ticks", "--contract", "ESZ9"], "no definition held for contract ESZ9"),
         (

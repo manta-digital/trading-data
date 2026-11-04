@@ -17,11 +17,13 @@ session the rule needs past it is (``mt data extend``).
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import date
 
 from manta_trading.data.tick.constants import RANK_LAG_SESSIONS, RollMethod
 from manta_trading.data.tick.ingest_records import utc_ns
+from manta_trading.data.tick.roll_resolve_oi import open_interest_answer
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import (
     EXTEND_REMEDY,
@@ -32,9 +34,11 @@ from manta_trading.data.tick.roll_types import (
     NextRoll,
     RollInputError,
     RollInputs,
+    SessionOpenInterest,
     Unresolved,
     utc_from_ns,
 )
+from manta_trading.data.tick.schema_families import VOLUME_FAMILIES, SchemaFamily
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
 
@@ -48,12 +52,28 @@ class _Resolver:
         self.opens = [utc_ns(s.open_utc) for s in self.sessions]
         self.closes = [utc_ns(s.close_utc) for s in self.sessions]
         self.contracts = sorted(inputs.contracts, key=lambda c: c.expiration_ns)
-        self.volume: dict[date, dict[int, int]] = defaultdict(dict)
-        self.units: dict[date, set[int]] = defaultdict(set)
-        for row in inputs.volumes:
-            day = self.volume[row.session_date]
-            day[row.instrument_id] = day.get(row.instrument_id, 0) + row.volume
-            self.units[row.session_date].add(row.unit_id)
+        # Per volume family: session -> instrument -> volume, and the units read.
+        self.volume: dict[SchemaFamily, dict[date, dict[int, int]]] = {}
+        self.units: dict[SchemaFamily, dict[date, set[int]]] = {}
+        for family, rows in (
+            (SchemaFamily.TICK_TIER, inputs.volumes),
+            (SchemaFamily.BAR_1M, inputs.bar_volumes),
+        ):
+            volume: dict[date, dict[int, int]] = defaultdict(dict)
+            units: dict[date, set[int]] = defaultdict(set)
+            for row in rows:
+                day = volume[row.session_date]
+                day[row.instrument_id] = day.get(row.instrument_id, 0) + row.volume
+                units[row.session_date].add(row.unit_id)
+            self.volume[family], self.units[family] = volume, units
+        # Open interest per session, with the unit of each record (303 D9).
+        self.interest: dict[date, dict[int, SessionOpenInterest]] = defaultdict(dict)
+        for record in inputs.open_interest:
+            self.interest[record.session_date][record.instrument_id] = record
+        self.volume_statuses: dict[SchemaFamily, Mapping[date, TickSessionStatus]] = {
+            SchemaFamily.TICK_TIER: inputs.statuses,
+            SchemaFamily.BAR_1M: inputs.bar_statuses,
+        }
 
     def index_of(self, day: date) -> int:
         try:
@@ -74,9 +94,11 @@ class _Resolver:
     def answer(self, rule: RollRule, index: int) -> Answer:
         if rule.method is RollMethod.CALENDAR:
             return self._calendar(rule, index)
+        if rule.method is RollMethod.OPEN_INTEREST:
+            return open_interest_answer(self, rule, index)
         return self._volume(rule, index)
 
-    def _pick(
+    def pick(
         self, rule: RollRule, index: int, ranked: list[ContractDefinition]
     ) -> ContractDefinition | Unresolved:
         if rule.rank < len(ranked):
@@ -86,12 +108,13 @@ class _Resolver:
             day, f"rank {rule.rank}: only {len(ranked)} contracts eligible on {day}"
         )
 
-    def _contract(
+    def make_contract(
         self,
         index: int,
         chosen: ContractDefinition,
         basis: date,
         units: tuple[int, ...],
+        family: SchemaFamily | None,
     ) -> ActiveContract:
         return ActiveContract(
             session_date=self.sessions[index].session_date,
@@ -102,6 +125,7 @@ class _Resolver:
             definitions_as_of=self.inputs.definitions_as_of,
             definition_unit_id=chosen.unit_id,
             basis_unit_ids=units,
+            basis_family=family,
         )
 
     def _calendar(self, rule: RollRule, index: int) -> Answer:
@@ -115,14 +139,34 @@ class _Resolver:
             for c in self.contracts
             if c.activation_ns <= opened and horizon <= c.expiration_ns
         ]
-        chosen = self._pick(rule, index, eligible)
+        chosen = self.pick(rule, index, eligible)
         if isinstance(chosen, Unresolved):
             return chosen
-        return self._contract(index, chosen, day, ())
+        return self.make_contract(index, chosen, day, (), None)
+
+    def _volume_basis(self, basis: date) -> SchemaFamily | str:
+        """The family the session ``basis`` ranks on, or why it has none (D10).
+
+        The first family in ``VOLUME_FAMILIES`` whose session is complete: a
+        session never mixes families. A family whose statuses were not read is
+        left out of the reason, so a product with no bar want reads as before.
+        """
+        shown: list[tuple[SchemaFamily, str]] = []
+        for family in VOLUME_FAMILIES:
+            statuses = self.volume_statuses[family]
+            status = statuses.get(basis)
+            if status is TickSessionStatus.COMPLETE:
+                return family
+            if statuses or family is SchemaFamily.TICK_TIER:
+                shown.append((family, "not judged" if status is None else status.value))
+        if len(shown) == 1:
+            return shown[0][1]
+        return " and ".join(f"{text} in {family.value}" for family, text in shown)
 
     def _volume(self, rule: RollRule, index: int) -> Answer:
-        """TD3: eligible at S (offset 0) and listed in the lag session L,
-        ranked by L's volume, ties to the earlier expiration."""
+        """TD3 and 303 D10: eligible at S (offset 0) and listed in the lag
+        session L, ranked by L's volume in L's basis family, ties to the earlier
+        expiration."""
         day = self.sessions[index].session_date
         lag = index - RANK_LAG_SESSIONS
         if lag < 0:
@@ -132,10 +176,9 @@ class _Resolver:
                 " in the calendar read",
             )
         basis = self.sessions[lag].session_date
-        status = self.inputs.statuses.get(basis)
-        if status is not TickSessionStatus.COMPLETE:
-            shown = "not judged" if status is None else status.value
-            return Unresolved(day, f"volume inputs: session {basis} is {shown}")
+        family = self._volume_basis(basis)
+        if not isinstance(family, SchemaFamily):
+            return Unresolved(day, f"volume inputs: session {basis} is {family}")
         opened, lag_close = self.opens[index], self.closes[lag]
         ranked = [
             c
@@ -143,19 +186,20 @@ class _Resolver:
             if c.activation_ns <= opened <= c.expiration_ns
             and c.activation_ns <= lag_close
         ]
-        volumes = self.volume.get(basis, {})
+        volumes = self.volume[family].get(basis, {})
         for c in ranked:
             if c.instrument_id not in volumes:
                 raise RollInputError(
                     f"{c.raw_symbol} ({c.instrument_id}) is listed in session {basis}"
-                    " but has no ledger row (I13)"
+                    f" but has no {family.value} ledger row (I13)"
                 )
         # Stable sort over expiration order: equal volume keeps the earlier expiry.
         ranked.sort(key=lambda c: -volumes[c.instrument_id])
-        chosen = self._pick(rule, index, ranked)
+        chosen = self.pick(rule, index, ranked)
         if isinstance(chosen, Unresolved):
             return chosen
-        return self._contract(index, chosen, basis, tuple(sorted(self.units[basis])))
+        units = tuple(sorted(self.units[family][basis]))
+        return self.make_contract(index, chosen, basis, units, family)
 
 
 def resolve_sessions(

@@ -25,6 +25,8 @@ from manta_trading.data.tick.roll_types import (
     Unresolved,
 )
 
+#: What each ranking rule reads from its basis session.
+_RANKED_ON = {RollMethod.VOLUME: "volume", RollMethod.OPEN_INTEREST: "open interest"}
 _RULE_WIDTH = len(f"{DEFAULT_ROLL_RULE} (default)")
 _INDENT = "    "
 
@@ -46,6 +48,11 @@ def contract_label(raw_symbol: str, instrument_id: int) -> str:
 
 def _contract(answer: ActiveContract) -> str:
     return contract_label(answer.raw_symbol, answer.instrument_id)
+
+
+def _basis(answer: ActiveContract) -> str:
+    """``  [tick_tier]`` for a ranked answer; nothing for calendar (303 D10)."""
+    return "" if answer.basis_family is None else f"  [{answer.basis_family}]"
 
 
 def _next_roll_lines(line: ActiveLine) -> list[str]:
@@ -79,9 +86,10 @@ def active_line_text(line: ActiveLine) -> list[str]:
         f"{head}{_contract(answer)}  exp {_expiry(answer.expiration)}"
         f"   session {answer.session_date}"
     ]
-    if line.rule.method is RollMethod.VOLUME:
+    if line.rule.method in _RANKED_ON:
         lines.append(
-            f"{_INDENT}inputs: volume of session {answer.basis_session};"
+            f"{_INDENT}inputs: {_RANKED_ON[line.rule.method]} of session"
+            f" {answer.basis_session} ({answer.basis_family});"
             f" definitions as of {answer.definitions_as_of}"
         )
     return lines + [_INDENT + text for text in _next_roll_lines(line)]
@@ -93,7 +101,7 @@ def schedule_text(schedule: RollSchedule) -> list[str]:
     segments = schedule.segments()
     lines = [
         f"{head if i == 0 else pad}{s.first_session} → {s.last_session}"
-        f"  {_contract(s.contract)}"
+        f"  {_contract(s.contract)}{_basis(s.contract)}"
         for i, s in enumerate(segments)
     ]
     if not schedule.answers:

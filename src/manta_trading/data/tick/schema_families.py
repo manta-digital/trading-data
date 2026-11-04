@@ -48,7 +48,8 @@ FAMILY_LEDGER: Final[Mapping[SchemaFamily, str]] = {
 
 
 #: The families whose ledger carries a traded ``volume`` (the statistics ledger
-#: does not): the ones a statistics cleared volume can be checked against.
+#: does not), in the order the volume rule prefers them (303 D10): the tick tier
+#: first, so every answer decided on ticks is what it was before bars existed.
 VOLUME_FAMILIES: Final[tuple[SchemaFamily, ...]] = (
     SchemaFamily.TICK_TIER,
     SchemaFamily.BAR_1M,

@@ -38,7 +38,8 @@ def test_parse_is_lenient_on_case_and_whitespace(text: str, canonical: str) -> N
 @pytest.mark.parametrize(
     ("text", "message"),
     [
-        ("n.0", "unknown roll method 'n'; known: c, v"),
+        ("z.0", "unknown roll method 'z'; known: c, v, n"),
+        ("n.0+2s", "an offset suffix is allowed only on calendar (c)"),
         ("v.-1", "rank must be >= 0, got -1"),
         ("v.x", "rank must be a non-negative integer"),
         ("v.", "rank must be a non-negative integer"),
@@ -78,4 +79,22 @@ def test_symbol_prefixes_the_product() -> None:
 
 def test_default_and_status_rules() -> None:
     assert str(DEFAULT_ROLL_RULE) == "v.0"
+    assert [str(r) for r in STATUS_ROLL_RULES] == ["v.0", "c.0"]
+
+
+@pytest.mark.parametrize(("text", "rank"), [("n.0", 0), ("n.1", 1), (" N.2 ", 2)])
+def test_open_interest_rules_parse(text: str, rank: int) -> None:
+    rule = RollRule.parse(text)
+    assert (rule.method, rule.rank, rule.offset_sessions) == (
+        RollMethod.OPEN_INTEREST,
+        rank,
+        0,
+    )
+    assert str(rule) == f"n.{rank}"
+    assert rule.symbol("ES") == f"ES.n.{rank}"
+
+
+def test_open_interest_is_not_the_default_nor_a_status_rule() -> None:
+    assert DEFAULT_ROLL_RULE == RollRule(RollMethod.VOLUME, 0)
+    assert all(r.method is not RollMethod.OPEN_INTEREST for r in STATUS_ROLL_RULES)
     assert [str(r) for r in STATUS_ROLL_RULES] == ["v.0", "c.0"]

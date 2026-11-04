@@ -79,6 +79,9 @@ class DisplaySegment:
     last_session: date
     raw_symbol: str
     instrument_id: int
+    #: The family a roll rule decided this run from (303 D10); ``None`` for one
+    #: named contract, which no rule chose.
+    basis: SchemaFamily | None
 
 
 @dataclass(frozen=True)
@@ -252,6 +255,7 @@ async def contract_plan(
                 sessions[-1].session_date,
                 symbol,
                 candidate.instrument_id,
+                None,
             ),
         )
         if sessions
@@ -303,6 +307,7 @@ async def product_plan(
             seg.last_session,
             seg.contract.raw_symbol,
             seg.contract.instrument_id,
+            seg.contract.basis_family,
         )
         for seg in schedule.segments()
     )

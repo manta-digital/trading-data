@@ -15,15 +15,17 @@ from pathlib import Path
 
 TICK = Path(__file__).resolve().parents[4] / "src" / "manta_trading" / "data" / "tick"
 ROLL_MODULES = sorted(TICK.glob("roll_*.py")) + [TICK / "active_contract.py"]
-PURE = ("roll_rules.py", "roll_types.py", "roll_resolve.py")
+PURE = ("roll_rules.py", "roll_types.py", "roll_resolve.py", "roll_resolve_oi.py")
 #: The project modules a pure roll module may import: none does I/O.
 PURE_DEPENDENCIES = {
     "manta_trading.data.base.session_index",
     "manta_trading.data.tick.constants",
     "manta_trading.data.tick.ingest_records",
     "manta_trading.data.tick.roll_resolve",
+    "manta_trading.data.tick.roll_resolve_oi",
     "manta_trading.data.tick.roll_rules",
     "manta_trading.data.tick.roll_types",
+    "manta_trading.data.tick.schema_families",
     "manta_trading.data.tick.tick_status",
 }
 

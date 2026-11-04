@@ -32,7 +32,7 @@ TickBarGranularity = StrEnum(  # type: ignore[misc]
 
 #: The ``rule`` query parameter's description, shared by every route taking it.
 RULE_DESCRIPTION = (
-    "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); "
+    "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); "
     f"default {DEFAULT_ROLL_RULE}."
 )
 

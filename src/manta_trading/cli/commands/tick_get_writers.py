@@ -24,7 +24,7 @@ from manta_trading.data.tick.get_plan import (
     DisplaySegment,
     GetPlan,
 )
-from manta_trading.data.tick.roll_payload import unresolved_dict
+from manta_trading.data.tick.roll_payload import basis_text, unresolved_dict
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
 from manta_trading.data.tick.tick_format import row_cells
 from manta_trading.data.tick.tick_reads import (
@@ -209,6 +209,7 @@ class JsonWriter:
                     "last_session": s.last_session.isoformat(),
                     "raw_symbol": s.raw_symbol,
                     "instrument_id": s.instrument_id,
+                    "basis": basis_text(s.basis),
                 }
                 for s in plan.display
             ],

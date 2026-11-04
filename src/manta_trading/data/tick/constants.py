@@ -359,11 +359,13 @@ TICK_TRADE_ORDER_BY: tuple[str, ...] = ("ts_event", "sequence", "sequence_ordina
 class RollMethod(StrEnum):
     """Roll methods, named with Databento's continuous-symbol letters (TD1).
 
-    ``n`` (open interest) is deliberately unassigned: deferred (TD6).
+    ``n`` (open interest, slice 303) ranks on resolved open interest of an
+    earlier session.
     """
 
     CALENDAR = "c"  # nearest expiration
     VOLUME = "v"  # highest traded volume, ranked by an earlier session
+    OPEN_INTEREST = "n"  # highest open interest, ranked by an earlier session
 
 
 #: ``tick_definition.instrument_class`` of an outright future (a roll candidate).

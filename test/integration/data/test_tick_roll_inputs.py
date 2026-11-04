@@ -20,9 +20,12 @@ from tick_support.roll_seed import (
     seed_tier_days,
 )
 from tick_support.rows import (
+    ACTIVATION_NS,
     FILE_COLUMNS,
+    insert_bar_ledger_row,
     insert_ledger_row,
     insert_request,
+    insert_statistics,
     insert_unit,
 )
 from tick_support.runs import connect
@@ -32,9 +35,12 @@ from manta_trading.data.tick.roll_inputs import (
     definitions_as_of,
     held_session_bounds,
     outright_definitions,
+    session_open_interest,
     session_volumes,
 )
 from manta_trading.data.tick.roll_types import RollInputError
+from manta_trading.data.tick.schema_families import SchemaFamily
+from manta_trading.data.tick.statistics_constants import StatType
 from manta_trading.data.tick.status_reads import Shape
 
 AConn = psycopg.AsyncConnection[Any]
@@ -85,7 +91,7 @@ async def test_unknown_product_is_an_error_not_empty(
 async def test_volumes_are_outrights_over_current_units(
     seeded: dict[date, int], migrated_tick_db: str, aconn: AConn
 ) -> None:
-    rows = await session_volumes(aconn, SHAPE, D1, D2)
+    rows = await session_volumes(aconn, SHAPE, SchemaFamily.TICK_TIER, D1, D2)
     assert {(r.session_date, r.instrument_id, r.volume, r.unit_id) for r in rows} == {
         (D1, U.instrument_id, 500, seeded[D1]),
         (D1, Z.instrument_id, 300, seeded[D1]),
@@ -105,7 +111,7 @@ async def test_volumes_are_outrights_over_current_units(
         insert_ledger_row(
             conn, tbbo, instrument_id=U.instrument_id, session_date=D1, volume=7
         )
-    after = await session_volumes(aconn, SHAPE, D1, D1)
+    after = await session_volumes(aconn, SHAPE, SchemaFamily.TICK_TIER, D1, D1)
     assert [(r.instrument_id, r.volume, r.unit_id) for r in after] == [
         (U.instrument_id, 7, tbbo)
     ]
@@ -131,3 +137,63 @@ async def test_definitions_as_of_is_the_latest_definition_unit(
         spread=False,
     )
     assert await definitions_as_of(aconn, SHAPE) == date(2024, 12, 8)
+
+
+# -- 303: per-family volume and open interest ---------------------------------
+
+
+async def test_volumes_are_read_from_the_named_familys_own_ledger(
+    seeded: dict[date, int], migrated_tick_db: str, aconn: AConn
+) -> None:
+    with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
+        request = insert_request(conn, schema=TickSchema.OHLCV_1M.value)
+        bars = insert_unit(
+            conn, request, state=UnitState.INGESTED.value, **FILE_COLUMNS
+        )
+        insert_bar_ledger_row(
+            conn, bars, instrument_id=U.instrument_id, session_date=D1, volume=11
+        )
+        insert_bar_ledger_row(
+            conn, bars, instrument_id=SPREAD_ID, session_date=D1, volume=99
+        )
+    ticks = await session_volumes(aconn, SHAPE, SchemaFamily.TICK_TIER, D1, D1)
+    bar_rows = await session_volumes(aconn, SHAPE, SchemaFamily.BAR_1M, D1, D1)
+    assert {(r.instrument_id, r.volume) for r in ticks} == {
+        (U.instrument_id, 500),
+        (Z.instrument_id, 300),
+    }
+    assert [(r.instrument_id, r.volume, r.unit_id) for r in bar_rows] == [
+        (U.instrument_id, 11, bars)  # the spread is not an outright
+    ]
+
+
+async def test_a_family_without_traded_volume_is_refused(aconn: AConn) -> None:
+    with pytest.raises(ValueError, match="no traded volume"):
+        await session_volumes(aconn, SHAPE, SchemaFamily.STATISTICS, D1, D1)
+
+
+async def test_open_interest_is_the_resolved_value_and_drops_an_undefined_one(
+    seeded: dict[date, int], migrated_tick_db: str, aconn: AConn
+) -> None:
+    with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
+        request = insert_request(conn, schema=TickSchema.STATISTICS.value)
+        unit = insert_unit(
+            conn, request, state=UnitState.INGESTED.value, **FILE_COLUMNS
+        )
+        for sequence, (instrument, quantity) in enumerate(
+            [(U.instrument_id, 70), (U.instrument_id, 75), (Z.instrument_id, None)]
+        ):
+            insert_statistics(
+                conn,
+                unit,
+                instrument_id=instrument,
+                stat_type=int(StatType.OPEN_INTEREST),
+                quantity=quantity,
+                session_date=D1,
+                ts_recv=ACTIVATION_NS + sequence,
+                sequence=sequence,
+            )
+    rows = await session_open_interest(aconn, SHAPE, D1, D1)
+    assert [(r.instrument_id, r.value, r.unit_id) for r in rows] == [
+        (U.instrument_id, 75, unit)  # the latest record; Z's undefined value is out
+    ]

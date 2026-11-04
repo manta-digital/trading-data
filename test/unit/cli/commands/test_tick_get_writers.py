@@ -22,6 +22,7 @@ from manta_trading.data.tick.get_plan import (
 )
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
 from manta_trading.data.tick.roll_types import Unresolved
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_reads import BAR_COLUMNS, TICK_COLUMNS
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
@@ -35,8 +36,8 @@ PRODUCT = GetPlan(
     date(2024, 9, 20),
     (),
     (
-        DisplaySegment(D16, D17, "ESU4", 118),
-        DisplaySegment(D18, date(2024, 9, 19), "ESZ4", 183748),
+        DisplaySegment(D16, D17, "ESU4", 118, SchemaFamily.TICK_TIER),
+        DisplaySegment(D18, date(2024, 9, 19), "ESZ4", 183748, SchemaFamily.BAR_1M),
     ),
     (Unresolved(date(2024, 9, 3), "no ranking session held"),),
     (Incomplete(D18, TickSessionStatus.AWAITING_INGEST),),
@@ -105,6 +106,7 @@ def test_json_product_target_and_lists() -> None:
         "last_session": "2024-09-19",
         "raw_symbol": "ESZ4",
         "instrument_id": 183748,
+        "basis": "bar_1m",
     }
     assert body["unresolved"] == [
         {"session_date": "2024-09-03", "reason": "no ranking session held"}

@@ -106,7 +106,8 @@ def test_unresolved_sessions_exit_three_with_output(seeded: None) -> None:
 @pytest.mark.parametrize(
     ("args", "message"),
     [
-        (["--rule", "n.0"], "unknown roll method 'n'; known: c, v"),
+        (["--rule", "z.0"], "unknown roll method 'z'; known: c, v, n"),
+        (["--rule", "n.0+2s"], "offset suffix is allowed only on calendar"),
         (["--rule", "v.0+2s"], "offset suffix is allowed only on calendar"),
         (
             ["--product", "ES", "--start", "2020-01-02", "--end", "2026-01-02"],

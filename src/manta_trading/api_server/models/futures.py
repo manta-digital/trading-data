@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from manta_trading.data.tick.get_plan import ContractTarget, GetPlan
 from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
+from manta_trading.data.tick.roll_payload import basis_text
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
 from manta_trading.data.tick.tick_accounting import TickAccountingLine
 from manta_trading.data.tick.tick_format import cell_value
@@ -66,6 +67,9 @@ class SegmentRecord(BaseModel):
     last_session: date
     raw_symbol: str
     instrument_id: int
+    #: The tier the roll rule decided this run from: ``tick_tier``, ``bar_1m`` or
+    #: ``statistics``; null for one named contract (no rule chose it).
+    basis: str | None
 
 
 class UnresolvedRecord(BaseModel):
@@ -130,6 +134,7 @@ def _envelope(plan: GetPlan) -> dict[str, Any]:
                 last_session=s.last_session,
                 raw_symbol=s.raw_symbol,
                 instrument_id=s.instrument_id,
+                basis=basis_text(s.basis),
             )
             for s in plan.display
         ],

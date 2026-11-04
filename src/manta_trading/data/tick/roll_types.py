@@ -10,11 +10,12 @@ Management).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
 from manta_trading.data.base.session_index import Session
 from manta_trading.data.tick.roll_rules import RollRule
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -57,6 +58,17 @@ class SessionVolume:
 
 
 @dataclass(frozen=True)
+class SessionOpenInterest:
+    """One contract's resolved open interest for a session (303 D5): the value
+    of the winning record, and the unit that wrote it."""
+
+    session_date: date
+    instrument_id: int
+    value: int
+    unit_id: int
+
+
+@dataclass(frozen=True)
 class RollInputs:
     """Everything one resolution reads, from one snapshot and one calendar read.
 
@@ -72,6 +84,13 @@ class RollInputs:
     definitions_as_of: date
     #: The calendar's last populated session (calendar ``known_through``).
     calendar_horizon: date
+    #: Read only when the rule needs them (303 D9, D10): the bar family's volume
+    #: and statuses when the entry wants bars, open interest and the statistics
+    #: statuses for the ``n`` rule. Empty means "not read", never "zero".
+    bar_volumes: tuple[SessionVolume, ...] = ()
+    bar_statuses: Mapping[date, TickSessionStatus] = field(default_factory=dict)
+    open_interest: tuple[SessionOpenInterest, ...] = ()
+    statistics_statuses: Mapping[date, TickSessionStatus] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -84,6 +103,9 @@ class ActiveContract:
     definitions_as_of: date  # latest ingested definition unit day
     definition_unit_id: int  # unit of the chosen contract's definition row
     basis_unit_ids: tuple[int, ...]  # volume: units read for the lag session
+    #: The family the ranking read (303 D10): ``tick_tier`` or ``bar_1m`` for
+    #: volume, ``statistics`` for open interest; ``None`` for calendar.
+    basis_family: SchemaFamily | None
 
 
 @dataclass(frozen=True)
@@ -115,7 +137,8 @@ class RollSchedule:
         return tuple(a for a in self.answers if isinstance(a, Unresolved))
 
     def segments(self) -> tuple[Segment, ...]:
-        """Consecutive same-contract runs; an unresolved session breaks a run."""
+        """Consecutive same-contract runs; an unresolved session breaks a run, and
+        so does a change of basis family (303 D10)."""
         runs: list[Segment] = []
         previous: Answer | None = None
         for answer in self.answers:
@@ -124,6 +147,7 @@ class RollSchedule:
                     runs
                     and isinstance(previous, ActiveContract)
                     and previous.instrument_id == answer.instrument_id
+                    and previous.basis_family is answer.basis_family
                 ):
                     last = runs[-1]
                     runs[-1] = Segment(

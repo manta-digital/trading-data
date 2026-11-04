@@ -70,6 +70,7 @@
       "product": "ES",
       "rolls": [
         {
+          "basis_family": null,
           "basis_session": null,
           "basis_unit_ids": null,
           "definition_unit_id": null,
@@ -94,6 +95,7 @@
           ]
         },
         {
+          "basis_family": null,
           "basis_session": "2024-09-03",
           "basis_unit_ids": [],
           "definition_unit_id": 1,
@@ -104,6 +106,7 @@
           "is_default": false,
           "known_through": "2027-12-31",
           "next_roll": {
+            "basis_family": null,
             "basis_session": "2024-09-23",
             "basis_unit_ids": [],
             "definition_unit_id": 1,
@@ -156,6 +159,7 @@
       "product": "GC",
       "rolls": [
         {
+          "basis_family": null,
           "basis_session": null,
           "basis_unit_ids": null,
           "definition_unit_id": null,
@@ -175,6 +179,7 @@
           "unresolved": []
         },
         {
+          "basis_family": null,
           "basis_session": null,
           "basis_unit_ids": null,
           "definition_unit_id": null,

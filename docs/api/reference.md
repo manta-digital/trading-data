@@ -1447,17 +1447,22 @@ clipping would move the first bar's stamp. Bound a bars request by sessions.
 **Roll rules** name the contract a product read uses for each session:
 `{method}.{rank}[+{offset}s]`, case-insensitive. The default is `v.0`, the
 front contract by volume.
-Roll methods are `v` `c`.
+Roll methods are `v` `c` `n`.
 <!-- from: manta_trading.data.tick.constants.RollMethod -->
 `v` ranks contracts by the volume of an earlier session, so it never looks
-ahead; `c` takes the nearest expiration, and `c.0+2s` rolls two sessions before
-it. A bad rule is a `422` naming what is wrong.
+ahead; `n` ranks them by the open interest of an earlier session, equally
+never looking ahead; `c` takes the nearest expiration, and `c.0+2s` rolls two
+sessions before it. An offset is allowed only on `c`. A bad rule is a `422`
+naming what is wrong.
 
 **What a time-series response says about itself.** Every array is present,
 possibly empty:
 
 - `segments`: runs of consecutive sessions served by one contract, in order.
-  A product read lists the roll here; a contract read lists one run.
+  A product read lists the roll here; a contract read lists one run. Each
+  segment's `basis` names the tier its roll was decided from (`tick_tier`,
+  `bar_1m`, or `statistics` for `n`), so a run never splices two tiers; it is
+  null for a contract read and for `c`, which no ranking decides.
 - `unresolved`: sessions the rule could not answer, each with a `reason`.
   They have **no rows**, never rows from a guessed contract. The volume rule
   cannot answer the first sessions held, because it ranks by an earlier
@@ -1524,7 +1529,7 @@ known. No parameters.
 | `active[].rule`, `is_default` | string, boolean | no | The rule; whether it is the default. |
 | `active[].session_date` | date | yes | The latest complete session held. |
 | `active[].raw_symbol`, `instrument_id`, `expiration` | string, integer, string | yes | The contract the rule names for it. |
-| `active[].basis_session`, `definitions_as_of`, `definition_unit_id`, `basis_unit_ids` | | yes | What the answer was decided from; a change means the inputs changed. |
+| `active[].basis_session`, `definitions_as_of`, `definition_unit_id`, `basis_unit_ids`, `basis_family` | | yes | What the answer was decided from (`basis_family` is the tier: `tick_tier`, `bar_1m` or `statistics`; null for `c`); a change means the inputs changed. |
 | `active[].unresolved[]` | array of object | no | The session, when the rule could not answer it. |
 | `active[].next_roll` | object | yes | The next session served by a different contract, when known. |
 | `active[].known_through` | date | yes | The last session the answer is known for. |
@@ -1608,9 +1613,9 @@ curl 'http://127.0.0.1:8137/api/v1/futures/products/ES/schedule?start=2024-09-16
 
 ```json
 {"product":"ES","rule":"v.0","is_default":true,
- "segments":[{"first_session":"2024-09-16","last_session":"2024-09-17","instrument_id":118,"raw_symbol":"ESU4","expiration":"2024-09-20T13:30:00+00:00"},
-             {"first_session":"2024-09-18","last_session":"2024-09-20","instrument_id":183748,"raw_symbol":"ESZ4","expiration":"2024-12-20T14:30:00+00:00"}],
- "answers":[{"session_date":"2024-09-16","instrument_id":118,"raw_symbol":"ESU4","expiration":"2024-09-20T13:30:00+00:00","basis_session":"2024-09-12","definitions_as_of":"2024-12-31","definition_unit_id":131,"basis_unit_ids":[11,12]},…],
+ "segments":[{"first_session":"2024-09-16","last_session":"2024-09-17","instrument_id":118,"raw_symbol":"ESU4","expiration":"2024-09-20T13:30:00+00:00","basis":"tick_tier"},
+             {"first_session":"2024-09-18","last_session":"2024-09-20","instrument_id":183748,"raw_symbol":"ESZ4","expiration":"2024-12-20T14:30:00+00:00","basis":"tick_tier"}],
+ "answers":[{"session_date":"2024-09-16","instrument_id":118,"raw_symbol":"ESU4","expiration":"2024-09-20T13:30:00+00:00","basis_session":"2024-09-12","definitions_as_of":"2024-12-31","definition_unit_id":131,"basis_unit_ids":[11,12],"basis_family":"tick_tier"},…],
  "unresolved":[]}
 ```
 
@@ -1657,7 +1662,7 @@ curl 'http://127.0.0.1:8137/api/v1/futures/contracts/ESZ4/ticks?start=2024-12-18
 ```json
 {"target":{"kind":"contract","product":null,"contract":"ESZ4","instrument_id":183748,"rule":null,"is_default":null},
  "start":"2024-12-18","end":"2024-12-19","from":"2024-12-18T14:30:00Z","until":"2024-12-18T14:35:00Z",
- "definitions_as_of":null,"segments":[{"first_session":"2024-12-18","last_session":"2024-12-18","raw_symbol":"ESZ4","instrument_id":183748}],
+ "definitions_as_of":null,"segments":[{"first_session":"2024-12-18","last_session":"2024-12-18","raw_symbol":"ESZ4","instrument_id":183748,"basis":null}],
  "unresolved":[],"incomplete":[],"count":1792,
  "ticks":[{"ts_event":"2024-12-18T14:30:00.001440845Z","session_date":"2024-12-18","raw_symbol":"ESZ4","instrument_id":183748,"price":"6050.25","size":1,"side":"B","bid_px":"6050","ask_px":"6050.25","bid_sz":17,"ask_sz":18,"bid_ct":17,"ask_ct":13,"sequence":29838835},…]}
 ```
@@ -1748,8 +1753,8 @@ curl 'http://127.0.0.1:8137/api/v1/futures/products/ES/bars?granularity=1d&start
 ```json
 {"target":{"kind":"product","product":"ES","contract":null,"instrument_id":null,"rule":"v.0","is_default":true},
  "granularity":"1d","start":"2024-09-16","end":"2024-09-21","definitions_as_of":"2024-12-31",
- "segments":[{"first_session":"2024-09-16","last_session":"2024-09-17","raw_symbol":"ESU4","instrument_id":118},
-             {"first_session":"2024-09-18","last_session":"2024-09-20","raw_symbol":"ESZ4","instrument_id":183748}],
+ "segments":[{"first_session":"2024-09-16","last_session":"2024-09-17","raw_symbol":"ESU4","instrument_id":118,"basis":"tick_tier"},
+             {"first_session":"2024-09-18","last_session":"2024-09-20","raw_symbol":"ESZ4","instrument_id":183748,"basis":"tick_tier"}],
  "unresolved":[],"incomplete":[],"count":5,
  "bars":[{"time":"2024-09-15T22:00:00.000000000Z","session_date":"2024-09-16","raw_symbol":"ESU4","instrument_id":118,"open":"5622.75","high":"5641.5","low":"5609.25","close":"5633.75","volume":461273},…]}
 ```

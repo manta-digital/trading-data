@@ -4,6 +4,17 @@
       "ActiveLineRecord": {
         "description": "One rule's answer for the latest complete session (``/futures/products``):\nthe keys of ``roll_payload.active_line_dict``. Contract fields are null\nwithout a contract; ``error`` is set when the rule could not be answered.",
         "properties": {
+          "basis_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis Family"
+          },
           "basis_session": {
             "anyOf": [
               {
@@ -186,6 +197,7 @@
           "definitions_as_of",
           "definition_unit_id",
           "basis_unit_ids",
+          "basis_family",
           "unresolved",
           "next_roll",
           "known_through",
@@ -622,6 +634,17 @@
       "ContractAnswerRecord": {
         "description": "One session's active contract (``schedule.answers``, ``next_roll``): the\nkeys of ``roll_payload.contract_dict``.",
         "properties": {
+          "basis_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis Family"
+          },
           "basis_session": {
             "format": "date",
             "title": "Basis Session",
@@ -669,7 +692,8 @@
           "basis_session",
           "definitions_as_of",
           "definition_unit_id",
-          "basis_unit_ids"
+          "basis_unit_ids",
+          "basis_family"
         ],
         "title": "ContractAnswerRecord",
         "type": "object"
@@ -2813,6 +2837,17 @@
       "ScheduleSegmentRecord": {
         "description": "A run of sessions under one contract in ``/futures/.../schedule``: the\nkeys of ``schedule_dict``'s segments (it carries ``expiration``, unlike the\ntime series' ``SegmentRecord``).",
         "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
           "expiration": {
             "title": "Expiration",
             "type": "string"
@@ -2841,7 +2876,8 @@
           "last_session",
           "instrument_id",
           "raw_symbol",
-          "expiration"
+          "expiration",
+          "basis"
         ],
         "title": "ScheduleSegmentRecord",
         "type": "object"
@@ -2887,6 +2923,17 @@
       "SegmentRecord": {
         "description": "A run of consecutive served sessions from one contract (time series).",
         "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
           "first_session": {
             "format": "date",
             "title": "First Session",
@@ -2910,7 +2957,8 @@
           "first_session",
           "last_session",
           "raw_symbol",
-          "instrument_id"
+          "instrument_id",
+          "basis"
         ],
         "title": "SegmentRecord",
         "type": "object"
@@ -4459,7 +4507,7 @@
             }
           },
           {
-            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); default v.0.",
             "in": "query",
             "name": "rule",
             "required": false,
@@ -4472,7 +4520,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); default v.0.",
               "title": "Rule"
             }
           },
@@ -4660,7 +4708,7 @@
             }
           },
           {
-            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); default v.0.",
             "in": "query",
             "name": "rule",
             "required": false,
@@ -4673,7 +4721,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); default v.0.",
               "title": "Rule"
             }
           },
@@ -4779,7 +4827,7 @@
             }
           },
           {
-            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); default v.0.",
             "in": "query",
             "name": "rule",
             "required": false,
@@ -4792,7 +4840,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, c.0, c.0+2s); default v.0.",
+              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); default v.0.",
               "title": "Rule"
             }
           },

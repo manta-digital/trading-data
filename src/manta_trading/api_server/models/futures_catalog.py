@@ -17,6 +17,7 @@ from pydantic import BaseModel, PlainSerializer
 from manta_trading.api_server.models.futures import UnresolvedRecord
 from manta_trading.data.tick.catalog_reads import CatalogContract
 from manta_trading.data.tick.constants import calendar_for_product, name_for_product
+from manta_trading.data.tick.roll_payload import basis_text
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
 from manta_trading.data.tick.roll_types import (
     ActiveContract,
@@ -46,6 +47,7 @@ class ContractAnswerRecord(BaseModel):
     definitions_as_of: date
     definition_unit_id: int
     basis_unit_ids: list[int]
+    basis_family: str | None
 
     @classmethod
     def from_answer(cls, answer: ActiveContract) -> ContractAnswerRecord:
@@ -58,6 +60,7 @@ class ContractAnswerRecord(BaseModel):
             definitions_as_of=answer.definitions_as_of,
             definition_unit_id=answer.definition_unit_id,
             basis_unit_ids=list(answer.basis_unit_ids),
+            basis_family=basis_text(answer.basis_family),
         )
 
 
@@ -81,6 +84,7 @@ class ActiveLineRecord(BaseModel):
     definitions_as_of: date | None
     definition_unit_id: int | None
     basis_unit_ids: list[int] | None
+    basis_family: str | None
     unresolved: list[UnresolvedRecord]
     next_roll: ContractAnswerRecord | None
     known_through: date | None
@@ -149,6 +153,7 @@ class ScheduleSegmentRecord(BaseModel):
     instrument_id: int
     raw_symbol: str
     expiration: UtcIso
+    basis: str | None
 
     @classmethod
     def from_segment(cls, segment: Segment) -> ScheduleSegmentRecord:
@@ -159,6 +164,7 @@ class ScheduleSegmentRecord(BaseModel):
             instrument_id=contract.instrument_id,
             raw_symbol=contract.raw_symbol,
             expiration=contract.expiration,
+            basis=basis_text(contract.basis_family),
         )
 
 

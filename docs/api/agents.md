@@ -319,7 +319,9 @@ it.
 
 `GET /api/v1/futures/products/{product}/schedule?rule=&start=&end=` →
 `{segments[], answers[], unresolved[]}`. Read `segments` for the runs and
-`unresolved` for sessions the rule cannot answer.
+`unresolved` for sessions the rule cannot answer. Each segment's `basis` names
+the tier its roll was decided from (`tick_tier`, `bar_1m`, or `statistics` for
+`n`; null for `c`).
 
 <!-- endpoint: /api/v1/futures/products/{product}/schedule
      params: rule:string, start:date, end:date
@@ -365,7 +367,8 @@ session.
 futures symbols, and its `end` is inclusive.
 
 **Before trusting a product read, check three arrays:** `segments` (which
-contract served which sessions), `unresolved` (sessions with no rows at all),
+contract served which sessions, and from which tier's data the roll was decided,
+`basis`), `unresolved` (sessions with no rows at all),
 and `incomplete` (sessions whose rows may be partial). All three come with HTTP
 `200`.
 
@@ -572,12 +575,13 @@ that it failed. `PROVIDER_UNAVAILABLE` means the provider did not answer.
 A subset of the bar granularity above; `1d` is one whole session.
 
 **Roll method** — the first part of a futures `rule`, `{method}.{rank}[+{offset}s]`:
-`v` `c`.
+`v` `c` `n`.
 <!-- from: manta_trading.data.tick.constants.RollMethod -->
 
-`v` is by volume (ranked on an earlier session, never looking ahead), `c` by
-nearest expiration; rank `0` is the front contract, and only `c` takes an
-offset (`c.0+2s` rolls two sessions early). The default is `v.0`.
+`v` is by volume and `n` by open interest (each ranked on an earlier session,
+never looking ahead), `c` by nearest expiration; rank `0` is the front
+contract, and only `c` takes an offset (`c.0+2s` rolls two sessions early).
+The default is `v.0`.
 
 **Tick state** — `tick_db` on `/api/v1/health`, `tick.state` on
 `/api/v1/status`:

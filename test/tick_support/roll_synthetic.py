@@ -16,6 +16,7 @@ from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.roll_types import (
     ContractDefinition,
     RollInputs,
+    SessionOpenInterest,
     SessionVolume,
 )
 from manta_trading.data.tick.tick_status import TickSessionStatus
@@ -73,21 +74,57 @@ def volume_rows(volumes: Mapping[tuple[date, int], int]) -> tuple[SessionVolume,
     return tuple(rows)
 
 
+#: The unit a session's open-interest record comes from (one per session).
+def interest_unit(day: date) -> int:
+    return day.toordinal() * 10 + 5
+
+
+def interest_rows(
+    interest: Mapping[tuple[date, int], int],
+) -> tuple[SessionOpenInterest, ...]:
+    return tuple(
+        SessionOpenInterest(day, instrument, value, interest_unit(day))
+        for (day, instrument), value in interest.items()
+    )
+
+
 def inputs(
     run: tuple[Session, ...],
     contracts: Iterable[ContractDefinition],
     volumes: Mapping[tuple[date, int], int] | None = None,
     statuses: Mapping[date, TickSessionStatus] | None = None,
+    *,
+    bar_volumes: Mapping[tuple[date, int], int] | None = None,
+    bar_statuses: Mapping[date, TickSessionStatus] | None = None,
+    interest: Mapping[tuple[date, int], int] | None = None,
+    statistics_statuses: Mapping[date, TickSessionStatus] | None = None,
 ) -> RollInputs:
-    """Every session complete unless ``statuses`` says otherwise."""
-    judged = {s.session_date: TickSessionStatus.COMPLETE for s in run}
+    """Every session complete unless ``statuses`` says otherwise.
+
+    The bar family and the statistics are read only when their arguments are
+    given: their statuses default to every session complete then, as the tick
+    tier's do, and to "not read" (empty) otherwise.
+    """
+    complete = {s.session_date: TickSessionStatus.COMPLETE for s in run}
     return RollInputs(
         sessions=run,
         contracts=tuple(contracts),
         volumes=volume_rows(volumes or {}),
-        statuses=judged | dict(statuses or {}),
+        statuses=complete | dict(statuses or {}),
         definitions_as_of=DEFINITIONS_AS_OF,
         calendar_horizon=run[-1].session_date,
+        bar_volumes=volume_rows(bar_volumes or {}),
+        bar_statuses=(
+            {}
+            if bar_volumes is None and bar_statuses is None
+            else complete | dict(bar_statuses or {})
+        ),
+        open_interest=interest_rows(interest or {}),
+        statistics_statuses=(
+            {}
+            if interest is None and statistics_statuses is None
+            else complete | dict(statistics_statuses or {})
+        ),
     )
 
 
