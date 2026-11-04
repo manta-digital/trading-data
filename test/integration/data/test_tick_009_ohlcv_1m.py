@@ -41,8 +41,9 @@ def _apply(url: str, migrations: list[dict[str, Any]]) -> None:
         apply_migrations(pool, migrations)
 
 
-def test_it_is_the_last_tick_migration() -> None:
-    assert TRACKS["tick"][-1]["id"] == MIGRATION_ID
+def test_it_is_registered_after_tick_008() -> None:
+    ids = [m["id"] for m in TRACKS["tick"]]
+    assert ids[ids.index(MIGRATION_ID) - 1] == "tick_008_plan_inclusion"
 
 
 def test_tick_request_accepts_ohlcv_1m_and_still_rejects_unknown(

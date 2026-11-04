@@ -11,7 +11,8 @@ minute track rather than copied. Every later id is prefixed ``tick_NNN_*``
 Slice 222 adds the five storage tables; slice 223 adds availability metadata
 and ``reopened_at`` (``tick_006``); slice 226 the columnstore layout
 (``tick_007``); slice 300 ``tick_request.is_plan_included`` (``tick_008``);
-slice 302 the ``ohlcv-1m`` bar tables (``tick_009``).
+slice 302 the ``ohlcv-1m`` bar tables (``tick_009``); slice 303 the
+``statistics`` tables (``tick_010``).
 SQL is idempotent (IF NOT EXISTS,
 ``if_not_exists => TRUE``, constraints named inside the CREATE). Every enum
 CHECK is rendered from its enum, never hand-listed (222 TD9). No migration
@@ -46,6 +47,16 @@ from manta_trading.data.tick.constants import (
     DeliveryMode,
     SType,
     UnitState,
+)
+from manta_trading.data.tick.statistics_constants import (
+    STATISTICS_CHUNK_INTERVAL,
+    STATISTICS_COMPRESS_AFTER,
+    STATISTICS_KEY,
+    STATISTICS_LEDGER_KEY,
+    STATISTICS_LEDGER_TABLE,
+    STATISTICS_ORDER_BY,
+    STATISTICS_SEGMENT_BY,
+    STATISTICS_TABLE,
 )
 from manta_trading.data.tick.storage_columns import (
     TICK_TRADE_BBO_COLUMNS,
@@ -451,6 +462,86 @@ TICK_MIGRATIONS: list[dict[str, str]] = [
                 CONSTRAINT {BAR_LEDGER_TABLE}_last_event_check
                     CHECK ((last_event_ns IS NULL) = (record_count = 0)),
                 CONSTRAINT {BAR_LEDGER_TABLE}_event_order_check
+                    CHECK (first_event_ns <= last_event_ns)
+            );
+        """,
+    },
+    {
+        "id": "tick_010_statistics",
+        "description": "Create the tick_statistics hypertable and its ledger",
+        # Slice 303 D2. As tick_009: the request check is re-rendered so
+        # ``statistics`` is archivable; the table is an integer-ns hypertable on
+        # ``ts_recv`` with 7-day chunks and no foreign key on unit_id. The
+        # columnstore ALTER runs on the empty table. Undefined provider values
+        # are NULL (price, quantity, ts_ref), never the DBN sentinels.
+        "sql": f"""
+            ALTER TABLE tick_request
+                DROP CONSTRAINT IF EXISTS tick_request_schema_check;
+            ALTER TABLE tick_request ADD CONSTRAINT tick_request_schema_check
+                {render_enum_check("schema", ARCHIVED_SCHEMAS)};
+            CREATE TABLE IF NOT EXISTS {STATISTICS_TABLE} (
+                ts_recv        BIGINT   NOT NULL,
+                ts_event       BIGINT   NOT NULL,
+                ts_ref         BIGINT,
+                instrument_id  BIGINT   NOT NULL,
+                publisher_id   INTEGER  NOT NULL,
+                stat_type      SMALLINT NOT NULL,
+                update_action  SMALLINT NOT NULL,
+                stat_flags     SMALLINT NOT NULL,
+                price          BIGINT,
+                quantity       BIGINT,
+                sequence       BIGINT   NOT NULL,
+                channel_id     INTEGER  NOT NULL,
+                ts_in_delta    INTEGER  NOT NULL,
+                record_ordinal SMALLINT NOT NULL,
+                calendar_id    TEXT,
+                session_date   DATE,
+                unit_id        BIGINT   NOT NULL,
+                CONSTRAINT {STATISTICS_TABLE}_pkey
+                    PRIMARY KEY ({", ".join(STATISTICS_KEY)}),
+                CONSTRAINT {STATISTICS_TABLE}_session_pair_check
+                    CHECK ((calendar_id IS NULL) = (session_date IS NULL)),
+                CONSTRAINT {STATISTICS_TABLE}_session_ref_check
+                    CHECK (session_date IS NULL OR ts_ref IS NOT NULL)
+            );
+            SELECT create_hypertable(
+                '{STATISTICS_TABLE}',
+                'ts_recv',
+                chunk_time_interval    => {interval_to_ns(STATISTICS_CHUNK_INTERVAL)},
+                create_default_indexes => FALSE,
+                if_not_exists          => TRUE
+            );
+            SELECT set_integer_now_func(
+                '{STATISTICS_TABLE}', 'tick_now_ns', replace_if_exists => TRUE
+            );
+            ALTER TABLE {STATISTICS_TABLE} SET (
+                timescaledb.enable_columnstore,
+                timescaledb.segmentby = '{", ".join(STATISTICS_SEGMENT_BY)}',
+                timescaledb.orderby   = '{", ".join(STATISTICS_ORDER_BY)}'
+            );
+            CALL add_columnstore_policy(
+                '{STATISTICS_TABLE}',
+                after         => {interval_to_ns(STATISTICS_COMPRESS_AFTER)}::BIGINT,
+                if_not_exists => TRUE
+            );
+            CREATE INDEX IF NOT EXISTS {STATISTICS_TABLE}_session_idx
+                ON {STATISTICS_TABLE} (session_date, stat_type);
+            CREATE TABLE IF NOT EXISTS {STATISTICS_LEDGER_TABLE} (
+                unit_id        BIGINT   NOT NULL
+                    CONSTRAINT {STATISTICS_LEDGER_TABLE}_unit_fkey
+                    REFERENCES tick_archive_unit (unit_id),
+                instrument_id  BIGINT   NOT NULL,
+                calendar_id    TEXT     NOT NULL,
+                session_date   DATE     NOT NULL,
+                stat_type      SMALLINT NOT NULL,
+                record_count   BIGINT   NOT NULL
+                    CONSTRAINT {STATISTICS_LEDGER_TABLE}_record_count_check
+                    CHECK (record_count > 0),
+                first_event_ns BIGINT   NOT NULL,
+                last_event_ns  BIGINT   NOT NULL,
+                CONSTRAINT {STATISTICS_LEDGER_TABLE}_pkey
+                    PRIMARY KEY ({", ".join(STATISTICS_LEDGER_KEY)}),
+                CONSTRAINT {STATISTICS_LEDGER_TABLE}_event_order_check
                     CHECK (first_event_ns <= last_event_ns)
             );
         """,

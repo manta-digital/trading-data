@@ -74,16 +74,17 @@ revision_number: 2
 
 ### 2. Migration `tick_010_statistics` (D2)
 
-- [ ] **2.1 Write the migration**
-  - [ ] Read `market/schema/migrations/tick.py` and confirm the last id (expected `tick_009_ohlcv_1m`). Add `tick_010_statistics`: drop and re-add `tick_request_schema_check` rendered from `ARCHIVED_SCHEMAS`; `CREATE TABLE IF NOT EXISTS tick_statistics` with the columns, NULL rules and CHECKs of D2 (`calendar_id`/`session_date` both NULL or both set; `session_date` set implies `ts_ref` set); primary key `(instrument_id, stat_type, ts_recv, sequence, record_ordinal)`; `create_hypertable` on `ts_recv` (integer ns, 7-day chunks, no default indexes, `if_not_exists`); `set_integer_now_func('tick_statistics', 'tick_now_ns')`; columnstore `ALTER` on the empty table; `add_columnstore_policy`; index on `(session_date, stat_type)`.
-  - [ ] `CREATE TABLE IF NOT EXISTS tick_statistics_ledger` per D2: key `(unit_id, instrument_id, session_date, stat_type)`, foreign key to `tick_archive_unit`.
-  - [ ] Success: migration registered after `tick_009`; all values come from `statistics_constants.py`.
+- [x] **2.1 Write the migration**
+  - [x] Read `market/schema/migrations/tick.py` and confirm the last id (expected `tick_009_ohlcv_1m`). Add `tick_010_statistics`: drop and re-add `tick_request_schema_check` rendered from `ARCHIVED_SCHEMAS`; `CREATE TABLE IF NOT EXISTS tick_statistics` with the columns, NULL rules and CHECKs of D2 (`calendar_id`/`session_date` both NULL or both set; `session_date` set implies `ts_ref` set); primary key `(instrument_id, stat_type, ts_recv, sequence, record_ordinal)`; `create_hypertable` on `ts_recv` (integer ns, 7-day chunks, no default indexes, `if_not_exists`); `set_integer_now_func('tick_statistics', 'tick_now_ns')`; columnstore `ALTER` on the empty table; `add_columnstore_policy`; index on `(session_date, stat_type)`.
+  - [x] `CREATE TABLE IF NOT EXISTS tick_statistics_ledger` per D2: key `(unit_id, instrument_id, session_date, stat_type)`, foreign key to `tick_archive_unit`.
+  - [x] Success: migration registered after `tick_009`; all values come from `statistics_constants.py`.
 
-- [ ] **2.2 Migration integration tests** (new `test/integration/data/test_tick_010_statistics.py`, modelled on `test_tick_009_ohlcv_1m.py`)
-  - [ ] Applies on an empty tick database and on a populated one (existing rows untouched); re-apply is a no-op.
-  - [ ] A `tick_request` with schema `statistics` is accepted and an unknown schema is still rejected.
-  - [ ] Both CHECKs reject violating rows; duplicate key rejected; the hypertable has the expected chunk interval and columnstore policy.
-  - [ ] Success: tests pass against the throwaway test cluster; `test_tick_columnstore_migration.py` still passes.
+- [x] **2.2 Migration integration tests** (new `test/integration/data/test_tick_010_statistics.py`, modelled on `test_tick_009_ohlcv_1m.py`)
+  - [x] Applies on an empty tick database and on a populated one (existing rows untouched); re-apply is a no-op.
+  - [x] A `tick_request` with schema `statistics` is accepted and an unknown schema is still rejected.
+  - [x] Both CHECKs reject violating rows; duplicate key rejected; the hypertable has the expected chunk interval and columnstore policy.
+  - [x] Success: tests pass against the throwaway test cluster; `test_tick_columnstore_migration.py` still passes.
+  - Note: `test_drill_228_bookkeeping_pins.py::test_bookkeeping_list_plus_row_tables_is_every_tick_table` and `test_tick_role_privileges.py::test_artifact_enumerates_every_tick_table` now fail only because the two new tables are not yet enumerated; task 7.4 owns both.
 
 **Commit**: `feat: add tick_010_statistics migration`
 

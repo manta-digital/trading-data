@@ -49,6 +49,10 @@ the application credential for `status`, the maintenance credential for `apply`
   (the request CHECK is re-rendered), the `tick_ohlcv_1m` hypertable with the
   `tick_trade` chunk and columnstore layout from `bar_constants.py`, and
   `tick_bar_ledger`, the bar family's ledger.
+  Slice 303 adds `tick_010_statistics`: `statistics` joins the archivable
+  schemas (the request CHECK is re-rendered), the `tick_statistics` hypertable
+  (on `ts_recv`, layout from `statistics_constants.py`) and
+  `tick_statistics_ledger`, the statistics family's ledger.
 - **Misroute guard.** Before applying, `apply` reads the target ledger and
   refuses if it holds ids of a track routed to another database (for example a
   tick maintenance URL that points at `trading`). It checks the ledger, not
