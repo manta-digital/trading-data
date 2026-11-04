@@ -135,7 +135,7 @@ def statistics_verdicts(calendar_url: str) -> VerdictReader:
     return read
 
 
-async def _outrights(
+async def outrights(
     conn: Conn, product: str
 ) -> dict[int, tuple[str | None, list[tuple[int, int]]]]:
     """Per outright: its symbol and every definition window (activation, expiration)."""
@@ -151,6 +151,22 @@ async def _outrights(
             (activation, expiration)
         )
     return found
+
+
+def listed_instruments(
+    definitions: dict[int, tuple[str | None, list[tuple[int, int]]]], session: Session
+) -> list[int]:
+    """The outrights whose definition window holds the whole session, by id.
+
+    A contract that expires (or first lists) inside the session is not listed
+    for it: nothing is required of it.
+    """
+    opened, closed = utc_ns(session.open_utc), utc_ns(session.close_utc)
+    return [
+        instrument_id
+        for instrument_id, (_, windows) in sorted(definitions.items())
+        if any(a <= opened and e >= closed for a, e in windows)
+    ]
 
 
 async def _held_types(
@@ -186,7 +202,7 @@ async def content_findings(
     ]
     if not complete:
         return ()
-    outrights = await _outrights(conn, entry.product)
+    listed_for = await outrights(conn, entry.product)
     held = await _held_types(
         conn,
         shape_of(entry),
@@ -196,10 +212,8 @@ async def content_findings(
     required = {int(stat_type) for stat_type in REQUIRED_STAT_TYPES}
     findings = []
     for session in complete:
-        opened, closed = utc_ns(session.open_utc), utc_ns(session.close_utc)
-        for instrument_id, (symbol, windows) in sorted(outrights.items()):
-            if not any(a <= opened and e >= closed for a, e in windows):
-                continue
+        for instrument_id in listed_instruments(listed_for, session):
+            symbol = listed_for[instrument_id][0]
             missing = required - held.get((instrument_id, session.session_date), set())
             if missing:
                 findings.append(

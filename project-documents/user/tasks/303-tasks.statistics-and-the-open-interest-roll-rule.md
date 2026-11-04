@@ -162,15 +162,16 @@ revision_number: 2
 
 **Commit**: `feat: add statistics session verdict and status section`
 
-- [ ] **6.4 Volume check** (in `statistics_reads.py`)
-  - [ ] Pure `classify_volume(cleared, traded)` returning `agree`, `under`, `over` or `no_trades` per D8, as an enum (not strings scattered in code). Connection-bound `volume_check(conn, shape, family, first, last) -> tuple[VolumeVerdict, ...]`: one resolved read of cleared volume and one ledger read of the given family through `FAMILY_LEDGER`, bounded by `[first, last]`, for listed outrights. A session is checked against a volume family only when it is load-complete in `statistics` and in that family; the statuses come from `statistics_status.py` and 302's existing per-family status reads (this task owns that combination; task 11 reuses it).
-  - [ ] If the module would exceed ~300 lines, put the volume check in `statistics_volume.py`.
-  - [ ] Success: one implementation parameterised by family.
+- [x] **6.4 Volume check** (in `statistics_reads.py`)
+  - [x] Pure `classify_volume(cleared, traded)` returning `agree`, `under`, `over` or `no_trades` per D8, as an enum (not strings scattered in code). Connection-bound `volume_check(conn, shape, family, first, last) -> tuple[VolumeVerdict, ...]`: one resolved read of cleared volume and one ledger read of the given family through `FAMILY_LEDGER`, bounded by `[first, last]`, for listed outrights. A session is checked against a volume family only when it is load-complete in `statistics` and in that family; the statuses come from `statistics_status.py` and 302's existing per-family status reads (this task owns that combination; task 11 reuses it).
+  - [x] If the module would exceed ~300 lines, put the volume check in `statistics_volume.py`.
+  - [x] Success: one implementation parameterised by family.
+  - Note: `volume_check` takes the product and the already-checkable sessions rather than `first, last`, because listing needs each session's open and close; a contract with no resolved cleared volume is not compared (it is the status section's content finding).
 
-- [ ] **6.5 Tests for 6.4**
-  - [ ] Unit: each `classify_volume` verdict including V = C = 0 and `under` with its V/C ratio.
-  - [ ] Integration (new `test_tick_statistics_volume.py`): seeded ledger and statistics rows for both `TICK_TIER` and `BAR_1M`; both complete means both reported separately; a session incomplete in either family is skipped.
-  - [ ] Success: tests pass.
+- [x] **6.5 Tests for 6.4**
+  - [x] Unit: each `classify_volume` verdict including V = C = 0 and `under` with its V/C ratio.
+  - [x] Integration (new `test_tick_statistics_volume.py`): seeded ledger and statistics rows for both `TICK_TIER` and `BAR_1M`; both complete means both reported separately; a session incomplete in either family is skipped.
+  - [x] Success: tests pass.
 
 **Commit**: `feat: add statistics volume check`
 

@@ -47,6 +47,14 @@ FAMILY_LEDGER: Final[Mapping[SchemaFamily, str]] = {
 }
 
 
+#: The families whose ledger carries a traded ``volume`` (the statistics ledger
+#: does not): the ones a statistics cleared volume can be checked against.
+VOLUME_FAMILIES: Final[tuple[SchemaFamily, ...]] = (
+    SchemaFamily.TICK_TIER,
+    SchemaFamily.BAR_1M,
+)
+
+
 def schema_family_map(
     table: Mapping[SchemaFamily, tuple[TickSchema, ...]],
 ) -> dict[TickSchema, SchemaFamily]:
