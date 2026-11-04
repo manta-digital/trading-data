@@ -12,6 +12,7 @@ from manta_trading.data.tick.constants import (
     ARCHIVED_SCHEMAS,
     COMPANION_SCHEMAS,
     ESTIMATE_SCHEMAS,
+    HISTORY_SCHEMAS,
     STORED_TIERS,
     TICK_ACQUISITION_LOCK_KEY,
     TICK_ARCHIVE_DIR_ENV,
@@ -48,6 +49,7 @@ def test_schema_values_are_provider_spellings() -> None:
         "mbp-1",
         "definition",
         "ohlcv-1m",
+        "statistics",
     ]
 
 
@@ -78,10 +80,10 @@ def test_companion_is_definition_only() -> None:
     assert not COMPANION_SCHEMAS & set(TICK_TIERS)
 
 
-def test_estimate_schemas_are_every_tier_then_definition_then_bars() -> None:
+def test_estimate_schemas_are_tiers_then_definition_then_bars_then_statistics() -> None:
     assert ESTIMATE_SCHEMAS[: len(TICK_TIERS)] == TICK_TIERS
     assert ESTIMATE_SCHEMAS[len(TICK_TIERS)] is TickSchema.DEFINITION
-    assert ESTIMATE_SCHEMAS[-1] is TickSchema.OHLCV_1M
+    assert ESTIMATE_SCHEMAS[-2:] == (TickSchema.OHLCV_1M, TickSchema.STATISTICS)
     assert set(TICK_TIERS) <= set(ESTIMATE_SCHEMAS)
     assert len(ESTIMATE_SCHEMAS) == len(set(ESTIMATE_SCHEMAS))
 
@@ -147,12 +149,13 @@ def test_unit_states_with_file_come_after_delivery() -> None:
     assert all(order.index(s) > delivered for s in UNIT_STATES_WITH_FILE)
 
 
-def test_archived_schemas_are_stored_tiers_definition_and_bars() -> None:
+def test_archived_schemas_are_stored_tiers_definition_bars_and_statistics() -> None:
     assert ARCHIVED_SCHEMAS == {
         TickSchema.TRADES,
         TickSchema.TBBO,
         TickSchema.DEFINITION,
         TickSchema.OHLCV_1M,
+        TickSchema.STATISTICS,
     }
     assert TickSchema.MBP_1 not in ARCHIVED_SCHEMAS
 
@@ -205,3 +208,12 @@ def test_ohlcv_1m_is_archived_but_neither_a_tier_nor_a_companion() -> None:
     assert TickSchema.OHLCV_1M in ESTIMATE_SCHEMAS
     for collection in (TICK_TIERS, STORED_TIERS, COMPANION_SCHEMAS):
         assert TickSchema.OHLCV_1M not in collection
+
+
+def test_statistics_is_archived_history_but_not_a_tier_or_companion() -> None:
+    assert TickSchema.STATISTICS == "statistics"
+    assert TickSchema.STATISTICS in ARCHIVED_SCHEMAS
+    assert TickSchema.STATISTICS in HISTORY_SCHEMAS
+    assert TickSchema.STATISTICS in ESTIMATE_SCHEMAS
+    for collection in (TICK_TIERS, STORED_TIERS, COMPANION_SCHEMAS):
+        assert TickSchema.STATISTICS not in collection

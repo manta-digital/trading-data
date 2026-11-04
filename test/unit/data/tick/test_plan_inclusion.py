@@ -41,6 +41,11 @@ def test_ohlcv_1m_history_is_all_included() -> None:
     assert _included(TickSchema.OHLCV_1M, date(2012, 3, 6))
 
 
+def test_statistics_history_is_all_included() -> None:
+    assert PLAN_INCLUDED_HISTORY[STANDARD][TickSchema.STATISTICS] is None
+    assert _included(TickSchema.STATISTICS, date(2012, 3, 6))
+
+
 def test_plans_cover_the_cme_dataset() -> None:
     assert PLAN_DATASET == CME_DATASET
 

@@ -91,6 +91,7 @@ def test_unset_ceiling() -> None:
         TickSchema.MBP_1: CeilingVerdict.NOT_PURCHASABLE,
         TickSchema.DEFINITION: CeilingVerdict.BOUGHT_WITH_EACH_TIER,
         TickSchema.OHLCV_1M: CeilingVerdict.NO_CEILING,
+        TickSchema.STATISTICS: CeilingVerdict.NO_CEILING,
     }
 
 
@@ -188,7 +189,7 @@ def test_to_dict_carries_the_ceiling_fields() -> None:
 
 def test_with_no_plan_no_schema_is_plan_included() -> None:
     report = build_estimate(_provider(), REQUEST, Decimal("4.00"), None, RECENT)
-    assert [row.is_plan_included for row in report.rows] == [False] * 5
+    assert [row.is_plan_included for row in report.rows] == [False] * 6
     assert report.rows[0].verdict is CeilingVerdict.WITHIN
     assert report.rows[1].verdict is CeilingVerdict.OVER
 
@@ -196,7 +197,7 @@ def test_with_no_plan_no_schema_is_plan_included() -> None:
 def test_a_recent_range_is_plan_included_and_any_ceiling_is_within() -> None:
     tiny = Decimal("0.0001")
     report = build_estimate(_provider(), REQUEST, tiny, DatabentoPlan.STANDARD, RECENT)
-    assert [row.is_plan_included for row in report.rows] == [True] * 5
+    assert [row.is_plan_included for row in report.rows] == [True] * 6
     assert [row.verdict for row in report.rows[:2]] == [CeilingVerdict.WITHIN] * 2
     assert report.rows[0].cost_usd == FIGURES[TickSchema.TRADES][2]  # list price
     assert report.rows[0].bundle_cost_usd == TRADES_BUNDLE
@@ -221,7 +222,7 @@ def test_to_dict_carries_is_plan_included() -> None:
     ).to_dict()
     rows = payload["schemas"]
     assert isinstance(rows, list)
-    assert [row["is_plan_included"] for row in rows] == [True] * 5
+    assert [row["is_plan_included"] for row in rows] == [True] * 6
 
 
 # -- the ohlcv-1m row (slice 302, D8) -----------------------------------------
@@ -273,4 +274,5 @@ def test_the_tier_bundles_exclude_the_bar_cost() -> None:
     payload = report.to_dict()
     rows = payload["schemas"]
     assert isinstance(rows, list)
-    assert rows[-1]["schema"] == "ohlcv-1m" and rows[-1]["bundle_cost_usd"] is None
+    assert rows[-1]["schema"] == "statistics" and rows[-1]["bundle_cost_usd"] is None
+    assert rows[-2]["schema"] == "ohlcv-1m" and rows[-2]["bundle_cost_usd"] is None

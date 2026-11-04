@@ -17,6 +17,7 @@ from manta_trading.data.tick.schema_families import (
     schema_family_map,
     supersedes_sql,
 )
+from manta_trading.data.tick.statistics_constants import STATISTICS_LEDGER_TABLE
 
 
 def test_every_schema_is_in_exactly_one_family() -> None:
@@ -34,6 +35,10 @@ def test_the_bar_family_holds_ohlcv_1m_only() -> None:
     assert FAMILY_SCHEMAS[SchemaFamily.BAR_1M] == (TickSchema.OHLCV_1M,)
 
 
+def test_the_statistics_family_holds_statistics_only() -> None:
+    assert FAMILY_SCHEMAS[SchemaFamily.STATISTICS] == (TickSchema.STATISTICS,)
+
+
 def test_the_families_are_disjoint() -> None:
     listed = [schema for schemas in FAMILY_SCHEMAS.values() for schema in schemas]
     assert len(listed) == len(set(listed))
@@ -42,10 +47,15 @@ def test_the_families_are_disjoint() -> None:
 def test_every_ingested_family_has_a_ledger_and_definition_has_none() -> None:
     ingested = {SCHEMA_FAMILY[schema] for schema in INGEST_PROJECTORS}
     assert ingested <= set(FAMILY_LEDGER)
-    assert set(FAMILY_LEDGER) == {SchemaFamily.TICK_TIER, SchemaFamily.BAR_1M}
+    assert set(FAMILY_LEDGER) == {
+        SchemaFamily.TICK_TIER,
+        SchemaFamily.BAR_1M,
+        SchemaFamily.STATISTICS,
+    }
     assert SchemaFamily.DEFINITION not in FAMILY_LEDGER
     assert FAMILY_LEDGER[SchemaFamily.TICK_TIER] == "tick_ingest_ledger"
     assert FAMILY_LEDGER[SchemaFamily.BAR_1M] == "tick_bar_ledger"
+    assert FAMILY_LEDGER[SchemaFamily.STATISTICS] == STATISTICS_LEDGER_TABLE
 
 
 def test_a_schema_in_two_families_fails_explicitly() -> None:

@@ -19,12 +19,14 @@ from manta_trading.data.tick.constants import (
     TICK_TIERS,
     TickSchema,
 )
+from manta_trading.data.tick.statistics_constants import STATISTICS_LEDGER_TABLE
 
 
 class SchemaFamily(StrEnum):
     TICK_TIER = "tick_tier"
     DEFINITION = "definition"
     BAR_1M = "bar_1m"
+    STATISTICS = "statistics"
 
 
 #: Family -> schemas, lowest rank first. The tick-tier order is ``TICK_TIERS``,
@@ -33,6 +35,7 @@ FAMILY_SCHEMAS: Final[Mapping[SchemaFamily, tuple[TickSchema, ...]]] = {
     SchemaFamily.TICK_TIER: TICK_TIERS,
     SchemaFamily.DEFINITION: (TickSchema.DEFINITION,),
     SchemaFamily.BAR_1M: (TickSchema.OHLCV_1M,),
+    SchemaFamily.STATISTICS: (TickSchema.STATISTICS,),
 }
 
 #: Family -> the ledger table its ingest writes. ``DEFINITION`` is absent on
@@ -40,6 +43,7 @@ FAMILY_SCHEMAS: Final[Mapping[SchemaFamily, tuple[TickSchema, ...]]] = {
 FAMILY_LEDGER: Final[Mapping[SchemaFamily, str]] = {
     SchemaFamily.TICK_TIER: TICK_LEDGER_TABLE,
     SchemaFamily.BAR_1M: BAR_LEDGER_TABLE,
+    SchemaFamily.STATISTICS: STATISTICS_LEDGER_TABLE,
 }
 
 

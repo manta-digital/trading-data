@@ -47,26 +47,28 @@ revision_number: 2
 
 ### 1. Schema, family, plan row, constants (D1, D2)
 
-- [ ] **1.1 Create `statistics_constants.py`**
-  - [ ] New `data/tick/statistics_constants.py`, modelled on `bar_constants.py`: table names (`tick_statistics`, `tick_statistics_ledger`), column names, primary key, chunk interval (7 days in ns), columnstore segment/order/compress-after values, `REFERENCED_STAT_TYPES` (settlement price 3, cleared volume 6, open interest 9), `REQUIRED_STAT_TYPES` (the same three), `STATISTICS_PUBLICATION_SESSIONS = 1` with a comment citing the roll lag constant's note (`VOLUME_RANK_LAG_SESSIONS`; task 10 renames it, so cite it by description, not name) and 220's pinned timing.
-  - [ ] Stat types are defined once as an `IntEnum` (or constants) holding the DBN `StatType` values; nothing else in the code compares to a bare number.
-  - [ ] Success: module imports; no value is duplicated elsewhere.
+- [x] **1.1 Create `statistics_constants.py`**
+  - [x] New `data/tick/statistics_constants.py`, modelled on `bar_constants.py`: table names (`tick_statistics`, `tick_statistics_ledger`), column names, primary key, chunk interval (7 days in ns), columnstore segment/order/compress-after values, `REFERENCED_STAT_TYPES` (settlement price 3, cleared volume 6, open interest 9), `REQUIRED_STAT_TYPES` (the same three), `STATISTICS_PUBLICATION_SESSIONS = 1` with a comment citing the roll lag constant's note (`VOLUME_RANK_LAG_SESSIONS`; task 10 renames it, so cite it by description, not name) and 220's pinned timing.
+  - [x] Stat types are defined once as an `IntEnum` (or constants) holding the DBN `StatType` values; nothing else in the code compares to a bare number.
+  - [x] Success: module imports; no value is duplicated elsewhere.
 
-- [ ] **1.2 Add `TickSchema.STATISTICS` and membership**
-  - [ ] Read `data/tick/constants.py` and `test_constants.py` first. Add `TickSchema.STATISTICS = "statistics"`; add it to `ARCHIVED_SCHEMAS`, `HISTORY_SCHEMAS` and `ESTIMATE_SCHEMAS`. This task owns all three memberships; task 7.1 adds only the want validation. Do not touch `STORED_TIERS`, `TICK_TIERS` or `COMPANION_SCHEMAS`. `constants.py` takes only this (it is 442 lines).
-  - [ ] Success: constants tests pass, updated where they enumerate schemas.
+- [x] **1.2 Add `TickSchema.STATISTICS` and membership**
+  - [x] Read `data/tick/constants.py` and `test_constants.py` first. Add `TickSchema.STATISTICS = "statistics"`; add it to `ARCHIVED_SCHEMAS`, `HISTORY_SCHEMAS` and `ESTIMATE_SCHEMAS`. This task owns all three memberships; task 7.1 adds only the want validation. Do not touch `STORED_TIERS`, `TICK_TIERS` or `COMPANION_SCHEMAS`. `constants.py` takes only this (it is 442 lines).
+  - [x] Success: constants tests pass, updated where they enumerate schemas.
+  - Note: `estimate.py`'s `_row` treats statistics like the bar schemas, with its own marginal cost. `STATISTICS_SCHEMAS` is a new set in `constants.py`, beside `BAR_SCHEMAS`; `HISTORY_SCHEMAS`, `ARCHIVED_SCHEMAS` and `ESTIMATE_SCHEMAS` are built from it.
+  - Note: `test_estimate.py` loads a recorded fixture for every `ESTIMATE_SCHEMAS` entry, so the three `get_{record_count,billable_size,cost}.statistics.json` files were recorded with `scripts/record_databento_fixtures.py --schema statistics` (free calls). The row-count and verdict assertions in `test_estimate.py` were extended for this; 7.3 still confirms the estimate.
 
-- [ ] **1.3 Add `SchemaFamily.STATISTICS` and `FAMILY_LEDGER`**
-  - [ ] In `schema_families.py` add `STATISTICS: (STATISTICS,)` to `FAMILY_SCHEMAS` and `FAMILY_LEDGER[STATISTICS] = "tick_statistics_ledger"` (name from `statistics_constants.py`).
-  - [ ] Success: families stay total and disjoint over `TickSchema`.
+- [x] **1.3 Add `SchemaFamily.STATISTICS` and `FAMILY_LEDGER`**
+  - [x] In `schema_families.py` add `STATISTICS: (STATISTICS,)` to `FAMILY_SCHEMAS` and `FAMILY_LEDGER[STATISTICS] = "tick_statistics_ledger"` (name from `statistics_constants.py`).
+  - [x] Success: families stay total and disjoint over `TickSchema`.
 
-- [ ] **1.4 Add the plan-inclusion row**
-  - [ ] In `config/databento_plans.py` set `PLAN_INCLUDED_HISTORY[STANDARD][STATISTICS] = None` (all history).
-  - [ ] Success: the plan table is total over `TickSchema`; `is_plan_included` answers for `statistics`.
+- [x] **1.4 Add the plan-inclusion row**
+  - [x] In `config/databento_plans.py` set `PLAN_INCLUDED_HISTORY[STANDARD][STATISTICS] = None` (all history).
+  - [x] Success: the plan table is total over `TickSchema`; `is_plan_included` answers for `statistics`.
 
-- [ ] **1.5 Tests for 1.1–1.4** (extend `test_constants.py`, `test_schema_families.py`, `test_plan_inclusion.py`; the estimate tests are updated in 7.3)
-  - [ ] Families total and disjoint; `STATISTICS` holds `statistics` only; `FAMILY_LEDGER` has a key for every family that is a key of `INGEST_PROJECTORS`'s schemas except those not yet registered (the projector is registered in task 4); plan table total.
-  - [ ] Success: `uv run pytest test/unit/data/tick -q` passes.
+- [x] **1.5 Tests for 1.1–1.4** (extend `test_constants.py`, `test_schema_families.py`, `test_plan_inclusion.py`; the estimate tests are updated in 7.3)
+  - [x] Families total and disjoint; `STATISTICS` holds `statistics` only; `FAMILY_LEDGER` has a key for every family that is a key of `INGEST_PROJECTORS`'s schemas except those not yet registered (the projector is registered in task 4); plan table total.
+  - [x] Success: `uv run pytest test/unit/data/tick -q` passes.
 
 **Commit**: `feat: add statistics schema, family, constants and plan row`
 

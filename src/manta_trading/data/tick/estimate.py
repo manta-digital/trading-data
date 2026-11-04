@@ -27,6 +27,7 @@ from manta_trading.data.tick.constants import (
     BAR_SCHEMAS,
     COMPANION_SCHEMAS,
     ESTIMATE_SCHEMAS,
+    STATISTICS_SCHEMAS,
     STORED_TIERS,
     DatasetCondition,
     TickSchema,
@@ -136,7 +137,7 @@ def _row(
             (figures[m][2] for m in members if not included[m]), start=Decimal(0)
         )
         verdict = _bundle_verdict(marginal, ceiling)
-    elif schema in BAR_SCHEMAS:
+    elif schema in BAR_SCHEMAS | STATISTICS_SCHEMAS:
         marginal = Decimal(0) if included[schema] else cost
         verdict = _bundle_verdict(marginal, ceiling)
     elif schema in COMPANION_SCHEMAS:

@@ -29,6 +29,7 @@ class TickSchema(StrEnum):
     MBP_1 = "mbp-1"
     DEFINITION = "definition"
     OHLCV_1M = "ohlcv-1m"
+    STATISTICS = "statistics"
 
 
 #: The candidate tiers the preflight compares, cheapest first.
@@ -47,23 +48,30 @@ COMPANION_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.DEFINITION})
 #: Bar schemas, bought and stored beside the tick tiers (slice 302).
 BAR_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.OHLCV_1M})
 
-#: What a universe entry's ``history`` may want (slice 302 D5); 303 adds
-#: ``statistics``.
-HISTORY_SCHEMAS: frozenset[TickSchema] = BAR_SCHEMAS | COMPANION_SCHEMAS
+#: The statistics schema, bought and stored beside the bars (slice 303).
+STATISTICS_SCHEMAS: frozenset[TickSchema] = frozenset({TickSchema.STATISTICS})
+
+#: What a universe entry's ``history`` may want (slice 302 D5, 303 D6).
+HISTORY_SCHEMAS: frozenset[TickSchema] = (
+    BAR_SCHEMAS | STATISTICS_SCHEMAS | COMPANION_SCHEMAS
+)
 
 #: What a ``tick_request`` may archive. ``mbp-1`` stays estimate-only
 #: (slice 222 TD9).
-ARCHIVED_SCHEMAS: frozenset[TickSchema] = STORED_TIERS | COMPANION_SCHEMAS | BAR_SCHEMAS
+ARCHIVED_SCHEMAS: frozenset[TickSchema] = (
+    STORED_TIERS | COMPANION_SCHEMAS | BAR_SCHEMAS | STATISTICS_SCHEMAS
+)
 
 #: The table of per-unit, per-session trade totals (the tick-tier ledger).
 TICK_LEDGER_TABLE: Final = "tick_ingest_ledger"
 
-#: The one tuple the preflight iterates: every tier, the companion, then the
-#: bar schemas (slice 302 D8).
+#: The one tuple the preflight iterates: every tier, the companion, the bar
+#: schemas (slice 302 D8), then statistics (slice 303 D1).
 ESTIMATE_SCHEMAS: tuple[TickSchema, ...] = (
     *TICK_TIERS,
     TickSchema.DEFINITION,
     *sorted(BAR_SCHEMAS),
+    *sorted(STATISTICS_SCHEMAS),
 )
 
 
