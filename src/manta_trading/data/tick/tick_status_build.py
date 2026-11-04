@@ -18,7 +18,7 @@ in ``families`` as load-complete only.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime
 from typing import Any
 
@@ -34,6 +34,11 @@ from manta_trading.data.tick.roll_payload import active_line_dict
 from manta_trading.data.tick.roll_rules import STATUS_ROLL_RULES
 from manta_trading.data.tick.roll_types import ActiveLine
 from manta_trading.data.tick.schema_families import FAMILY_SCHEMAS, SchemaFamily
+from manta_trading.data.tick.statistics_status import (
+    ContentFinding,
+    content_findings,
+    statistics_verdicts,
+)
 from manta_trading.data.tick.status_reads import (
     ContractLine,
     Edge,
@@ -47,6 +52,7 @@ from manta_trading.data.tick.tick_status import (
     caught_up,
 )
 from manta_trading.data.tick.tick_status_scope import (
+    FamilyWant,
     ProductScope,
     bucket_counts,
     family_scope,
@@ -73,6 +79,15 @@ class FamilyStatus:
     degraded: int
     caught_up: bool | None
     holed_sessions: tuple[date, ...]
+
+
+@dataclass(frozen=True)
+class StatisticsFamilyStatus(FamilyStatus):
+    """The statistics family: its load verdicts plus the content findings of the
+    load-complete sessions (303 D7). A subclass, so other families' reports
+    carry no ``findings`` key."""
+
+    findings: tuple[ContentFinding, ...]
 
 
 @dataclass(frozen=True)
@@ -153,6 +168,31 @@ def _family_status(family: SchemaFamily, scope: ProductScope) -> FamilyStatus:
     )
 
 
+async def _statistics_status(
+    conn: Conn,
+    calendar_url: str,
+    entry: TickUniverseEntry,
+    edge: Edge | None,
+    want: FamilyWant,
+) -> StatisticsFamilyStatus:
+    """The statistics section: sessions judged over their publication window."""
+    scope = await family_scope(
+        conn,
+        calendar_url,
+        entry,
+        edge,
+        want.family,
+        want.start,
+        want.end,
+        statistics_verdicts(calendar_url),
+    )
+    base = _family_status(want.family, scope)
+    findings = await content_findings(conn, entry, scope.sessions, scope.verdicts)
+    return StatisticsFamilyStatus(
+        **{f.name: getattr(base, f.name) for f in fields(base)}, findings=findings
+    )
+
+
 async def _families(
     conn: Conn,
     calendar_url: str,
@@ -161,8 +201,13 @@ async def _families(
     tier_scope: ProductScope,
 ) -> tuple[FamilyStatus, ...]:
     """One status per wanted family; the tier reuses the scope already read."""
-    statuses = []
+    statuses: list[FamilyStatus] = []
     for want in family_wants(entry):
+        if want.family is SchemaFamily.STATISTICS:
+            statuses.append(
+                await _statistics_status(conn, calendar_url, entry, edge, want)
+            )
+            continue
         if want.family is SchemaFamily.TICK_TIER:
             scope = tier_scope
         else:

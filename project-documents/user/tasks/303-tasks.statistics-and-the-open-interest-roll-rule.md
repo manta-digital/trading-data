@@ -146,18 +146,19 @@ revision_number: 2
 
 ### 6. Status and coverage for the family (D7, D8)
 
-- [ ] **6.1 Session verdict and content findings**
-  - [ ] New `data/tick/statistics_status.py`: for session D, the window is the UTC days from D through the close day of the session one after D (`STATISTICS_PUBLICATION_SESSIONS`, read from the calendar); status is 225's `classify_session` over the statistics units of those days (a `missing` condition with no unit is `provider_hole`). In a load-complete session, every listed outright (definition window `activation_ns ≤ open`, `expiration_ns ≥ close`) must have ledger records for each `REQUIRED_STAT_TYPES`; a contract expiring inside the session is exempt; spreads are never required. Each gap is a finding naming the contract and missing types. Reads only manifest, `tick_statistics_ledger` and `tick_definition`.
-  - [ ] Success: reuses the 302 per-family status plumbing (`status_reads.py`, `tick_status_build.py`); no copy of `classify_session`.
+- [x] **6.1 Session verdict and content findings**
+  - [x] New `data/tick/statistics_status.py`: for session D, the window is the UTC days from D through the close day of the session one after D (`STATISTICS_PUBLICATION_SESSIONS`, read from the calendar); status is 225's `classify_session` over the statistics units of those days (a `missing` condition with no unit is `provider_hole`). In a load-complete session, every listed outright (definition window `activation_ns ≤ open`, `expiration_ns ≥ close`) must have ledger records for each `REQUIRED_STAT_TYPES`; a contract expiring inside the session is exempt; spreads are never required. Each gap is a finding naming the contract and missing types. Reads only manifest, `tick_statistics_ledger` and `tick_definition`.
+  - [x] Success: reuses the 302 per-family status plumbing (`status_reads.py`, `tick_status_build.py`); no copy of `classify_session`.
 
-- [ ] **6.2 Wire into `mt data tick status`**
-  - [ ] `tick_status.py` / `tick_status_scope.py` print a `statistics` section for an entry with a statistics want (session counts by status, content findings, `caught up`); `--json`'s `families` gains it. An entry without the want shows no section.
-  - [ ] Success: output for entries without a statistics want is byte-identical to before.
+- [x] **6.2 Wire into `mt data tick status`**
+  - [x] `tick_status.py` / `tick_status_scope.py` print a `statistics` section for an entry with a statistics want (session counts by status, content findings, `caught up`); `--json`'s `families` gains it. An entry without the want shows no section.
+  - [x] Success: output for entries without a statistics want is byte-identical to before.
 
-- [ ] **6.3 Tests for 6.1–6.2** (new `test_statistics_status.py` unit; extend `test_tick_status.py`)
-  - [ ] Publication window from the calendar, including a Friday session (window reaches Monday's close day) and a holiday; a session with its units in only one of the two days is not complete; a missing required type, a contract expiring inside the session, and a spread each behave per D7; `provider_hole`.
-  - [ ] Status section appears only with a statistics want, in text and JSON.
-  - [ ] Success: tests pass.
+- [x] **6.3 Tests for 6.1–6.2** (new `test_statistics_status.py` unit; extend `test_tick_status.py`)
+  - [x] Publication window from the calendar, including a Friday session (window reaches Monday's close day) and a holiday; a session with its units in only one of the two days is not complete; a missing required type, a contract expiring inside the session, and a spread each behave per D7; `provider_hole`.
+  - [x] Status section appears only with a statistics want, in text and JSON.
+  - [x] Success: tests pass.
+  - Note: The status-section coverage (text and JSON, with and without the want) lives in the new integration file `test/integration/data/test_tick_statistics_status.py` instead of `test_tick_status.py`. The existing golden-file test in `test_tick_status.py` already pins unchanged output for entries without the want.
 
 **Commit**: `feat: add statistics session verdict and status section`
 

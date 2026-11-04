@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -33,6 +33,13 @@ from manta_trading.data.tick.status_reads import (
 )
 from manta_trading.data.tick.tick_status import SessionVerdict, TickSessionStatus
 from manta_trading.data.tick.universe import TickUniverseEntry
+
+#: Judges a family's sessions: ``session_verdicts`` unless a family's session
+#: takes more days than its own (303: statistics are published a session later).
+VerdictReader = Callable[
+    [Conn, TickUniverseEntry, Sequence[Session], SchemaFamily],
+    Awaitable[list[SessionVerdict]],
+]
 
 
 @dataclass(frozen=True)
@@ -126,9 +133,10 @@ async def family_scope(
     family: SchemaFamily,
     wanted_start: date | None,
     wanted_end_day: date | None,
+    verdicts_of: VerdictReader = session_verdicts,
 ) -> ProductScope:
     """The bucket step for one family over its wanted range (``None`` start: no
-    range wanted, only what units touch)."""
+    range wanted, only what units touch). ``verdicts_of`` judges the sessions."""
     wanted_end = None if wanted_start is None else _wanted_end(wanted_end_day, edge)
     wanted = (
         None
@@ -136,7 +144,7 @@ async def family_scope(
         else (utc_midnight(wanted_start), wanted_end)
     )
     sessions = await _scope(conn, calendar_url, entry, wanted, family)
-    verdicts = await session_verdicts(conn, entry, sessions, family)
+    verdicts = await verdicts_of(conn, entry, sessions, family)
     return ProductScope(wanted_start, wanted_end, wanted, sessions, verdicts)
 
 

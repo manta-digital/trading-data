@@ -74,7 +74,7 @@ class Shape:
 _UNITS = "tick_archive_unit u JOIN tick_request r USING (request_id)"
 
 
-def _ledger_units(family: SchemaFamily) -> str:
+def ledger_units(family: SchemaFamily) -> str:
     """The family's ledger joined to its unit and request (a code constant)."""
     return (
         f"{FAMILY_LEDGER[family]} l JOIN tick_archive_unit u USING (unit_id)"
@@ -139,7 +139,7 @@ async def _ledger_sums(
     """``sum(column)`` per (instrument, session) over the family's current units."""
     cursor = await conn.execute(
         f"SELECT l.instrument_id, l.session_date, sum(l.{column})"
-        f" FROM {_ledger_units(family)} WHERE {SHAPE_WHERE}"
+        f" FROM {ledger_units(family)} WHERE {SHAPE_WHERE}"
         " AND l.session_date BETWEEN %(first)s AND %(last)s GROUP BY 1, 2",
         shape.params(family) | {"first": first, "last": last},
     )
@@ -201,7 +201,7 @@ async def contract_lines(
         " SELECT l.instrument_id, count(DISTINCT l.session_date) AS sessions,"
         " sum(l.record_count) AS records, sum(l.volume) AS volume,"
         " min(l.session_date) AS first_session, max(l.session_date) AS last_session"
-        f" FROM {_ledger_units(family)} WHERE {SHAPE_WHERE}"
+        f" FROM {ledger_units(family)} WHERE {SHAPE_WHERE}"
         " AND l.record_count > 0 GROUP BY 1),"
         " latest AS (SELECT DISTINCT ON (instrument_id) instrument_id, raw_symbol,"
         " instrument_class, expiration_ns FROM tick_definition"

@@ -17,11 +17,13 @@ from rich.markup import escape
 from manta_trading.cli.commands.tick_active_render import active_line_text
 from manta_trading.cli.output import make_table, print_result
 from manta_trading.data.tick.schema_families import SchemaFamily
+from manta_trading.data.tick.statistics_constants import StatType
 from manta_trading.data.tick.tick_coverage import TickCoverage
 from manta_trading.data.tick.tick_status import TickSessionStatus
 from manta_trading.data.tick.tick_status_build import (
     FamilyStatus,
     ProductStatus,
+    StatisticsFamilyStatus,
     TickStatus,
 )
 
@@ -81,12 +83,29 @@ def _caught_up_line(caught_up: bool | None, holed: tuple[Any, ...]) -> str:
 def _family_lines(family: FamilyStatus) -> list[str]:
     """A non-tick family's section: the same buckets, headed load-complete only."""
     schemas = ", ".join(family.schemas)
-    return [
+    lines = [
         f"  {schemas}   {LOAD_COMPLETE_ONLY}   wanted from {family.wanted_start}",
         f"  sessions held: {family.sessions_held}",
         *_bucket_lines(family.buckets, family.degraded),
         _caught_up_line(family.caught_up, family.holed_sessions),
     ]
+    if isinstance(family, StatisticsFamilyStatus):
+        lines.extend(_finding_lines(family))
+    return lines
+
+
+def _finding_lines(family: StatisticsFamilyStatus) -> list[str]:
+    """Content findings of the load-complete statistics sessions (303 D7)."""
+    if not family.findings:
+        return ["  content findings: none"]
+    lines = [f"  content findings: {len(family.findings)}"]
+    for finding in family.findings:
+        missing = ", ".join(
+            StatType(t).name.lower() for t in finding.missing_stat_types
+        )
+        symbol = finding.raw_symbol or finding.instrument_id
+        lines.append(f"    {finding.session_date}  {symbol}  missing {missing}")
+    return lines
 
 
 def _product_lines(p: ProductStatus) -> list[str]:
