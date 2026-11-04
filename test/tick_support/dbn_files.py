@@ -138,6 +138,26 @@ def bar_file_bytes(
     return zstandard.ZstdCompressor().compress(header + array.tobytes())
 
 
+def statistics_file_bytes(
+    dataset: str,
+    day: date,
+    stype_in: SType,
+    records: Sequence[Mapping[str, Any]],
+    fixture: str = "test_data.statistics.v3.dbn.zst",
+) -> bytes:
+    """A ``statistics`` day file whose records are the sample's first record with
+    each mapping's fields overridden: hand-built statistics under a header
+    spanning exactly ``day``."""
+    header, _ = _rehead(fixture, dataset, day, stype_in)
+    template = databento.DBNStore.from_file(FIXTURES / fixture).to_ndarray()[0]
+    array = np.zeros(len(records), dtype=template.dtype)
+    for index, overrides in enumerate(records):
+        array[index] = template
+        for name, value in overrides.items():
+            array[index][name] = value
+    return zstandard.ZstdCompressor().compress(header + array.tobytes())
+
+
 #: DBN metadata offsets (from the start of the file) of the header fields the
 #: reader refuses. v1 carries a u64 ``record_count`` before ``stype_in``, so
 #: the symbology bytes sit 8 later than in v2/v3 (the archive's real files are

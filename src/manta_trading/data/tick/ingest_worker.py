@@ -91,6 +91,8 @@ class UnitOutcome:
     duration_seconds: float
     decode_seconds: float
     write_seconds: float
+    #: Non-failing findings of the projector (303: pre-dataset references).
+    notes: tuple[str, ...] = ()
 
 
 def _connect(settings: WorkerConnectionSettings) -> psycopg.Connection[Any]:
@@ -190,6 +192,7 @@ def ingest_unit(
             duration_seconds=duration,
             decode_seconds=loaded.decode_seconds,
             write_seconds=duration - loaded.decode_seconds,
+            notes=tuple(loaded.notes),
         )
 
     with _connect(settings) as conn:

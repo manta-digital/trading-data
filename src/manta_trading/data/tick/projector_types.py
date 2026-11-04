@@ -11,7 +11,7 @@ import :class:`Loaded` without importing the registry that imports it.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -34,7 +34,8 @@ class Loaded:
     """What a projector's ``load`` counted, for the checks and ``finish``.
 
     ``bookkeeping`` is the projector's own hand-off from ``load`` to ``finish``
-    (for ``tick_trade``, the ledger rows); the worker never reads it.
+    (for ``tick_trade``, the ledger rows); the worker never reads it. ``notes``
+    are findings that do not fail the unit; they travel to the unit's result.
     """
 
     decoded: int = 0
@@ -42,6 +43,7 @@ class Loaded:
     last_ns: int | None = None
     decode_seconds: float = 0.0
     bookkeeping: object | None = None
+    notes: list[str] = field(default_factory=list)
 
     def note_batch(self, count: int, low_ns: int, high_ns: int) -> None:
         """Fold one non-empty batch's count and event-time range in."""

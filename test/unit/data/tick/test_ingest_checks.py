@@ -12,6 +12,7 @@ import pytest
 from manta_trading.data.base.session_index import Session
 from manta_trading.data.tick.ingest_checks import (
     IngestCheck,
+    StatReferenceProblem,
     counts_reason,
     decode_reason,
     no_session_reason,
@@ -20,6 +21,7 @@ from manta_trading.data.tick.ingest_checks import (
     planning_span_reason,
     resolution_reason,
     shape_reason,
+    stat_reference_reason,
     unit_day_reason,
     utc_of_ns,
 )
@@ -48,6 +50,10 @@ REASONS = [
     (IngestCheck.SHAPE, shape_reason("raw_symbol")),
     (IngestCheck.DECODE, decode_reason(Path("JOB/f.dbn.zst"), OSError("gone"))),
     (IngestCheck.UNIT_DAY, unit_day_reason(2, date(2024, 9, 3), TS_NS)),
+    (
+        IngestCheck.STAT_REFERENCE,
+        stat_reference_reason(42, 3, TS_NS, StatReferenceProblem.NOT_A_SESSION),
+    ),
 ]
 
 
@@ -106,3 +112,19 @@ def test_unit_day_counts_all_outside_and_names_the_first() -> None:
     with pytest.raises(UnitCheckFailed) as raised:
         check_unit_day(ts, day)
     assert raised.value.reason == unit_day_reason(3, day, end + 9)
+
+
+@pytest.mark.parametrize(
+    ("ts_ref", "problem", "ts_text"),
+    [
+        (None, StatReferenceProblem.UNDEFINED, "undefined"),
+        (TS_NS, StatReferenceProblem.NOT_A_SESSION, "2024-09-03T22:00:00+00:00"),
+        (TS_NS, StatReferenceProblem.AFTER_THE_UNIT, "2024-09-03T22:00:00+00:00"),
+    ],
+)
+def test_stat_reference_reason_names_instrument_type_ref_and_problem(
+    ts_ref: int | None, problem: StatReferenceProblem, ts_text: str
+) -> None:
+    assert stat_reference_reason(42, 6, ts_ref, problem) == (
+        f"stat_reference: instrument_id 42 stat_type 6 ts_ref {ts_text}: {problem}"
+    )

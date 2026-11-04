@@ -104,29 +104,31 @@ revision_number: 2
 
 ### 4. Projector and `stat_reference` (D3, D4)
 
-- [ ] **4.1 Add the `stat_reference` check**
-  - [ ] In `ingest_checks.py` add `IngestCheck.STAT_REFERENCE` and its reason text. A failure names the instrument, stat type, `ts_ref` and the reason (`undefined ts_ref`, `not a session`, `after the unit`).
-  - [ ] Success: the enum and reason map are total; `test_ingest_checks.py` updated and passing.
+- [x] **4.1 Add the `stat_reference` check**
+  - [x] In `ingest_checks.py` add `IngestCheck.STAT_REFERENCE` and its reason text. A failure names the instrument, stat type, `ts_ref` and the reason (`undefined ts_ref`, `not a session`, `after the unit`).
+  - [x] Success: the enum and reason map are total; `test_ingest_checks.py` updated and passing.
 
-- [ ] **4.2 Pure session assignment** (in `statistics_projector.py`, or a small helper module if the projector would exceed ~300 lines)
-  - [ ] A function mapping `(stat_type, ts_ref, unit_date, calendar)` to `(calendar_id, session_date)`, `None`, or a `stat_reference` failure, per D4: non-referenced type gets no session; referenced type with undefined `ts_ref` fails; the UTC date of `ts_ref` must be a calendar session and not after the unit's date; a date before `CME_DATASET_START` gets no session and is counted.
-  - [ ] Branching on stat type is only membership of `REFERENCED_STAT_TYPES`.
-  - [ ] Success: function is pure (no connection).
+- [x] **4.2 Pure session assignment** (in `statistics_projector.py`, or a small helper module if the projector would exceed ~300 lines)
+  - [x] A function mapping `(stat_type, ts_ref, unit_date, calendar)` to `(calendar_id, session_date)`, `None`, or a `stat_reference` failure, per D4: non-referenced type gets no session; referenced type with undefined `ts_ref` fails; the UTC date of `ts_ref` must be a calendar session and not after the unit's date; a date before `CME_DATASET_START` gets no session and is counted.
+  - [x] Branching on stat type is only membership of `REFERENCED_STAT_TYPES`.
+  - [x] Success: function is pure (no connection).
+  - Note: The session assignment lives in the new `statistics_session.py` (pure). The ingest plan carries a `reference_calendar`: every session date of the populated span up to the unit's day, cached per run in `Calendars`, because the unit's frame holds only the unit day's sessions.
 
-- [ ] **4.3 Tests for 4.2** (new `test_statistics_session.py`)
-  - [ ] Each outcome: settlement/volume/open interest with a valid session date; other type with defined `ts_ref` stays sessionless; undefined `ts_ref` on a referenced type fails; a weekend/holiday date fails `not a session`; a date after the unit fails `after the unit`; a pre-2010-06-06 date is sessionless and counted; a `ts_ref` at 00:00 and at 23:59 UTC of a session date gives the same session.
-  - [ ] Success: tests pass.
+- [x] **4.3 Tests for 4.2** (new `test_statistics_session.py`)
+  - [x] Each outcome: settlement/volume/open interest with a valid session date; other type with defined `ts_ref` stays sessionless; undefined `ts_ref` on a referenced type fails; a weekend/holiday date fails `not a session`; a date after the unit fails `after the unit`; a pre-2010-06-06 date is sessionless and counted; a `ts_ref` at 00:00 and at 23:59 UTC of a session date gives the same session.
+  - [x] Success: tests pass.
 
-- [ ] **4.4 Implement `StatisticsProjector`**
-  - [ ] New `data/tick/statistics_projector.py` implementing `IUnitProjector`, in the shape of `Ohlcv1mProjector`: per batch, `unit_day` on `ts_recv`, `resolution` of `instrument_id`, session assignment (4.2), `record_ordinal` via `OrdinalCarry` with `stat_type` folded into the key, referenced records into the ledger accumulator keyed `(instrument_id, session_date, stat_type)`, one `COPY` into `tick_statistics`. Undefined `ts_ref`, `price` and `quantity` become NULL, never DBN sentinels.
-  - [ ] `stored_count` and `delete_unit` bounded by the unit's first and last receive times; `finish` writes `tick_statistics_ledger` through `ledger_write.py`. `session_boundary` is not applied. The unit result carries the pre-2010 count.
-  - [ ] Register it in `projectors.py` as `INGEST_PROJECTORS[STATISTICS]`.
-  - [ ] Success: `select_units` selects verified `statistics` units and waits for the same-day definition unit (`awaiting definitions`).
+- [x] **4.4 Implement `StatisticsProjector`**
+  - [x] New `data/tick/statistics_projector.py` implementing `IUnitProjector`, in the shape of `Ohlcv1mProjector`: per batch, `unit_day` on `ts_recv`, `resolution` of `instrument_id`, session assignment (4.2), `record_ordinal` via `OrdinalCarry` with `stat_type` folded into the key, referenced records into the ledger accumulator keyed `(instrument_id, session_date, stat_type)`, one `COPY` into `tick_statistics`. Undefined `ts_ref`, `price` and `quantity` become NULL, never DBN sentinels.
+  - [x] `stored_count` and `delete_unit` bounded by the unit's first and last receive times; `finish` writes `tick_statistics_ledger` through `ledger_write.py`. `session_boundary` is not applied. The unit result carries the pre-2010 count.
+  - [x] Register it in `projectors.py` as `INGEST_PROJECTORS[STATISTICS]`.
+  - [x] Success: `select_units` selects verified `statistics` units and waits for the same-day definition unit (`awaiting definitions`).
+  - Note: The unit result carries the pre-2010 count through the new `Loaded.notes` -> `UnitOutcome.notes` -> the pass summary's per-unit `notes` key (present only when non-empty). Resolution is checked on `ts_event` (to be confirmed against the purchased data in task 8).
 
-- [ ] **4.5 Projector tests** (new `test_statistics_projector.py` unit; new `test/integration/data/test_tick_statistics_ingest.py`)
-  - [ ] Unit: undefined values to NULL; `record_ordinal` increments for a repeated key across a batch boundary; ledger rows hold referenced records only; the registry includes `STATISTICS`.
-  - [ ] Integration, on seeded definitions and a synthetic statistics file built with the project's file-writing test helpers: provider = decoded = stored; a unit skipped as `awaiting definitions` until its definition unit ingests; failures for `stat_reference`, `unit_day`, `resolution`, and `overlap` (a key held by two current units); a record whose `ts_ref` precedes `CME_DATASET_START` is stored with NULL `session_date` and `calendar_id`, and the unit result's pre-2010 count is 1; re-ingest after `delete_unit` is idempotent.
-  - [ ] Success: tests pass; `test_tick_ingest_families.py` still passes.
+- [x] **4.5 Projector tests** (new `test_statistics_projector.py` unit; new `test/integration/data/test_tick_statistics_ingest.py`)
+  - [x] Unit: undefined values to NULL; `record_ordinal` increments for a repeated key across a batch boundary; ledger rows hold referenced records only; the registry includes `STATISTICS`.
+  - [x] Integration, on seeded definitions and a synthetic statistics file built with the project's file-writing test helpers: provider = decoded = stored; a unit skipped as `awaiting definitions` until its definition unit ingests; failures for `stat_reference`, `unit_day`, `resolution`, and `overlap` (a key held by two current units); a record whose `ts_ref` precedes `CME_DATASET_START` is stored with NULL `session_date` and `calendar_id`, and the unit result's pre-2010 count is 1; re-ingest after `delete_unit` is idempotent.
+  - [x] Success: tests pass; `test_tick_ingest_families.py` still passes.
 
 **Commit**: `feat: add statistics projector and stat_reference check`
 

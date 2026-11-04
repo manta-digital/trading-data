@@ -14,12 +14,14 @@ from typing import Final
 from manta_trading.data.tick.constants import TickSchema
 from manta_trading.data.tick.ohlcv_1m_projector import OHLCV_1M_PROJECTOR
 from manta_trading.data.tick.projector_types import IUnitProjector
+from manta_trading.data.tick.statistics_projector import STATISTICS_PROJECTOR
 from manta_trading.data.tick.tick_trade_projector import TICK_TRADE
 
 INGEST_PROJECTORS: Final[Mapping[TickSchema, IUnitProjector]] = {
     TickSchema.TRADES: TICK_TRADE,
     TickSchema.TBBO: TICK_TRADE,
     TickSchema.OHLCV_1M: OHLCV_1M_PROJECTOR,
+    TickSchema.STATISTICS: STATISTICS_PROJECTOR,
 }
 
 

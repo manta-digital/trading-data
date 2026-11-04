@@ -101,6 +101,9 @@ class _Tally:
             duration_seconds=round(outcome.duration_seconds, 3),
             decode_seconds=round(outcome.decode_seconds, 3),
             write_seconds=round(outcome.write_seconds, 3),
+            # Only a unit with findings carries the key: other units' entries
+            # are unchanged.
+            **({"notes": list(outcome.notes)} if outcome.notes else {}),
         )
 
 

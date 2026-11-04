@@ -11,11 +11,15 @@ from manta_trading.data.tick.projectors import (
     NoProjectorError,
     projector_for,
 )
+from manta_trading.data.tick.statistics_projector import STATISTICS_PROJECTOR
 from manta_trading.data.tick.tick_trade_projector import TICK_TRADE
 
 
-def test_registry_keys_are_the_stored_tiers_and_the_bar_schema() -> None:
-    assert set(INGEST_PROJECTORS) == STORED_TIERS | {TickSchema.OHLCV_1M}
+def test_registry_keys_are_the_stored_tiers_bars_and_statistics() -> None:
+    assert set(INGEST_PROJECTORS) == STORED_TIERS | {
+        TickSchema.OHLCV_1M,
+        TickSchema.STATISTICS,
+    }
 
 
 def test_definition_is_not_registered() -> None:
@@ -30,6 +34,11 @@ def test_both_tiers_share_the_tick_trade_projector() -> None:
 def test_ohlcv_1m_has_its_own_projector() -> None:
     assert INGEST_PROJECTORS[TickSchema.OHLCV_1M] is OHLCV_1M_PROJECTOR
     assert OHLCV_1M_PROJECTOR is not TICK_TRADE
+
+
+def test_statistics_has_its_own_projector() -> None:
+    assert INGEST_PROJECTORS[TickSchema.STATISTICS] is STATISTICS_PROJECTOR
+    assert STATISTICS_PROJECTOR is not OHLCV_1M_PROJECTOR
 
 
 def test_an_unregistered_schema_fails_naming_it() -> None:

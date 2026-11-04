@@ -25,6 +25,15 @@ class IngestCheck(StrEnum):
     SHAPE = "shape"
     DECODE = "decode"
     UNIT_DAY = "unit_day"
+    STAT_REFERENCE = "stat_reference"
+
+
+class StatReferenceProblem(StrEnum):
+    """Why a statistics record's reference time names no usable session (303 D4)."""
+
+    UNDEFINED = "undefined ts_ref"
+    NOT_A_SESSION = "not a session"
+    AFTER_THE_UNIT = "after the unit"
 
 
 def utc_of_ns(ts_ns: int) -> datetime:
@@ -119,6 +128,20 @@ def unit_day_reason(count: int, unit_date: date, first_ts_ns: int) -> str:
     return (
         f"{IngestCheck.UNIT_DAY}: {count} records outside {unit_date};"
         f" first at {utc_of_ns(first_ts_ns).isoformat()}"
+    )
+
+
+def stat_reference_reason(
+    instrument_id: int,
+    stat_type: int,
+    ts_ref_ns: int | None,
+    problem: StatReferenceProblem,
+) -> str:
+    """A referenced statistic whose ``ts_ref`` gives it no session (303 D4)."""
+    ts_ref = "undefined" if ts_ref_ns is None else utc_of_ns(ts_ref_ns).isoformat()
+    return (
+        f"{IngestCheck.STAT_REFERENCE}: instrument_id {instrument_id}"
+        f" stat_type {stat_type} ts_ref {ts_ref}: {problem}"
     )
 
 

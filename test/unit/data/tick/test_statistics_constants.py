@@ -14,6 +14,7 @@ from manta_trading.data.tick.statistics_constants import (
     STATISTICS_PUBLICATION_SESSIONS,
     STATISTICS_SEGMENT_BY,
     StatType,
+    StatUpdateAction,
 )
 
 
@@ -28,6 +29,12 @@ def test_stat_types_are_the_dbn_values() -> None:
 def test_stat_types_match_the_sdk() -> None:
     for stat_type in StatType:
         assert stat_type.value == int(getattr(databento_dbn.StatType, stat_type.name))
+
+
+def test_update_actions_are_the_dbn_values_and_match_the_sdk() -> None:
+    assert [(a.name, a.value) for a in StatUpdateAction] == [("NEW", 1), ("DELETE", 2)]
+    for action in StatUpdateAction:
+        assert action.value == int(getattr(databento_dbn.StatUpdateAction, action.name))
 
 
 def test_referenced_and_required_types_are_the_three() -> None:

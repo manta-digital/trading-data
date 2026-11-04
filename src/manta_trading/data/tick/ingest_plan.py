@@ -53,9 +53,11 @@ from manta_trading.data.tick.projectors import INGEST_PROJECTORS
 from manta_trading.data.tick.schema_families import (
     FAMILY_LEDGER,
     SCHEMA_FAMILY,
+    SchemaFamily,
     supersedes_sql,
 )
 from manta_trading.data.tick.session_days import utc_midnight
+from manta_trading.data.tick.statistics_session import ReferenceCalendar
 from manta_trading.data.tick.tick_calendar import TickCalendarError, planning_product
 
 
@@ -78,6 +80,9 @@ class UnitIngestPlan:
     frame: SessionFrame
     definitions: Definitions
     superseded: tuple[SupersededUnit, ...]
+    #: Every session date of the product's calendar from the dataset start to
+    #: the unit's day; read for a statistics unit only (303 D4), else ``None``.
+    reference_calendar: ReferenceCalendar | None = None
 
 
 class Calendars:
@@ -86,9 +91,10 @@ class Calendars:
     def __init__(self, url: str) -> None:
         self._url = url
         self._open: dict[str, TradingCalendar] = {}
+        # Per calendar: the last day the cached session dates reach, and them.
+        self._references: dict[str, tuple[date, ReferenceCalendar]] = {}
 
-    def frame(self, product: str, day: date) -> SessionFrame:
-        """The sessions ``day`` touches, the populated span and the zone."""
+    def _calendar(self, product: str) -> TradingCalendar:
         try:
             calendar_id = calendar_for_product(product)
         except KeyError as exc:
@@ -96,6 +102,11 @@ class Calendars:
         calendar = self._open.get(calendar_id)
         if calendar is None:
             calendar = self._open[calendar_id] = TradingCalendar(calendar_id, self._url)
+        return calendar
+
+    def frame(self, product: str, day: date) -> SessionFrame:
+        """The sessions ``day`` touches, the populated span and the zone."""
+        calendar = self._calendar(product)
         try:
             sessions = calendar.sessions_between(
                 utc_midnight(day), utc_midnight(day + timedelta(days=1))
@@ -104,7 +115,7 @@ class Calendars:
             zone = calendar.zone()
         except (psycopg.OperationalError, CalendarNotFoundError) as exc:
             raise TickCalendarError(
-                f"calendar {calendar_id} unavailable: {exc}"
+                f"calendar {calendar.calendar_id} unavailable: {exc}"
             ) from exc
         except OutOfPopulatedRangeError as exc:
             reason = planning_span_reason(day, exc.first_open, exc.last_close)
@@ -112,10 +123,42 @@ class Calendars:
         assert first_open is not None and last_close is not None  # sessions exist
         return SessionFrame(SessionIndex(sessions), first_open, last_close, zone)
 
+    def reference_calendar(self, product: str, day: date) -> ReferenceCalendar:
+        """Every session date of the populated span up to ``day`` (303 D4).
+
+        The span starts at the dataset start (301 filled it back to 2010), so
+        no date the dataset covers is missing. Cached per calendar for the run:
+        a cache that reaches past ``day`` is reused, as the assignment checks
+        "after the unit" before membership.
+        """
+        calendar = self._calendar(product)
+        cached = self._references.get(calendar.calendar_id)
+        if cached is not None and cached[0] >= day:
+            return cached[1]
+        try:
+            first_open, _ = calendar.populated_span()
+            assert first_open is not None  # a populated calendar has a span
+            sessions = calendar.sessions_between(
+                first_open, utc_midnight(day + timedelta(days=1))
+            )
+        except (psycopg.OperationalError, CalendarNotFoundError) as exc:
+            raise TickCalendarError(
+                f"calendar {calendar.calendar_id} unavailable: {exc}"
+            ) from exc
+        except OutOfPopulatedRangeError as exc:
+            reason = planning_span_reason(day, exc.first_open, exc.last_close)
+            raise UnitCheckFailed(IngestCheck.SESSION_BOUNDARY, reason) from exc
+        reference = ReferenceCalendar(
+            calendar.calendar_id, frozenset(s.session_date for s in sessions)
+        )
+        self._references[calendar.calendar_id] = (day, reference)
+        return reference
+
     def close(self) -> None:
         for calendar in self._open.values():
             calendar.close()
         self._open.clear()
+        self._references.clear()
 
 
 async def _definitions(conn: Conn, product: str, frame: SessionFrame) -> Definitions:
@@ -183,6 +226,11 @@ async def build_plan(conn: Conn, calendars: Calendars, unit: UnitRow) -> UnitIng
         raise UnitCheckFailed(IngestCheck.SHAPE, shape_reason(unit.stype_in.value))
     product = planning_product(unit.stype_in, unit.symbols)
     frame = await asyncio.to_thread(calendars.frame, product, unit.unit_date)
+    reference = (
+        await asyncio.to_thread(calendars.reference_calendar, product, unit.unit_date)
+        if SCHEMA_FAMILY[unit.schema] is SchemaFamily.STATISTICS
+        else None
+    )
     return UnitIngestPlan(
         unit=unit,
         product=product,
@@ -190,4 +238,5 @@ async def build_plan(conn: Conn, calendars: Calendars, unit: UnitRow) -> UnitIng
         frame=frame,
         definitions=await _definitions(conn, product, frame),
         superseded=await _superseded(conn, unit),
+        reference_calendar=reference,
     )

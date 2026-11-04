@@ -18,6 +18,13 @@ class StatType(IntEnum):
     OPEN_INTEREST = 9
 
 
+class StatUpdateAction(IntEnum):
+    """DBN ``StatUpdateAction``: a record adds a value or removes one."""
+
+    NEW = 1
+    DELETE = 2
+
+
 #: One row per delivered statistics record, ``ts_recv``-keyed hypertable.
 STATISTICS_TABLE: Final = "tick_statistics"
 
