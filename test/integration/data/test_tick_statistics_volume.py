@@ -137,7 +137,8 @@ async def test_the_tick_tier_is_checked_per_listed_outright(
         EXACT: VolumeClass.AGREE,
         SHORT: VolumeClass.UNDER,
         EXCESS: VolumeClass.OVER,
-        SILENT: VolumeClass.NO_TRADES,
+        # Nothing traded, but the session did: spread-leg volume, not a gap.
+        SILENT: VolumeClass.UNDER,
     }
     assert verdicts[SHORT].ratio == 0.75
     assert (verdicts[SHORT].cleared, verdicts[SHORT].traded) == (200, 150)
@@ -157,7 +158,7 @@ async def test_the_bar_family_is_checked_against_its_own_ledger(
     assert {v.family for v in bars.values()} == {SchemaFamily.BAR_1M}
     assert (bars[SHORT].traded, ticks[SHORT].traded) == (120, 150)
     assert bars[SILENT].verdict is VolumeClass.AGREE  # bars saw what ticks did not
-    assert ticks[SILENT].verdict is VolumeClass.NO_TRADES
+    assert ticks[SILENT].verdict is VolumeClass.UNDER
 
 
 async def test_only_a_volume_family_can_be_checked(migrated_tick_db: str) -> None:

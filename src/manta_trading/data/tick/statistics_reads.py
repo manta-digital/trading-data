@@ -12,7 +12,7 @@ constants; every value is bound.
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from enum import StrEnum
 from typing import Final
@@ -144,6 +144,24 @@ class VolumeVerdict:
         return None if self.cleared == 0 else self.traded / self.cleared
 
 
+def settle_no_trades(verdicts: Sequence[VolumeVerdict]) -> tuple[VolumeVerdict, ...]:
+    """Keep ``no_trades`` only for a session where nothing at all traded.
+
+    A deferred contract's cleared volume is mostly spread-leg volume, which no
+    outright trade record carries (ESZ5 cleared 138 against 0 traded, 2024-11-04,
+    while the front month agreed within 5%; slice 303 task 8). So V = 0 beside
+    C > 0 is a finding only when every contract in the session traded nothing;
+    otherwise the contract is ``under``.
+    """
+    traded_days = {v.session_date for v in verdicts if v.traded > 0}
+    return tuple(
+        replace(v, verdict=VolumeClass.UNDER)
+        if v.verdict is VolumeClass.NO_TRADES and v.session_date in traded_days
+        else v
+        for v in verdicts
+    )
+
+
 async def checkable_sessions(
     conn: Conn,
     calendar_url: str,
@@ -217,7 +235,7 @@ async def volume_check(
                     classify_volume(quantity, volume),
                 )
             )
-    return tuple(verdicts)
+    return settle_no_trades(verdicts)
 
 
 async def ledger_counts_by_type(

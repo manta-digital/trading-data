@@ -76,17 +76,24 @@ def test_a_candidate_not_listed_at_the_lag_session_is_excluded() -> None:
     assert symbols(answers[2:]) == ["ESM5"]  # DAYS[6] ranks on DAYS[4]
 
 
-def test_a_missing_value_is_unresolved_naming_the_contract_and_the_lag_session() -> (
+def test_a_candidate_without_open_interest_is_not_ranked_and_never_read_as_zero() -> (
     None
 ):
+    # ESZ4 has no record at DAYS[2]: it is skipped, not counted as zero.
     interest = {k: v for k, v in _interest().items() if k != (DAYS[2], Z.instrument_id)}
     run = inputs(RUN, [U, Z, H], interest=interest)
-    answers = resolve_sessions(N0, run, DAYS[4], DAYS[5])
-    (answer,) = answers
+    (answer,) = resolve_sessions(N0, run, DAYS[4], DAYS[5])
+    assert not isinstance(answer, Unresolved)
+    assert answer.raw_symbol != "ESZ4"
+
+
+def test_no_candidate_with_open_interest_is_unresolved_naming_the_lag_session() -> None:
+    interest = {k: v for k, v in _interest().items() if k[0] != DAYS[2]}
+    run = inputs(RUN, [U, Z, H], interest=interest)
+    (answer,) = resolve_sessions(N0, run, DAYS[4], DAYS[5])
     assert isinstance(answer, Unresolved)
     assert answer.reason == (
-        f"open interest inputs: ESZ4 ({Z.instrument_id}) has no open interest"
-        f" in session {DAYS[2]}"
+        f"open interest inputs: no candidate has open interest in {DAYS[2]}"
     )
 
 

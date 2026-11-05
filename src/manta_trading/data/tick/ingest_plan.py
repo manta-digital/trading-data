@@ -161,13 +161,24 @@ class Calendars:
         self._references.clear()
 
 
-async def _definitions(conn: Conn, product: str, frame: SessionFrame) -> Definitions:
+async def _definitions(
+    conn: Conn, product: str, frame: SessionFrame, *, by_id: bool
+) -> Definitions:
+    """Windows meeting the span; with ``by_id``, every window of the product.
+
+    Statistics are published before an instrument's definition activates and
+    after it expires, and only the id is checked, so the statistics family
+    loads them all.
+    """
+    select = "SELECT instrument_id, activation_ns, expiration_ns FROM tick_definition"
+    if by_id:
+        cursor = await conn.execute(select + " WHERE asset = %s", (product,))
+        return Definitions.of(await cursor.fetchall())
     sessions = frame.index.sessions
     first_open = utc_ns(sessions[0].open_utc) if sessions else 0
     last_close = utc_ns(sessions[-1].close_utc) if sessions else 0
     cursor = await conn.execute(
-        "SELECT instrument_id, activation_ns, expiration_ns FROM tick_definition"
-        " WHERE asset = %s AND activation_ns <= %s AND expiration_ns >= %s",
+        select + " WHERE asset = %s AND activation_ns <= %s AND expiration_ns >= %s",
         (product, last_close, first_open),
     )
     return Definitions.of(await cursor.fetchall())
@@ -226,9 +237,10 @@ async def build_plan(conn: Conn, calendars: Calendars, unit: UnitRow) -> UnitIng
         raise UnitCheckFailed(IngestCheck.SHAPE, shape_reason(unit.stype_in.value))
     product = planning_product(unit.stype_in, unit.symbols)
     frame = await asyncio.to_thread(calendars.frame, product, unit.unit_date)
+    statistics = SCHEMA_FAMILY[unit.schema] is SchemaFamily.STATISTICS
     reference = (
         await asyncio.to_thread(calendars.reference_calendar, product, unit.unit_date)
-        if SCHEMA_FAMILY[unit.schema] is SchemaFamily.STATISTICS
+        if statistics
         else None
     )
     return UnitIngestPlan(
@@ -236,7 +248,7 @@ async def build_plan(conn: Conn, calendars: Calendars, unit: UnitRow) -> UnitIng
         product=product,
         calendar_id=calendar_for_product(product),
         frame=frame,
-        definitions=await _definitions(conn, product, frame),
+        definitions=await _definitions(conn, product, frame, by_id=statistics),
         superseded=await _superseded(conn, unit),
         reference_calendar=reference,
     )

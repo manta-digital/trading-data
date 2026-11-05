@@ -142,7 +142,7 @@ docs/api/reference.md, agents.md, openapi.json             D13
 **Ingest.** `select_units` selects verified `statistics` units because the schema is a key of `INGEST_PROJECTORS`. Each waits for its same-day definition unit. Per decoded batch, `StatisticsProjector.load`:
 
 1. checks that every `ts_recv` lies in the unit's UTC day (`unit_day`, 302 D4, applied to the index timestamp);
-2. resolves every `instrument_id` through the product's definitions (`resolution`);
+2. resolves every `instrument_id` through the product's definitions by id alone (`resolution`): the provider publishes statistics before a definition activates and a final settlement after it expires, so the activation and expiration bounds that bars and trades use do not apply (measured, task 8);
 3. assigns a session to every record whose `ts_ref` is defined (D4), failing `stat_reference` on any it cannot place;
 4. derives `record_ordinal` for repeated keys;
 5. adds the referenced records to the ledger accumulator, keyed `(instrument_id, session_date, stat_type)`;
@@ -248,7 +248,7 @@ Status: decided
 
 **Load.** Session D's statistics arrive from D (preliminary settlement) through the next session. `STATISTICS_PUBLICATION_SESSIONS = 1` states it: D's window is the UTC days from D through the close day of the session one after D, read from the calendar. The session's status is 225's `classify_session` over the statistics units of those days, the same statuses and precedence as every family. A day with a `missing` condition and no unit is `provider_hole`, as elsewhere. The constant cites 220's pinned publication timing (`RANK_LAG_SESSIONS`'s note), and the purchase measures it (D11).
 
-**Content.** In a load-complete session, every outright listed through the session (definition window `activation_ns ≤ open`, `expiration_ns ≥ close`) must have ledger records for each of `REQUIRED_STAT_TYPES` (settlement, cleared volume, open interest). Each gap is a finding naming the contract and the missing types. A contract expiring inside the session is not required; its records are kept if present. Spreads are never required.
+**Content.** In a load-complete session, every outright listed through the session (definition window `activation_ns ≤ open`, `expiration_ns ≥ close`) must have ledger records for each of `REQUIRED_STAT_TYPES` (settlement, cleared volume, open interest). Cleared volume and open interest are owed by a contract only once it has reported them in the range judged (deferred months carry a settlement and nothing else; measured, task 8), so the settlement is the one type owed unconditionally. Each gap is a finding naming the contract and the missing types. A contract expiring inside the session is not required; its records are kept if present. Spreads are never required.
 
 Status reads only the manifest, `tick_statistics_ledger` and `tick_definition`, never the raw table (220). It therefore checks presence of records, not resolved values; a key whose last record is a `DELETE` shows in coverage, which reads resolved values.
 
@@ -264,7 +264,7 @@ Status: decided
 - `agree`: V = C;
 - `under`: V < C, shown with V / C;
 - `over`: V > C. A finding: more trades than CME cleared means a double load or a wrong session;
-- `no_trades`: V = 0 and C > 0. A finding: the ledger proves the unit loaded, so the session's traded volume is missing.
+- `no_trades`: V = 0 and C > 0 in a session where nothing at all traded. A finding: the ledger proves the unit loaded, so the session's traded volume is missing. A contract with V = 0 and C > 0 in a session that did trade is `under`: a deferred month's cleared volume is mostly spread-leg volume, which no outright trade carries (measured, task 8).
 
 `over` and `no_trades` set the exit code to 3. `under` does not. CME cleared volume includes trades made away from Globex (block trades, exchanges for physical and for related positions), which neither ticks nor provider bars carry, so V below C is normal. The architecture's "agrees" is refined to this. The purchase measures V / C over the held window and records its distribution.
 
@@ -279,7 +279,7 @@ Resolution for session S mirrors the volume rule (229 TD3), with open interest i
 
 - L is the session `RANK_LAG_SESSIONS` before S. Both rules rest on the same fact (CME publishes D's statistics during D + 1, and Databento's continuous rules rank on them), so they share one constant: `VOLUME_RANK_LAG_SESSIONS` is renamed `RANK_LAG_SESSIONS` and stays 2. The equivalence test pins it for `v` and `n` together. Only a test failure that one lag cannot satisfy splits it.
 - Candidates are eligible at S and listed in L (229's predicate). They are ranked by resolved open interest at L, ties to the earlier expiration.
-- S is `Unresolved` when L's statistics status is not `complete` (reason names L and its status), or when a candidate has no resolved open interest at L (reason names the contract and L). A content gap is a provider fact, not a broken invariant, so it is an answer, not a `RollInputError`.
+- S is `Unresolved` when L's statistics status is not `complete` (reason names L and its status), or when no candidate has resolved open interest at L (reason names L). A candidate with no record at L is not ranked and never read as zero: CME reports open interest only for contracts that hold some (measured, task 8). A content gap is a provider fact, not a broken invariant, so it is an answer, not a `RollInputError`.
 - The answer's `basis_unit_ids` are the units of the open-interest records read.
 - The forecast follows the volume rule's: exact for the lag sessions, then the bound at the active contract's expiration.
 

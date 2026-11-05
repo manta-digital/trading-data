@@ -5,8 +5,13 @@ session ``RANK_LAG_SESSIONS`` before it, never S's own (CME publishes it after S
 so it would look ahead). Candidates are the outrights eligible at S and listed
 in L, ranked by resolved open interest at L, ties to the earlier expiration.
 
+A candidate with no open interest record at L is not ranked: CME reports open
+interest only for contracts that hold some (GC's deferred contracts report it on
+8 to 11 of 40 sessions, ES's far months never; slice 303 task 8), so absence is
+not a gap to refuse over, and it is never read as zero.
+
 What the provider's data cannot decide is an answer, ``Unresolved``: L's
-statistics session is not load-complete, or a candidate has no open interest at
+statistics session is not load-complete, or no candidate has open interest at
 L. A broken invariant is ``RollInputError``, as everywhere in the resolver.
 """
 
@@ -46,13 +51,11 @@ def open_interest_answer(resolver: _Resolver, rule: RollRule, index: int) -> Ans
         if c.activation_ns <= opened <= c.expiration_ns and c.activation_ns <= lag_close
     ]
     held = resolver.interest.get(basis, {})
-    for c in candidates:
-        if c.instrument_id not in held:
-            return Unresolved(
-                day,
-                f"open interest inputs: {c.raw_symbol} ({c.instrument_id}) has no"
-                f" open interest in session {basis}",
-            )
+    candidates = [c for c in candidates if c.instrument_id in held]
+    if not candidates:
+        return Unresolved(
+            day, f"open interest inputs: no candidate has open interest in {basis}"
+        )
     # Stable sort over expiration order: equal interest keeps the earlier expiry.
     candidates.sort(key=lambda c: -held[c.instrument_id].value)
     chosen = resolver.pick(rule, index, candidates)

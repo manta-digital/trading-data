@@ -12,6 +12,7 @@ from manta_trading.data.tick.statistics_reads import (
     VolumeClass,
     VolumeVerdict,
     classify_volume,
+    settle_no_trades,
 )
 
 
@@ -51,3 +52,31 @@ def _verdict(cleared: int, traded: int) -> VolumeVerdict:
 def test_under_carries_its_ratio_and_a_zero_cleared_volume_has_none() -> None:
     assert _verdict(200, 150).ratio == 0.75
     assert _verdict(0, 0).ratio is None
+
+
+def test_no_trades_is_a_finding_only_when_the_whole_session_traded_nothing() -> None:
+    def verdict(day: int, cleared: int, traded: int) -> VolumeVerdict:
+        return VolumeVerdict(
+            date(2024, 12, day),
+            1,
+            "ESZ5",
+            SchemaFamily.TICK_TIER,
+            cleared,
+            traded,
+            classify_volume(cleared, traded),
+        )
+
+    settled = settle_no_trades(
+        [
+            verdict(3, 138, 0),  # deferred contract, spread-leg volume only
+            verdict(3, 1_000_000, 950_000),  # the front month traded
+            verdict(4, 138, 0),  # nothing traded all session: a real gap
+            verdict(4, 0, 0),
+        ]
+    )
+    assert [v.verdict for v in settled] == [
+        VolumeClass.UNDER,
+        VolumeClass.UNDER,
+        VolumeClass.NO_TRADES,
+        VolumeClass.AGREE,
+    ]

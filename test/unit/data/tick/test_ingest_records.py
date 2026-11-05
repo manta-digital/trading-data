@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, date, datetime, time, timedelta
+from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -135,6 +136,25 @@ def test_an_id_with_two_windows_resolves_each_record_to_its_window() -> None:
         "ES",
     )
     assert "1 records" in reason and "instrument_id 5" in reason
+
+
+def test_by_id_drops_both_time_bounds() -> None:
+    # Real shapes: a GC spread's statistics arrive days before its window opens,
+    # and an outright's final settlement arrives after its window closes.
+    defs = Definitions.of([(5, 1_000, 2_000), (7, 0, 100)])
+    ids = np.array([5, 7], dtype=np.int64)
+    off_window = np.array([10, 5_000], dtype=np.int64)
+    _failure(IngestCheck.RESOLUTION, resolve, defs, ids, off_window, "GC")
+    resolve(defs, ids, off_window, "GC", by_id=True)
+    unknown = np.array([9], dtype=np.int64)
+    _failure(
+        IngestCheck.RESOLUTION,
+        partial(resolve, by_id=True),
+        defs,
+        unknown,
+        np.array([10], dtype=np.int64),
+        "GC",
+    )
 
 
 # -- sessions (2.5) --------------------------------------------------------------

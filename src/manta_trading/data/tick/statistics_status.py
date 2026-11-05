@@ -32,6 +32,7 @@ from manta_trading.data.tick.session_days import days_touched
 from manta_trading.data.tick.statistics_constants import (
     REQUIRED_STAT_TYPES,
     STATISTICS_PUBLICATION_SESSIONS,
+    UNCONDITIONAL_STAT_TYPES,
 )
 from manta_trading.data.tick.status_reads import (
     SHAPE_WHERE,
@@ -85,18 +86,18 @@ def _calendar_window(
 def publication_windows(
     judged: Sequence[Session], calendar: Sequence[Session]
 ) -> list[list[date]]:
-    """Per judged session, its UTC days: its own first day through the close day
-    of the session ``STATISTICS_PUBLICATION_SESSIONS`` later."""
+    """Per judged session, the UTC days it and its next
+    ``STATISTICS_PUBLICATION_SESSIONS`` sessions touch.
+
+    A day no session touches (a Saturday) is not in the window: nothing is
+    published or wanted on it, so it has neither a unit nor a condition.
+    """
     position = {s.session_date: i for i, s in enumerate(calendar)}
     windows = []
     for session in judged:
-        later = calendar[
-            position[session.session_date] + STATISTICS_PUBLICATION_SESSIONS
-        ]
-        first, last = days_touched(session)[0], days_touched(later)[-1]
-        windows.append(
-            [first + timedelta(days=n) for n in range((last - first).days + 1)]
-        )
+        start = position[session.session_date]
+        span = calendar[start : start + STATISTICS_PUBLICATION_SESSIONS + 1]
+        windows.append(sorted({day for s in span for day in days_touched(s)}))
     return windows
 
 
@@ -194,7 +195,9 @@ async def content_findings(
 ) -> tuple[ContentFinding, ...]:
     """Gaps in the load-complete sessions: a listed outright (its definition
     window holds the whole session) missing a required type. A contract expiring
-    inside the session is exempt; spreads are never required."""
+    inside the session is exempt; spreads are never required. Cleared volume and
+    open interest are required of a contract only if it reported them somewhere
+    in the judged range (``UNCONDITIONAL_STAT_TYPES``)."""
     complete = [
         session
         for session, v in zip(sessions, verdicts, strict=True)
@@ -210,11 +213,16 @@ async def content_findings(
         max(s.session_date for s in complete),
     )
     required = {int(stat_type) for stat_type in REQUIRED_STAT_TYPES}
+    always = {int(stat_type) for stat_type in UNCONDITIONAL_STAT_TYPES}
+    reported: dict[int, set[int]] = {}
+    for (instrument_id, _), types in held.items():
+        reported.setdefault(instrument_id, set()).update(types)
     findings = []
     for session in complete:
         for instrument_id in listed_instruments(listed_for, session):
             symbol = listed_for[instrument_id][0]
-            missing = required - held.get((instrument_id, session.session_date), set())
+            needed = always | (required & reported.get(instrument_id, set()))
+            missing = needed - held.get((instrument_id, session.session_date), set())
             if missing:
                 findings.append(
                     ContentFinding(

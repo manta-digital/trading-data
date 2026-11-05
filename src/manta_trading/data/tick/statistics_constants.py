@@ -88,6 +88,14 @@ REFERENCED_STAT_TYPES: Final[frozenset[StatType]] = frozenset(
 #: Types a listed outright must have for a load-complete session (D7).
 REQUIRED_STAT_TYPES: Final[frozenset[StatType]] = REFERENCED_STAT_TYPES
 
+#: Of those, the ones CME reports for every listed outright. Cleared volume and
+#: open interest it reports only for contracts that hold some: deferred GC and ES
+#: months carry a settlement and nothing else (slice 303 task 8), so those two
+#: are required of a contract only once it has reported them in the range judged.
+UNCONDITIONAL_STAT_TYPES: Final[frozenset[StatType]] = frozenset(
+    {StatType.SETTLEMENT_PRICE}
+)
+
 #: CME publishes session D's statistics during the following session. This is
 #: the same fact the roll lag rests on (``RANK_LAG_SESSIONS`` in ``constants.py``;
 #: 220's pinned timing), so the status window for D reaches the close day of the

@@ -131,7 +131,13 @@ class StatisticsProjector:
                 ts_recv = records["ts_recv"].astype(np.int64)
                 types = records["stat_type"].astype(np.int64)
                 check_unit_day(ts_recv, plan.unit.unit_date)
-                resolve(plan.definitions, ids, records["ts_event"], plan.product)
+                resolve(
+                    plan.definitions,
+                    ids,
+                    records["ts_event"],
+                    plan.product,
+                    by_id=True,
+                )
                 sessions = assign_batch(
                     ids, types, records["ts_ref"], plan.unit.unit_date, calendar
                 )

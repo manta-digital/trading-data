@@ -136,7 +136,7 @@ async def test_an_incomplete_statistics_session_is_unresolved_naming_it(
     assert answer.reason == f"open interest inputs: session {lag} is awaiting_ingest"
 
 
-async def test_a_contract_with_no_open_interest_is_unresolved(
+async def test_a_contract_with_no_open_interest_is_not_ranked(
     statistics: dict[date, int], migrated_tick_db: str, session_migrated_db: str
 ) -> None:
     lag = date(2024, 9, 10)
@@ -155,9 +155,29 @@ async def test_a_contract_with_no_open_interest_is_unresolved(
         date(2024, 9, 13),
     )
     (answer,) = schedule.answers
+    assert not isinstance(answer, Unresolved)
+    assert answer.instrument_id != ESZ4.instrument_id
+
+
+async def test_no_candidate_with_open_interest_is_unresolved(
+    statistics: dict[date, int], migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    lag = date(2024, 9, 10)
+    with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
+        conn.execute("DELETE FROM tick_statistics WHERE session_date = %s", (lag,))
+    schedule = await build_schedule(
+        migrated_tick_db,
+        session_migrated_db,
+        ES,
+        N0,
+        date(2024, 9, 12),
+        date(2024, 9, 13),
+    )
+    (answer,) = schedule.answers
     assert isinstance(answer, Unresolved)
-    assert f"ESZ4 ({ESZ4.instrument_id}) has no open interest in session {lag}" in (
+    assert (
         answer.reason
+        == f"open interest inputs: no candidate has open interest in {lag}"
     )
 
 

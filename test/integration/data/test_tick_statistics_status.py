@@ -147,21 +147,36 @@ async def _complete_window(url: str) -> list[int]:
     return units
 
 
-async def test_each_listed_outright_needs_every_required_type(
+async def test_a_reporting_outright_is_owed_every_type_it_reports_and_a_settlement(
     migrated_tick_db: str, session_migrated_db: str
 ) -> None:
     units = await _complete_window(migrated_tick_db)
     with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
         _ledger(conn, units[1], INSTRUMENT, *ALL_TYPES)
-        _ledger(conn, units[1], OTHER, int(StatType.SETTLEMENT_PRICE))
-        _ledger(conn, units[2], OTHER, int(StatType.CLEARED_VOLUME))
+        _ledger(conn, units[1], OTHER, int(StatType.CLEARED_VOLUME))
+        _ledger(conn, units[2], OTHER, int(StatType.OPEN_INTEREST))
     session, verdict = await _verdict(migrated_tick_db, session_migrated_db)
     async with connect(migrated_tick_db) as conn:
         findings = await content_findings(conn, WANTS_STATISTICS, [session], [verdict])
     # The expiring contract and the spread have no records and are not required.
     assert findings == (
-        ContentFinding(SESSION, OTHER, f"ES{OTHER}", (int(StatType.OPEN_INTEREST),)),
+        ContentFinding(SESSION, OTHER, f"ES{OTHER}", (int(StatType.SETTLEMENT_PRICE),)),
     )
+
+
+async def test_a_contract_that_only_ever_settles_needs_only_a_settlement(
+    migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    units = await _complete_window(migrated_tick_db)
+    with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
+        _ledger(conn, units[1], INSTRUMENT, *ALL_TYPES)
+        # A deferred month: CME publishes its settlement and nothing else.
+        _ledger(conn, units[1], OTHER, int(StatType.SETTLEMENT_PRICE))
+    session, verdict = await _verdict(migrated_tick_db, session_migrated_db)
+    async with connect(migrated_tick_db) as conn:
+        assert (
+            await content_findings(conn, WANTS_STATISTICS, [session], [verdict]) == ()
+        )
 
 
 async def test_a_session_that_is_not_load_complete_has_no_findings(
@@ -211,7 +226,10 @@ async def test_the_status_section_appears_only_with_a_statistics_want(
     (statistics_json,) = [
         f for f in body["products"][0]["families"] if f["family"] == "statistics"
     ]
-    assert statistics_json["findings"][0]["missing_stat_types"] == ALL_TYPES
+    # A contract with no records is owed only the settlement CME gives every one.
+    assert statistics_json["findings"][0]["missing_stat_types"] == [
+        int(StatType.SETTLEMENT_PRICE)
+    ]
     (bare,) = without.products
     assert [f.family for f in bare.families] == [SchemaFamily.TICK_TIER]
     assert "findings" not in without.to_dict()["products"][0]["families"][0]

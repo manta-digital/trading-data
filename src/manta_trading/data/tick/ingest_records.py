@@ -71,27 +71,41 @@ class Definitions:
 
 
 def resolve(
-    definitions: Definitions, instrument_id: I64, ts_event: I64, product: str
+    definitions: Definitions,
+    instrument_id: I64,
+    ts_event: I64,
+    product: str,
+    *,
+    by_id: bool = False,
 ) -> None:
     """Raise ``resolution`` unless every record has a definition window holding it.
+
+    ``by_id`` drops the time bounds: the provider publishes statistics for
+    spreads and outrights before their definition activates and a final
+    settlement after it expires (slice 303 task 8), so only an id with no
+    loaded definition is unresolvable.
 
     ``searchsorted`` finds each record's id; a single window is tested
     vectorized, and only ids with several windows that day are looped over.
     """
     ids, ts = instrument_id.astype(np.int64), ts_event.astype(np.int64)
+    activation, expiration = definitions.activation_ns, definitions.expiration_ns
+    if by_id:
+        activation = np.full_like(activation, np.iinfo(np.int64).min)
+        expiration = np.full_like(expiration, np.iinfo(np.int64).max)
     left = np.searchsorted(definitions.instrument_id, ids, side="left")
     right = np.searchsorted(definitions.instrument_id, ids, side="right")
     windows = right - left
     resolved = np.zeros(len(ids), dtype=bool)
     single = windows == 1
     first = left[single]
-    resolved[single] = (definitions.activation_ns[first] <= ts[single]) & (
-        ts[single] <= definitions.expiration_ns[first]
+    resolved[single] = (activation[first] <= ts[single]) & (
+        ts[single] <= expiration[first]
     )
     for multi in np.unique(ids[windows > 1]):
         rows = ids == multi
         lo, hi = np.searchsorted(definitions.instrument_id, [multi, multi + 1])
-        act, exp = definitions.activation_ns[lo:hi], definitions.expiration_ns[lo:hi]
+        act, exp = activation[lo:hi], expiration[lo:hi]
         held = (act[None, :] <= ts[rows, None]) & (ts[rows, None] <= exp[None, :])
         resolved[rows] = held.any(axis=1)
     if resolved.all():

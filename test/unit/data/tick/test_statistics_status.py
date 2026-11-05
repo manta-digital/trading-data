@@ -37,12 +37,17 @@ def test_a_midweek_window_runs_from_the_sessions_first_day_to_the_next_close_day
     ]
 
 
-def test_a_friday_window_reaches_mondays_close_day() -> None:
+def test_a_friday_window_reaches_mondays_close_day_but_skips_the_saturday() -> None:
     friday, monday = date(2024, 12, 6), date(2024, 12, 9)
     calendar = [_session(friday), _session(monday, opened=date(2024, 12, 8))]
     (window,) = publication_windows([calendar[0]], calendar)
-    assert window == _days(date(2024, 12, 5), monday)
-    assert date(2024, 12, 7) in window  # the weekend between is part of it
+    # No session touches Saturday: it has neither a unit nor a condition, so a
+    # window holding it would read edge_unknown forever (slice 303 task 8).
+    assert window == [
+        *_days(date(2024, 12, 5), date(2024, 12, 6)),
+        *_days(date(2024, 12, 8), monday),
+    ]
+    assert date(2024, 12, 7) not in window
 
 
 def test_a_holiday_is_skipped_by_taking_the_next_session_of_the_calendar() -> None:
