@@ -141,10 +141,9 @@ def _session(calendar_url: str) -> Session:
 async def test_every_record_is_stored_and_the_referenced_ones_get_their_session(
     real_window: str,
 ) -> None:
-    for day, records in RECORDS.items():
-        provider, decoded, stored = (
-            psycopg.connect(real_window)
-            .execute(
+    with psycopg.connect(real_window) as conn:
+        for day, records in RECORDS.items():
+            row = conn.execute(
                 "SELECT u.provider_record_count, u.decoded_record_count,"
                 f" (SELECT count(*) FROM {STATISTICS_TABLE} s"
                 " WHERE s.unit_id = u.unit_id)"
@@ -152,10 +151,9 @@ async def test_every_record_is_stored_and_the_referenced_ones_get_their_session(
                 " WHERE r.schema = 'statistics' AND u.unit_date = %s"
                 " AND u.provider_record_count IS NOT NULL",
                 (day,),
-            )
-            .fetchone()
-        )  # type: ignore[misc]
-        assert provider == decoded == stored == records
+            ).fetchone()
+            assert row is not None
+            assert row == (records, records, records)
     with psycopg.connect(real_window) as conn:
         sessions = conn.execute(
             "SELECT DISTINCT session_date FROM tick_statistics"

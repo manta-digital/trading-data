@@ -1,8 +1,29 @@
 {
  "source": "trading_tick (read-only): roll_inputs.outright_definitions",
- "read_at": "2026-10-14T17:13:10.386729+00:00",
+ "read_at": "2026-11-05T13:20:15.451571+00:00",
  "definitions_as_of": "2024-12-31",
  "rows": [
+  {
+   "instrument_id": 2017,
+   "raw_symbol": "GCQ4",
+   "activation_ns": 1664487000000000000,
+   "expiration_ns": 1724866200000000000,
+   "unit_id": 259
+  },
+  {
+   "instrument_id": 42005301,
+   "raw_symbol": "GCU4",
+   "activation_ns": 1719523800000000000,
+   "expiration_ns": 1727371800000000000,
+   "unit_id": 259
+  },
+  {
+   "instrument_id": 12609,
+   "raw_symbol": "GCV4",
+   "activation_ns": 1669761000000000000,
+   "expiration_ns": 1730223000000000000,
+   "unit_id": 259
+  },
   {
    "instrument_id": 42003962,
    "raw_symbol": "GCX4",

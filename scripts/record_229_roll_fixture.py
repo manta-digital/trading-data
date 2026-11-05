@@ -8,14 +8,16 @@ Reads, through the shipped roll and status reads (never copies of them):
   ``status_reads.session_verdicts``);
 - the product's calendar sessions over the fixture span, through
   ``calendar_for_product`` (``status_reads.calendar_sessions``);
+- resolved outright open interest per (session, instrument) with its unit, and
+  the statistics family's verdict per session (slice 303);
 - Databento's ``symbology.resolve`` intervals for ``{product}.c.0``, ``.c.1``,
-  ``.v.0`` and ``.v.1`` (free; the provider is typed as
+  ``.v.0``, ``.v.1``, ``.n.0`` and ``.n.1`` (free; the provider is typed as
   ``ITickMetadataProvider``, which has no paid method).
 
 The tick connection is read-only; every statement is a ``SELECT``. URLs and
 the key come from ``Settings`` (``MT_TICK_DB_URL``, ``MT_TIMESCALE_DB_URL``,
 the Databento key); an unset one stops the script naming it. Output:
-``test/fixtures/tick/roll/{product}_{definitions,volumes,calendar,databento}.json``
+``test/fixtures/tick/roll/{product}_{definitions,volumes,open_interest,calendar,databento}.json``
 (product lower-cased), each with its source and the UTC time it was read.
 
 Manual, developer-run only; never in CI. Usage::
@@ -49,10 +51,13 @@ from manta_trading.data.tick.provider import ITickMetadataProvider, TickRequest
 from manta_trading.data.tick.roll_inputs import (
     definitions_as_of,
     outright_definitions,
+    session_open_interest,
     session_volumes,
 )
 from manta_trading.data.tick.roll_rules import RollRule
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
+from manta_trading.data.tick.statistics_status import statistics_verdicts
 from manta_trading.data.tick.status_reads import (
     calendar_sessions,
     session_verdicts,
@@ -69,7 +74,7 @@ RESOLVE_SPAN = (date(2024, 8, 30), date(2025, 1, 3))
 
 
 def _continuous(product: str) -> tuple[str, ...]:
-    """Databento's ``{product}.c.0``, ``.c.1``, ``.v.0`` and ``.v.1``."""
+    """Databento's ``{product}.{c,v,n}.{0,1}``."""
     return tuple(
         RollRule(method, rank).symbol(product)
         for method in RollMethod
@@ -124,8 +129,13 @@ async def _tick(
         async with conn.transaction():
             defs = await outright_definitions(conn, product)
             as_of = await definitions_as_of(conn, shape)
-            volumes = await session_volumes(conn, shape, *CALENDAR_SPAN)
-            verdicts = await session_verdicts(conn, entry, sessions)
+            tier = SchemaFamily.TICK_TIER
+            volumes = await session_volumes(conn, shape, tier, *CALENDAR_SPAN)
+            verdicts = await session_verdicts(conn, entry, sessions, tier)
+            interest = await session_open_interest(conn, shape, *CALENDAR_SPAN)
+            statistics = await statistics_verdicts(calendar_url)(
+                conn, entry, sessions, SchemaFamily.STATISTICS
+            )
     source = "trading_tick (read-only)"
     prefix = product.lower()
     return {
@@ -138,6 +148,15 @@ async def _tick(
             f"{source}: roll_inputs.session_volumes, status_reads.session_verdicts",
             [asdict(v) | {"session_date": v.session_date.isoformat()} for v in volumes],
             statuses={v.session_date.isoformat(): v.status.value for v in verdicts},
+        ),
+        f"{prefix}_open_interest": _envelope(
+            f"{source}: roll_inputs.session_open_interest,"
+            " statistics_status.statistics_verdicts",
+            [
+                asdict(i) | {"session_date": i.session_date.isoformat()}
+                for i in interest
+            ],
+            statuses={v.session_date.isoformat(): v.status.value for v in statistics},
         ),
     }
 

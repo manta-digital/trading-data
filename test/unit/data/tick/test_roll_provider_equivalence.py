@@ -1,12 +1,13 @@
 """Our rules agree with Databento's continuous symbols on recorded real inputs.
 
-LLD 229 TD8, extended per product by LLD 232 TD8. Pins
+LLD 229 TD8, extended per product by LLD 232 TD8 and to the open-interest rule by
+slice 303 (``n.0`` and ``n.1``). Pins
 ``RANK_LAG_SESSIONS``: for every product with recorded fixtures and for
-``c.0``, ``c.1``, ``v.0`` and ``v.1``, every session resolved over the recorded
-span is the contract Databento maps on that session date, and the unresolved
-sessions are exactly those whose lag session is not complete. A failure after a
-re-record means the provider's convention moved: revisit the lag whole, never
-per roll or per product.
+``c.0``, ``c.1``, ``v.0``, ``v.1``, ``n.0`` and ``n.1``, every session resolved
+over the recorded span is the contract Databento maps on that session date, and
+the unresolved sessions are exactly those whose lag session is not complete. A
+failure after a re-record means the provider's convention moved: revisit the lag
+whole, never per roll or per product.
 """
 
 from __future__ import annotations
@@ -30,6 +31,31 @@ from manta_trading.data.tick.tick_status import TickSessionStatus
 #: Products with recorded fixtures under ``test/fixtures/tick/roll/``.
 PRODUCTS = ["ES", "GC"]
 RULES = ["c.0", "c.1", "v.0", "v.1"]
+OI_RULES = ["n.0", "n.1"]
+#: Sessions our ``n`` rules leave unresolved where Databento maps a contract,
+#: with why (303 task 8; one lag for every rule, none of these is a mismatch):
+#: the lag session is before the purchase (2024-08-30 and the two sessions after
+#: the first), a holiday lag session CME gave no statistics (2024-09-04,
+#: 2024-12-02), and, for ES only, a lag session whose one unit CME's own data
+#: failed ``stat_reference`` (a Saturday ``ts_ref``; 2024-12-10, 2024-12-11).
+N_UNRESOLVED: dict[str, set[date]] = {
+    "ES": {
+        date(2024, 8, 30),
+        date(2024, 9, 2),
+        date(2024, 9, 3),
+        date(2024, 9, 4),
+        date(2024, 12, 2),
+        date(2024, 12, 10),
+        date(2024, 12, 11),
+    },
+    "GC": {
+        date(2024, 8, 30),
+        date(2024, 9, 2),
+        date(2024, 9, 3),
+        date(2024, 9, 4),
+        date(2024, 12, 2),
+    },
+}
 #: Sessions where our rule names another contract than Databento's, accepted
 #: by the PM (2026-10-14; 232). GC's rank-2 volumes there are in the low
 #: thousands, two near-ties; lag 1 would match them but move ``GC.v.0``'s
@@ -47,10 +73,14 @@ def _answers(product: str, rule: str) -> tuple[Answer, ...]:
 
 
 @cache
-def _held_from(product: str) -> date:
-    """The product's first session with recorded volume: before it nothing is
-    held, not even the definitions of contracts that expired earlier."""
-    return min(v.session_date for v in recorded_inputs(product).volumes if v.volume)
+def _held_from(product: str, rule: str = "v.0") -> date:
+    """The product's first session with recorded volume (open interest for ``n``):
+    before it nothing is held, not even the definitions of contracts that
+    expired earlier."""
+    inputs = recorded_inputs(product)
+    if RollRule.parse(rule).method is RollMethod.OPEN_INTEREST:
+        return min(i.session_date for i in inputs.open_interest)
+    return min(v.session_date for v in inputs.volumes if v.volume)
 
 
 def _provider(product: str, rule: str, day: date) -> int:
@@ -59,13 +89,13 @@ def _provider(product: str, rule: str, day: date) -> int:
     return hit.instrument_id
 
 
-@pytest.mark.parametrize("rule", RULES)
+@pytest.mark.parametrize("rule", [*RULES, *OI_RULES])
 @pytest.mark.parametrize("product", PRODUCTS)
 def test_every_resolved_session_matches_the_provider(product: str, rule: str) -> None:
     resolved = [
         a
         for a in _answers(product, rule)
-        if isinstance(a, ActiveContract) and a.session_date >= _held_from(product)
+        if isinstance(a, ActiveContract) and a.session_date >= _held_from(product, rule)
     ]
     assert len(resolved) >= 40
     mismatched = {
@@ -99,6 +129,17 @@ def test_unresolved_sessions_are_exactly_those_with_an_incomplete_lag(
     method = RollRule.parse(rule).method
     expected = _lag_incomplete(product) if method is RollMethod.VOLUME else set()
     assert unresolved == expected
+
+
+@pytest.mark.parametrize("rule", OI_RULES)
+@pytest.mark.parametrize("product", PRODUCTS)
+def test_open_interest_leaves_unresolved_only_the_pinned_sessions(
+    product: str, rule: str
+) -> None:
+    unresolved = {
+        a.session_date for a in _answers(product, rule) if isinstance(a, Unresolved)
+    }
+    assert unresolved == N_UNRESOLVED[product]
 
 
 def test_tbbo_range_opens_with_two_unresolved_volume_sessions() -> None:

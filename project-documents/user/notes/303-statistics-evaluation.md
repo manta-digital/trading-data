@@ -4,14 +4,13 @@ project: trading-data
 slice: 303-slice.statistics-and-the-open-interest-roll-rule
 dateCreated: 20261104
 dateUpdated: 20261105
-status: in_progress
+status: complete
 ---
 
 # Statistics evaluation (slice 303, D11)
 
 The real purchase of ES and GC `statistics` and the definitions they need, run on
-throwaway databases, and what it shows. Sections are filled as the tasks that
-produce them run (8.2 to 8.5, 14.4, 15.1).
+throwaway databases, and what it shows. Each D11 item maps to a section below.
 
 ## Purchase attempt, 2026-11-04 (task 8.2, refused; resolved 2026-11-05)
 
@@ -209,3 +208,73 @@ the full-day figure for the same session, from the purchased tick tier in the
 throwaway database, is: ESZ4 cleared 991,961, traded 920,768 (0.928, `under`);
 ESH5 8,432 against 2,099 (0.249, `under`); ESM5 49 against 48 (0.98, `under`);
 ESU5, ESZ5 and ESZ6 0 against 0 (`agree`). So 3 of 6 outrights under, none over.
+
+## Roll dates and equivalence (tasks 14.2 to 14.4)
+
+Fixtures re-recorded from the throwaway databases with
+`scripts/record_229_roll_fixture.py` (per product: `open_interest` new,
+`databento` now with `.n.0` and `.n.1`, `definitions` gaining the purchased GC
+rows; `volumes` and `calendar` differ only in their `read_at`). `n.0` and `n.1`
+match Databento's `.n.0` and `.n.1` on **every resolved session for ES and GC**
+(81 and 83 sessions, 0 mismatches) with the same single lag as `v`
+(`RANK_LAG_SESSIONS`); the pinned `v` and `c` equivalence still passes unchanged.
+`KNOWN_DIVERGENCE` gains nothing (its one entry stays GC `v.1`, 232).
+
+Roll dates (the session the new contract is first active), 2024-08-30 to
+2025-01-03:
+
+| rule | ES | GC |
+|---|---|---|
+| `c.0` ours | ESU4>ESZ4 09-23, ESZ4>ESH5 12-23 | GCU4>GCV4 09-27, GCV4>GCX4 10-30, GCX4>GCZ4 11-27, GCZ4>GCF5 12-30 |
+| `c.0` Databento | ESZ4 09-22, ESH5 12-22 | GCV4 09-27, GCX4 10-30, GCZ4 11-27, GCF5 12-29 |
+| `v.0` ours = Databento | 09-18, 12-18 | 11-29 (GCZ4>GCG5) |
+| `n.0` ours = Databento | 09-18, 12-18 | 11-21 (GCZ4>GCG5) |
+
+(`c.0`: Databento's 09-22 and 12-22 are Sundays, which are not session dates, so
+the first session on or after each is ours (09-23, 12-23); the pinned `c`
+equivalence compares session dates and has no mismatch.) ES `n.0` and `v.0` roll on the same
+sessions; GC `n.0` rolls eight sessions before `v.0`, as the design expected
+(open interest leads volume at the gold roll).
+
+**Sessions our `n` rules leave unresolved where Databento maps a contract**
+(pinned in `N_UNRESOLVED` in the equivalence test; not mismatches):
+
+- the lag session is before the purchase (2024-08-30, 09-02, 09-03; 08-28 to
+  08-30 lag sessions are `edge_unknown`);
+- a holiday lag session that CME gave no statistics: 2024-09-04 (lag 09-02, Labor
+  Day) and 2024-12-02 (lag 11-28, Thanksgiving), both products;
+- ES 2024-12-10 and 2024-12-11: their lag sessions are `retry_exhausted` because
+  of the one refused unit (Saturday `ts_ref`).
+
+The holiday-lag sessions are a real gap in `n` to decide before 306/307 depend on
+it: Databento resolves them (presumably from the nearest earlier session with
+statistics) and our rule refuses. Changing the lag per case would break the
+one-lag rule; a "nearest earlier session that holds statistics" lag for `n` only
+would need its own design.
+
+**`statistics` read cost** (one `resolved` read of the three types over the four
+months, measured in 8.4): ES 4,537 rows in 0.04 s (87 sessions, about 0.5 ms a
+session); GC 26,103 rows in 0.12 s (about 1.4 ms a session).
+
+## D11 map and completion summary
+
+| D11 item | Where |
+|---|---|
+| job ids, estimate beside Databento's charge | "The purchase" |
+| `ts_ref` instants, `stat_flags`, distinct reference dates | "Data facts" |
+| latest receive vs session close, `STATISTICS_PUBLICATION_SESSIONS` | "Data facts" |
+| V / C per contract and session; `over` / `no_trades` | "Data facts", "Check: back-month records" |
+| roll dates of `c.0`, `v.0`, our `n.0`, Databento's `.n.0` and `.v.0` | "Roll dates and equivalence" |
+| resolved-read timing | "Data facts", "Roll dates and equivalence" |
+| recorded fixtures, `KNOWN_DIVERGENCE` | "Roll dates and equivalence" |
+| file fixtures | "Real-file tests" |
+
+**For the completion summary.** The divergence list is empty: `n.0` and `n.1` match
+Databento on every resolved session for ES and GC, and `KNOWN_DIVERGENCE` gains
+nothing. Four design assumptions the purchase overturned and the code now follows
+(statistics resolve by id; deferred months owe a settlement only; `no_trades` is a
+whole-session finding; `n` ranks only candidates that report open interest). Open
+for a decision: holiday lag sessions leave `n` unresolved where Databento maps a
+contract (2024-09-04 and 2024-12-02, both products), and CME's own data holds one
+`stat_reference` violation (ESZ9, Saturday `ts_ref`), which keeps two ES sessions
+`retry_exhausted`. 304 adopts the 16 jobs from `~/scratch-303/archive`.

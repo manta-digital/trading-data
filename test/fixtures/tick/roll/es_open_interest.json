@@ -1,0 +1,3275 @@
+{
+ "source": "trading_tick (read-only): roll_inputs.session_open_interest, statistics_status.statistics_verdicts",
+ "read_at": "2026-11-05T13:20:13.628744+00:00",
+ "statuses": {
+  "2024-08-28": "edge_unknown",
+  "2024-08-29": "edge_unknown",
+  "2024-08-30": "edge_unknown",
+  "2024-09-02": "complete",
+  "2024-09-03": "complete",
+  "2024-09-04": "complete",
+  "2024-09-05": "complete",
+  "2024-09-06": "complete",
+  "2024-09-09": "complete",
+  "2024-09-10": "complete",
+  "2024-09-11": "complete",
+  "2024-09-12": "complete",
+  "2024-09-13": "complete",
+  "2024-09-16": "complete",
+  "2024-09-17": "complete",
+  "2024-09-18": "complete",
+  "2024-09-19": "complete",
+  "2024-09-20": "complete",
+  "2024-09-23": "complete",
+  "2024-09-24": "complete",
+  "2024-09-25": "complete",
+  "2024-09-26": "complete",
+  "2024-09-27": "complete",
+  "2024-09-30": "complete",
+  "2024-10-01": "complete",
+  "2024-10-02": "complete",
+  "2024-10-03": "complete",
+  "2024-10-04": "complete",
+  "2024-10-07": "complete",
+  "2024-10-08": "complete",
+  "2024-10-09": "complete",
+  "2024-10-10": "complete",
+  "2024-10-11": "complete",
+  "2024-10-14": "complete",
+  "2024-10-15": "complete",
+  "2024-10-16": "complete",
+  "2024-10-17": "complete",
+  "2024-10-18": "complete",
+  "2024-10-21": "complete",
+  "2024-10-22": "complete",
+  "2024-10-23": "complete",
+  "2024-10-24": "complete",
+  "2024-10-25": "complete",
+  "2024-10-28": "complete",
+  "2024-10-29": "complete",
+  "2024-10-30": "complete",
+  "2024-10-31": "complete",
+  "2024-11-01": "complete",
+  "2024-11-04": "complete",
+  "2024-11-05": "complete",
+  "2024-11-06": "complete",
+  "2024-11-07": "complete",
+  "2024-11-08": "complete",
+  "2024-11-11": "complete",
+  "2024-11-12": "complete",
+  "2024-11-13": "complete",
+  "2024-11-14": "complete",
+  "2024-11-15": "complete",
+  "2024-11-18": "complete",
+  "2024-11-19": "complete",
+  "2024-11-20": "complete",
+  "2024-11-21": "complete",
+  "2024-11-22": "complete",
+  "2024-11-25": "complete",
+  "2024-11-26": "complete",
+  "2024-11-27": "complete",
+  "2024-11-28": "complete",
+  "2024-11-29": "complete",
+  "2024-12-02": "complete",
+  "2024-12-03": "complete",
+  "2024-12-04": "complete",
+  "2024-12-05": "complete",
+  "2024-12-06": "retry_exhausted",
+  "2024-12-09": "retry_exhausted",
+  "2024-12-10": "complete",
+  "2024-12-11": "complete",
+  "2024-12-12": "complete",
+  "2024-12-13": "complete",
+  "2024-12-16": "complete",
+  "2024-12-17": "complete",
+  "2024-12-18": "complete",
+  "2024-12-19": "complete",
+  "2024-12-20": "complete",
+  "2024-12-23": "complete",
+  "2024-12-24": "complete",
+  "2024-12-26": "complete",
+  "2024-12-27": "complete",
+  "2024-12-30": "complete",
+  "2024-12-31": "edge_unknown",
+  "2025-01-02": "edge_unknown",
+  "2025-01-03": "edge_unknown",
+  "2025-01-06": "edge_unknown",
+  "2025-01-07": "edge_unknown",
+  "2025-01-08": "edge_unknown",
+  "2025-01-09": "edge_unknown",
+  "2025-01-10": "edge_unknown",
+  "2025-01-13": "edge_unknown",
+  "2025-01-14": "edge_unknown",
+  "2025-01-15": "edge_unknown",
+  "2025-01-16": "edge_unknown",
+  "2025-01-17": "edge_unknown",
+  "2025-01-20": "edge_unknown",
+  "2025-01-21": "edge_unknown",
+  "2025-01-22": "edge_unknown",
+  "2025-01-23": "edge_unknown",
+  "2025-01-24": "edge_unknown",
+  "2025-01-27": "edge_unknown",
+  "2025-01-28": "edge_unknown",
+  "2025-01-29": "edge_unknown",
+  "2025-01-30": "edge_unknown",
+  "2025-01-31": "edge_unknown",
+  "2025-02-03": "edge_unknown",
+  "2025-02-04": "edge_unknown",
+  "2025-02-05": "edge_unknown",
+  "2025-02-06": "edge_unknown",
+  "2025-02-07": "edge_unknown",
+  "2025-02-10": "edge_unknown",
+  "2025-02-11": "edge_unknown",
+  "2025-02-12": "edge_unknown",
+  "2025-02-13": "edge_unknown",
+  "2025-02-14": "edge_unknown",
+  "2025-02-17": "edge_unknown",
+  "2025-02-18": "edge_unknown",
+  "2025-02-19": "edge_unknown",
+  "2025-02-20": "edge_unknown",
+  "2025-02-21": "edge_unknown",
+  "2025-02-24": "edge_unknown",
+  "2025-02-25": "edge_unknown",
+  "2025-02-26": "edge_unknown",
+  "2025-02-27": "edge_unknown",
+  "2025-02-28": "edge_unknown",
+  "2025-03-03": "edge_unknown",
+  "2025-03-04": "edge_unknown",
+  "2025-03-05": "edge_unknown",
+  "2025-03-06": "edge_unknown",
+  "2025-03-07": "edge_unknown",
+  "2025-03-10": "edge_unknown",
+  "2025-03-11": "edge_unknown",
+  "2025-03-12": "edge_unknown",
+  "2025-03-13": "edge_unknown",
+  "2025-03-14": "edge_unknown",
+  "2025-03-17": "edge_unknown",
+  "2025-03-18": "edge_unknown",
+  "2025-03-19": "edge_unknown",
+  "2025-03-20": "edge_unknown",
+  "2025-03-21": "edge_unknown",
+  "2025-03-24": "edge_unknown",
+  "2025-03-25": "edge_unknown",
+  "2025-03-26": "edge_unknown",
+  "2025-03-27": "edge_unknown",
+  "2025-03-28": "edge_unknown",
+  "2025-03-31": "edge_unknown",
+  "2025-04-01": "edge_unknown"
+ },
+ "rows": [
+  {
+   "session_date": "2024-08-29",
+   "instrument_id": 118,
+   "value": 2015351,
+   "unit_id": 260
+  },
+  {
+   "session_date": "2024-08-29",
+   "instrument_id": 4916,
+   "value": 141,
+   "unit_id": 260
+  },
+  {
+   "session_date": "2024-08-29",
+   "instrument_id": 5002,
+   "value": 4420,
+   "unit_id": 260
+  },
+  {
+   "session_date": "2024-08-29",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 260
+  },
+  {
+   "session_date": "2024-08-29",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 260
+  },
+  {
+   "session_date": "2024-08-29",
+   "instrument_id": 183748,
+   "value": 70521,
+   "unit_id": 260
+  },
+  {
+   "session_date": "2024-08-29",
+   "instrument_id": 294973,
+   "value": 834,
+   "unit_id": 260
+  },
+  {
+   "session_date": "2024-08-30",
+   "instrument_id": 118,
+   "value": 2037176,
+   "unit_id": 290
+  },
+  {
+   "session_date": "2024-08-30",
+   "instrument_id": 4916,
+   "value": 141,
+   "unit_id": 290
+  },
+  {
+   "session_date": "2024-08-30",
+   "instrument_id": 5002,
+   "value": 4606,
+   "unit_id": 290
+  },
+  {
+   "session_date": "2024-08-30",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 290
+  },
+  {
+   "session_date": "2024-08-30",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 290
+  },
+  {
+   "session_date": "2024-08-30",
+   "instrument_id": 183748,
+   "value": 78684,
+   "unit_id": 290
+  },
+  {
+   "session_date": "2024-08-30",
+   "instrument_id": 294973,
+   "value": 834,
+   "unit_id": 290
+  },
+  {
+   "session_date": "2024-09-03",
+   "instrument_id": 118,
+   "value": 2021676,
+   "unit_id": 291
+  },
+  {
+   "session_date": "2024-09-03",
+   "instrument_id": 4916,
+   "value": 141,
+   "unit_id": 291
+  },
+  {
+   "session_date": "2024-09-03",
+   "instrument_id": 5002,
+   "value": 4669,
+   "unit_id": 291
+  },
+  {
+   "session_date": "2024-09-03",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 291
+  },
+  {
+   "session_date": "2024-09-03",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 291
+  },
+  {
+   "session_date": "2024-09-03",
+   "instrument_id": 183748,
+   "value": 79352,
+   "unit_id": 291
+  },
+  {
+   "session_date": "2024-09-03",
+   "instrument_id": 294973,
+   "value": 834,
+   "unit_id": 291
+  },
+  {
+   "session_date": "2024-09-04",
+   "instrument_id": 118,
+   "value": 2020412,
+   "unit_id": 292
+  },
+  {
+   "session_date": "2024-09-04",
+   "instrument_id": 4916,
+   "value": 140,
+   "unit_id": 292
+  },
+  {
+   "session_date": "2024-09-04",
+   "instrument_id": 5002,
+   "value": 4805,
+   "unit_id": 292
+  },
+  {
+   "session_date": "2024-09-04",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 292
+  },
+  {
+   "session_date": "2024-09-04",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 292
+  },
+  {
+   "session_date": "2024-09-04",
+   "instrument_id": 183748,
+   "value": 83582,
+   "unit_id": 292
+  },
+  {
+   "session_date": "2024-09-04",
+   "instrument_id": 294973,
+   "value": 834,
+   "unit_id": 292
+  },
+  {
+   "session_date": "2024-09-05",
+   "instrument_id": 118,
+   "value": 2018095,
+   "unit_id": 293
+  },
+  {
+   "session_date": "2024-09-05",
+   "instrument_id": 4916,
+   "value": 140,
+   "unit_id": 293
+  },
+  {
+   "session_date": "2024-09-05",
+   "instrument_id": 5002,
+   "value": 4857,
+   "unit_id": 293
+  },
+  {
+   "session_date": "2024-09-05",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 293
+  },
+  {
+   "session_date": "2024-09-05",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 293
+  },
+  {
+   "session_date": "2024-09-05",
+   "instrument_id": 183748,
+   "value": 90797,
+   "unit_id": 293
+  },
+  {
+   "session_date": "2024-09-05",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 293
+  },
+  {
+   "session_date": "2024-09-06",
+   "instrument_id": 118,
+   "value": 2026223,
+   "unit_id": 295
+  },
+  {
+   "session_date": "2024-09-06",
+   "instrument_id": 4916,
+   "value": 140,
+   "unit_id": 295
+  },
+  {
+   "session_date": "2024-09-06",
+   "instrument_id": 5002,
+   "value": 4940,
+   "unit_id": 295
+  },
+  {
+   "session_date": "2024-09-06",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 295
+  },
+  {
+   "session_date": "2024-09-06",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 295
+  },
+  {
+   "session_date": "2024-09-06",
+   "instrument_id": 183748,
+   "value": 97899,
+   "unit_id": 295
+  },
+  {
+   "session_date": "2024-09-06",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 295
+  },
+  {
+   "session_date": "2024-09-09",
+   "instrument_id": 118,
+   "value": 2053024,
+   "unit_id": 296
+  },
+  {
+   "session_date": "2024-09-09",
+   "instrument_id": 4916,
+   "value": 140,
+   "unit_id": 296
+  },
+  {
+   "session_date": "2024-09-09",
+   "instrument_id": 5002,
+   "value": 5004,
+   "unit_id": 296
+  },
+  {
+   "session_date": "2024-09-09",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 296
+  },
+  {
+   "session_date": "2024-09-09",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 296
+  },
+  {
+   "session_date": "2024-09-09",
+   "instrument_id": 183748,
+   "value": 111295,
+   "unit_id": 296
+  },
+  {
+   "session_date": "2024-09-09",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 296
+  },
+  {
+   "session_date": "2024-09-10",
+   "instrument_id": 118,
+   "value": 2025918,
+   "unit_id": 297
+  },
+  {
+   "session_date": "2024-09-10",
+   "instrument_id": 4916,
+   "value": 264,
+   "unit_id": 297
+  },
+  {
+   "session_date": "2024-09-10",
+   "instrument_id": 5002,
+   "value": 5013,
+   "unit_id": 297
+  },
+  {
+   "session_date": "2024-09-10",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 297
+  },
+  {
+   "session_date": "2024-09-10",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 297
+  },
+  {
+   "session_date": "2024-09-10",
+   "instrument_id": 183748,
+   "value": 124344,
+   "unit_id": 297
+  },
+  {
+   "session_date": "2024-09-10",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 297
+  },
+  {
+   "session_date": "2024-09-11",
+   "instrument_id": 118,
+   "value": 1960075,
+   "unit_id": 298
+  },
+  {
+   "session_date": "2024-09-11",
+   "instrument_id": 4916,
+   "value": 264,
+   "unit_id": 298
+  },
+  {
+   "session_date": "2024-09-11",
+   "instrument_id": 5002,
+   "value": 5007,
+   "unit_id": 298
+  },
+  {
+   "session_date": "2024-09-11",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 298
+  },
+  {
+   "session_date": "2024-09-11",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 298
+  },
+  {
+   "session_date": "2024-09-11",
+   "instrument_id": 183748,
+   "value": 183832,
+   "unit_id": 298
+  },
+  {
+   "session_date": "2024-09-11",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 298
+  },
+  {
+   "session_date": "2024-09-12",
+   "instrument_id": 118,
+   "value": 1874417,
+   "unit_id": 299
+  },
+  {
+   "session_date": "2024-09-12",
+   "instrument_id": 4916,
+   "value": 265,
+   "unit_id": 299
+  },
+  {
+   "session_date": "2024-09-12",
+   "instrument_id": 5002,
+   "value": 5893,
+   "unit_id": 299
+  },
+  {
+   "session_date": "2024-09-12",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 299
+  },
+  {
+   "session_date": "2024-09-12",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 299
+  },
+  {
+   "session_date": "2024-09-12",
+   "instrument_id": 183748,
+   "value": 270024,
+   "unit_id": 299
+  },
+  {
+   "session_date": "2024-09-12",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 299
+  },
+  {
+   "session_date": "2024-09-13",
+   "instrument_id": 118,
+   "value": 1536786,
+   "unit_id": 301
+  },
+  {
+   "session_date": "2024-09-13",
+   "instrument_id": 4916,
+   "value": 310,
+   "unit_id": 301
+  },
+  {
+   "session_date": "2024-09-13",
+   "instrument_id": 5002,
+   "value": 6572,
+   "unit_id": 301
+  },
+  {
+   "session_date": "2024-09-13",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 301
+  },
+  {
+   "session_date": "2024-09-13",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 301
+  },
+  {
+   "session_date": "2024-09-13",
+   "instrument_id": 183748,
+   "value": 661523,
+   "unit_id": 301
+  },
+  {
+   "session_date": "2024-09-13",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 301
+  },
+  {
+   "session_date": "2024-09-16",
+   "instrument_id": 118,
+   "value": 1023505,
+   "unit_id": 302
+  },
+  {
+   "session_date": "2024-09-16",
+   "instrument_id": 4916,
+   "value": 312,
+   "unit_id": 302
+  },
+  {
+   "session_date": "2024-09-16",
+   "instrument_id": 5002,
+   "value": 6964,
+   "unit_id": 302
+  },
+  {
+   "session_date": "2024-09-16",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 302
+  },
+  {
+   "session_date": "2024-09-16",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 302
+  },
+  {
+   "session_date": "2024-09-16",
+   "instrument_id": 183748,
+   "value": 1389650,
+   "unit_id": 302
+  },
+  {
+   "session_date": "2024-09-16",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 302
+  },
+  {
+   "session_date": "2024-09-17",
+   "instrument_id": 118,
+   "value": 769660,
+   "unit_id": 303
+  },
+  {
+   "session_date": "2024-09-17",
+   "instrument_id": 4916,
+   "value": 312,
+   "unit_id": 303
+  },
+  {
+   "session_date": "2024-09-17",
+   "instrument_id": 5002,
+   "value": 7574,
+   "unit_id": 303
+  },
+  {
+   "session_date": "2024-09-17",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 303
+  },
+  {
+   "session_date": "2024-09-17",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 303
+  },
+  {
+   "session_date": "2024-09-17",
+   "instrument_id": 183748,
+   "value": 1801262,
+   "unit_id": 303
+  },
+  {
+   "session_date": "2024-09-17",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 303
+  },
+  {
+   "session_date": "2024-09-18",
+   "instrument_id": 118,
+   "value": 585623,
+   "unit_id": 304
+  },
+  {
+   "session_date": "2024-09-18",
+   "instrument_id": 4916,
+   "value": 314,
+   "unit_id": 304
+  },
+  {
+   "session_date": "2024-09-18",
+   "instrument_id": 5002,
+   "value": 7860,
+   "unit_id": 304
+  },
+  {
+   "session_date": "2024-09-18",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 304
+  },
+  {
+   "session_date": "2024-09-18",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 304
+  },
+  {
+   "session_date": "2024-09-18",
+   "instrument_id": 183748,
+   "value": 1925826,
+   "unit_id": 304
+  },
+  {
+   "session_date": "2024-09-18",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 304
+  },
+  {
+   "session_date": "2024-09-19",
+   "instrument_id": 118,
+   "value": 534196,
+   "unit_id": 305
+  },
+  {
+   "session_date": "2024-09-19",
+   "instrument_id": 4916,
+   "value": 315,
+   "unit_id": 305
+  },
+  {
+   "session_date": "2024-09-19",
+   "instrument_id": 5002,
+   "value": 7962,
+   "unit_id": 305
+  },
+  {
+   "session_date": "2024-09-19",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 305
+  },
+  {
+   "session_date": "2024-09-19",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 305
+  },
+  {
+   "session_date": "2024-09-19",
+   "instrument_id": 183748,
+   "value": 2012275,
+   "unit_id": 305
+  },
+  {
+   "session_date": "2024-09-19",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 305
+  },
+  {
+   "session_date": "2024-09-20",
+   "instrument_id": 4916,
+   "value": 318,
+   "unit_id": 307
+  },
+  {
+   "session_date": "2024-09-20",
+   "instrument_id": 5002,
+   "value": 8066,
+   "unit_id": 307
+  },
+  {
+   "session_date": "2024-09-20",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 307
+  },
+  {
+   "session_date": "2024-09-20",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 307
+  },
+  {
+   "session_date": "2024-09-20",
+   "instrument_id": 183748,
+   "value": 1992237,
+   "unit_id": 307
+  },
+  {
+   "session_date": "2024-09-20",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 307
+  },
+  {
+   "session_date": "2024-09-23",
+   "instrument_id": 4916,
+   "value": 475,
+   "unit_id": 308
+  },
+  {
+   "session_date": "2024-09-23",
+   "instrument_id": 5002,
+   "value": 8319,
+   "unit_id": 308
+  },
+  {
+   "session_date": "2024-09-23",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 308
+  },
+  {
+   "session_date": "2024-09-23",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 308
+  },
+  {
+   "session_date": "2024-09-23",
+   "instrument_id": 183748,
+   "value": 2003596,
+   "unit_id": 308
+  },
+  {
+   "session_date": "2024-09-23",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 308
+  },
+  {
+   "session_date": "2024-09-24",
+   "instrument_id": 4916,
+   "value": 541,
+   "unit_id": 309
+  },
+  {
+   "session_date": "2024-09-24",
+   "instrument_id": 5002,
+   "value": 9070,
+   "unit_id": 309
+  },
+  {
+   "session_date": "2024-09-24",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 309
+  },
+  {
+   "session_date": "2024-09-24",
+   "instrument_id": 14160,
+   "value": 14,
+   "unit_id": 309
+  },
+  {
+   "session_date": "2024-09-24",
+   "instrument_id": 183748,
+   "value": 2035369,
+   "unit_id": 309
+  },
+  {
+   "session_date": "2024-09-24",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 309
+  },
+  {
+   "session_date": "2024-09-25",
+   "instrument_id": 4916,
+   "value": 545,
+   "unit_id": 310
+  },
+  {
+   "session_date": "2024-09-25",
+   "instrument_id": 5002,
+   "value": 9461,
+   "unit_id": 310
+  },
+  {
+   "session_date": "2024-09-25",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 310
+  },
+  {
+   "session_date": "2024-09-25",
+   "instrument_id": 14160,
+   "value": 16,
+   "unit_id": 310
+  },
+  {
+   "session_date": "2024-09-25",
+   "instrument_id": 183748,
+   "value": 2027117,
+   "unit_id": 310
+  },
+  {
+   "session_date": "2024-09-25",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 310
+  },
+  {
+   "session_date": "2024-09-26",
+   "instrument_id": 4916,
+   "value": 549,
+   "unit_id": 311
+  },
+  {
+   "session_date": "2024-09-26",
+   "instrument_id": 5002,
+   "value": 10483,
+   "unit_id": 311
+  },
+  {
+   "session_date": "2024-09-26",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 311
+  },
+  {
+   "session_date": "2024-09-26",
+   "instrument_id": 14160,
+   "value": 16,
+   "unit_id": 311
+  },
+  {
+   "session_date": "2024-09-26",
+   "instrument_id": 183748,
+   "value": 2044081,
+   "unit_id": 311
+  },
+  {
+   "session_date": "2024-09-26",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 311
+  },
+  {
+   "session_date": "2024-09-27",
+   "instrument_id": 4916,
+   "value": 581,
+   "unit_id": 313
+  },
+  {
+   "session_date": "2024-09-27",
+   "instrument_id": 5002,
+   "value": 11187,
+   "unit_id": 313
+  },
+  {
+   "session_date": "2024-09-27",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 313
+  },
+  {
+   "session_date": "2024-09-27",
+   "instrument_id": 14160,
+   "value": 16,
+   "unit_id": 313
+  },
+  {
+   "session_date": "2024-09-27",
+   "instrument_id": 183748,
+   "value": 2047404,
+   "unit_id": 313
+  },
+  {
+   "session_date": "2024-09-27",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 313
+  },
+  {
+   "session_date": "2024-09-30",
+   "instrument_id": 4916,
+   "value": 580,
+   "unit_id": 395
+  },
+  {
+   "session_date": "2024-09-30",
+   "instrument_id": 5002,
+   "value": 11726,
+   "unit_id": 395
+  },
+  {
+   "session_date": "2024-09-30",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 395
+  },
+  {
+   "session_date": "2024-09-30",
+   "instrument_id": 14160,
+   "value": 17,
+   "unit_id": 395
+  },
+  {
+   "session_date": "2024-09-30",
+   "instrument_id": 183748,
+   "value": 2075405,
+   "unit_id": 395
+  },
+  {
+   "session_date": "2024-09-30",
+   "instrument_id": 294973,
+   "value": 933,
+   "unit_id": 395
+  },
+  {
+   "session_date": "2024-10-01",
+   "instrument_id": 4916,
+   "value": 580,
+   "unit_id": 396
+  },
+  {
+   "session_date": "2024-10-01",
+   "instrument_id": 5002,
+   "value": 12096,
+   "unit_id": 396
+  },
+  {
+   "session_date": "2024-10-01",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 396
+  },
+  {
+   "session_date": "2024-10-01",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 396
+  },
+  {
+   "session_date": "2024-10-01",
+   "instrument_id": 183748,
+   "value": 2067742,
+   "unit_id": 396
+  },
+  {
+   "session_date": "2024-10-01",
+   "instrument_id": 294973,
+   "value": 934,
+   "unit_id": 396
+  },
+  {
+   "session_date": "2024-10-02",
+   "instrument_id": 4916,
+   "value": 581,
+   "unit_id": 397
+  },
+  {
+   "session_date": "2024-10-02",
+   "instrument_id": 5002,
+   "value": 12919,
+   "unit_id": 397
+  },
+  {
+   "session_date": "2024-10-02",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 397
+  },
+  {
+   "session_date": "2024-10-02",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 397
+  },
+  {
+   "session_date": "2024-10-02",
+   "instrument_id": 183748,
+   "value": 2067013,
+   "unit_id": 397
+  },
+  {
+   "session_date": "2024-10-02",
+   "instrument_id": 294973,
+   "value": 934,
+   "unit_id": 397
+  },
+  {
+   "session_date": "2024-10-03",
+   "instrument_id": 4916,
+   "value": 581,
+   "unit_id": 398
+  },
+  {
+   "session_date": "2024-10-03",
+   "instrument_id": 5002,
+   "value": 14144,
+   "unit_id": 398
+  },
+  {
+   "session_date": "2024-10-03",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 398
+  },
+  {
+   "session_date": "2024-10-03",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 398
+  },
+  {
+   "session_date": "2024-10-03",
+   "instrument_id": 183748,
+   "value": 2072277,
+   "unit_id": 398
+  },
+  {
+   "session_date": "2024-10-03",
+   "instrument_id": 294973,
+   "value": 934,
+   "unit_id": 398
+  },
+  {
+   "session_date": "2024-10-04",
+   "instrument_id": 4916,
+   "value": 597,
+   "unit_id": 400
+  },
+  {
+   "session_date": "2024-10-04",
+   "instrument_id": 5002,
+   "value": 14707,
+   "unit_id": 400
+  },
+  {
+   "session_date": "2024-10-04",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 400
+  },
+  {
+   "session_date": "2024-10-04",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 400
+  },
+  {
+   "session_date": "2024-10-04",
+   "instrument_id": 183748,
+   "value": 2088487,
+   "unit_id": 400
+  },
+  {
+   "session_date": "2024-10-04",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 400
+  },
+  {
+   "session_date": "2024-10-07",
+   "instrument_id": 4916,
+   "value": 599,
+   "unit_id": 401
+  },
+  {
+   "session_date": "2024-10-07",
+   "instrument_id": 5002,
+   "value": 17560,
+   "unit_id": 401
+  },
+  {
+   "session_date": "2024-10-07",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 401
+  },
+  {
+   "session_date": "2024-10-07",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 401
+  },
+  {
+   "session_date": "2024-10-07",
+   "instrument_id": 183748,
+   "value": 2072634,
+   "unit_id": 401
+  },
+  {
+   "session_date": "2024-10-07",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 401
+  },
+  {
+   "session_date": "2024-10-08",
+   "instrument_id": 4916,
+   "value": 601,
+   "unit_id": 402
+  },
+  {
+   "session_date": "2024-10-08",
+   "instrument_id": 5002,
+   "value": 20745,
+   "unit_id": 402
+  },
+  {
+   "session_date": "2024-10-08",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 402
+  },
+  {
+   "session_date": "2024-10-08",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 402
+  },
+  {
+   "session_date": "2024-10-08",
+   "instrument_id": 183748,
+   "value": 2110369,
+   "unit_id": 402
+  },
+  {
+   "session_date": "2024-10-08",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 402
+  },
+  {
+   "session_date": "2024-10-09",
+   "instrument_id": 4916,
+   "value": 608,
+   "unit_id": 403
+  },
+  {
+   "session_date": "2024-10-09",
+   "instrument_id": 5002,
+   "value": 22012,
+   "unit_id": 403
+  },
+  {
+   "session_date": "2024-10-09",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 403
+  },
+  {
+   "session_date": "2024-10-09",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 403
+  },
+  {
+   "session_date": "2024-10-09",
+   "instrument_id": 183748,
+   "value": 2137683,
+   "unit_id": 403
+  },
+  {
+   "session_date": "2024-10-09",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 403
+  },
+  {
+   "session_date": "2024-10-10",
+   "instrument_id": 4916,
+   "value": 616,
+   "unit_id": 404
+  },
+  {
+   "session_date": "2024-10-10",
+   "instrument_id": 5002,
+   "value": 24451,
+   "unit_id": 404
+  },
+  {
+   "session_date": "2024-10-10",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 404
+  },
+  {
+   "session_date": "2024-10-10",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 404
+  },
+  {
+   "session_date": "2024-10-10",
+   "instrument_id": 183748,
+   "value": 2121176,
+   "unit_id": 404
+  },
+  {
+   "session_date": "2024-10-10",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 404
+  },
+  {
+   "session_date": "2024-10-11",
+   "instrument_id": 4916,
+   "value": 613,
+   "unit_id": 406
+  },
+  {
+   "session_date": "2024-10-11",
+   "instrument_id": 5002,
+   "value": 24961,
+   "unit_id": 406
+  },
+  {
+   "session_date": "2024-10-11",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 406
+  },
+  {
+   "session_date": "2024-10-11",
+   "instrument_id": 14160,
+   "value": 18,
+   "unit_id": 406
+  },
+  {
+   "session_date": "2024-10-11",
+   "instrument_id": 183748,
+   "value": 2128514,
+   "unit_id": 406
+  },
+  {
+   "session_date": "2024-10-11",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 406
+  },
+  {
+   "session_date": "2024-10-14",
+   "instrument_id": 4916,
+   "value": 620,
+   "unit_id": 407
+  },
+  {
+   "session_date": "2024-10-14",
+   "instrument_id": 5002,
+   "value": 26666,
+   "unit_id": 407
+  },
+  {
+   "session_date": "2024-10-14",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 407
+  },
+  {
+   "session_date": "2024-10-14",
+   "instrument_id": 14160,
+   "value": 19,
+   "unit_id": 407
+  },
+  {
+   "session_date": "2024-10-14",
+   "instrument_id": 183748,
+   "value": 2168772,
+   "unit_id": 407
+  },
+  {
+   "session_date": "2024-10-14",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 407
+  },
+  {
+   "session_date": "2024-10-15",
+   "instrument_id": 4916,
+   "value": 637,
+   "unit_id": 408
+  },
+  {
+   "session_date": "2024-10-15",
+   "instrument_id": 5002,
+   "value": 29910,
+   "unit_id": 408
+  },
+  {
+   "session_date": "2024-10-15",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 408
+  },
+  {
+   "session_date": "2024-10-15",
+   "instrument_id": 14160,
+   "value": 19,
+   "unit_id": 408
+  },
+  {
+   "session_date": "2024-10-15",
+   "instrument_id": 183748,
+   "value": 2153807,
+   "unit_id": 408
+  },
+  {
+   "session_date": "2024-10-15",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 408
+  },
+  {
+   "session_date": "2024-10-16",
+   "instrument_id": 4916,
+   "value": 635,
+   "unit_id": 409
+  },
+  {
+   "session_date": "2024-10-16",
+   "instrument_id": 5002,
+   "value": 30429,
+   "unit_id": 409
+  },
+  {
+   "session_date": "2024-10-16",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 409
+  },
+  {
+   "session_date": "2024-10-16",
+   "instrument_id": 14160,
+   "value": 19,
+   "unit_id": 409
+  },
+  {
+   "session_date": "2024-10-16",
+   "instrument_id": 183748,
+   "value": 2172231,
+   "unit_id": 409
+  },
+  {
+   "session_date": "2024-10-16",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 409
+  },
+  {
+   "session_date": "2024-10-17",
+   "instrument_id": 4916,
+   "value": 627,
+   "unit_id": 410
+  },
+  {
+   "session_date": "2024-10-17",
+   "instrument_id": 5002,
+   "value": 31174,
+   "unit_id": 410
+  },
+  {
+   "session_date": "2024-10-17",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 410
+  },
+  {
+   "session_date": "2024-10-17",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 410
+  },
+  {
+   "session_date": "2024-10-17",
+   "instrument_id": 183748,
+   "value": 2160836,
+   "unit_id": 410
+  },
+  {
+   "session_date": "2024-10-17",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 410
+  },
+  {
+   "session_date": "2024-10-18",
+   "instrument_id": 4916,
+   "value": 640,
+   "unit_id": 412
+  },
+  {
+   "session_date": "2024-10-18",
+   "instrument_id": 5002,
+   "value": 32056,
+   "unit_id": 412
+  },
+  {
+   "session_date": "2024-10-18",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 412
+  },
+  {
+   "session_date": "2024-10-18",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 412
+  },
+  {
+   "session_date": "2024-10-18",
+   "instrument_id": 183748,
+   "value": 2148439,
+   "unit_id": 412
+  },
+  {
+   "session_date": "2024-10-18",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 412
+  },
+  {
+   "session_date": "2024-10-21",
+   "instrument_id": 4916,
+   "value": 670,
+   "unit_id": 413
+  },
+  {
+   "session_date": "2024-10-21",
+   "instrument_id": 5002,
+   "value": 32505,
+   "unit_id": 413
+  },
+  {
+   "session_date": "2024-10-21",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 413
+  },
+  {
+   "session_date": "2024-10-21",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 413
+  },
+  {
+   "session_date": "2024-10-21",
+   "instrument_id": 183748,
+   "value": 2157200,
+   "unit_id": 413
+  },
+  {
+   "session_date": "2024-10-21",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 413
+  },
+  {
+   "session_date": "2024-10-22",
+   "instrument_id": 4916,
+   "value": 670,
+   "unit_id": 414
+  },
+  {
+   "session_date": "2024-10-22",
+   "instrument_id": 5002,
+   "value": 32818,
+   "unit_id": 414
+  },
+  {
+   "session_date": "2024-10-22",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 414
+  },
+  {
+   "session_date": "2024-10-22",
+   "instrument_id": 14160,
+   "value": 22,
+   "unit_id": 414
+  },
+  {
+   "session_date": "2024-10-22",
+   "instrument_id": 183748,
+   "value": 2152136,
+   "unit_id": 414
+  },
+  {
+   "session_date": "2024-10-22",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 414
+  },
+  {
+   "session_date": "2024-10-23",
+   "instrument_id": 4916,
+   "value": 677,
+   "unit_id": 415
+  },
+  {
+   "session_date": "2024-10-23",
+   "instrument_id": 5002,
+   "value": 33435,
+   "unit_id": 415
+  },
+  {
+   "session_date": "2024-10-23",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 415
+  },
+  {
+   "session_date": "2024-10-23",
+   "instrument_id": 14160,
+   "value": 22,
+   "unit_id": 415
+  },
+  {
+   "session_date": "2024-10-23",
+   "instrument_id": 183748,
+   "value": 2135945,
+   "unit_id": 415
+  },
+  {
+   "session_date": "2024-10-23",
+   "instrument_id": 294973,
+   "value": 935,
+   "unit_id": 415
+  },
+  {
+   "session_date": "2024-10-24",
+   "instrument_id": 4916,
+   "value": 671,
+   "unit_id": 416
+  },
+  {
+   "session_date": "2024-10-24",
+   "instrument_id": 5002,
+   "value": 34473,
+   "unit_id": 416
+  },
+  {
+   "session_date": "2024-10-24",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 416
+  },
+  {
+   "session_date": "2024-10-24",
+   "instrument_id": 14160,
+   "value": 22,
+   "unit_id": 416
+  },
+  {
+   "session_date": "2024-10-24",
+   "instrument_id": 183748,
+   "value": 2158740,
+   "unit_id": 416
+  },
+  {
+   "session_date": "2024-10-24",
+   "instrument_id": 294973,
+   "value": 936,
+   "unit_id": 416
+  },
+  {
+   "session_date": "2024-10-25",
+   "instrument_id": 4916,
+   "value": 672,
+   "unit_id": 418
+  },
+  {
+   "session_date": "2024-10-25",
+   "instrument_id": 5002,
+   "value": 34859,
+   "unit_id": 418
+  },
+  {
+   "session_date": "2024-10-25",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 418
+  },
+  {
+   "session_date": "2024-10-25",
+   "instrument_id": 14160,
+   "value": 22,
+   "unit_id": 418
+  },
+  {
+   "session_date": "2024-10-25",
+   "instrument_id": 183748,
+   "value": 2146261,
+   "unit_id": 418
+  },
+  {
+   "session_date": "2024-10-25",
+   "instrument_id": 294973,
+   "value": 1734,
+   "unit_id": 418
+  },
+  {
+   "session_date": "2024-10-28",
+   "instrument_id": 4916,
+   "value": 673,
+   "unit_id": 419
+  },
+  {
+   "session_date": "2024-10-28",
+   "instrument_id": 5002,
+   "value": 35384,
+   "unit_id": 419
+  },
+  {
+   "session_date": "2024-10-28",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 419
+  },
+  {
+   "session_date": "2024-10-28",
+   "instrument_id": 14160,
+   "value": 24,
+   "unit_id": 419
+  },
+  {
+   "session_date": "2024-10-28",
+   "instrument_id": 183748,
+   "value": 2147226,
+   "unit_id": 419
+  },
+  {
+   "session_date": "2024-10-28",
+   "instrument_id": 294973,
+   "value": 936,
+   "unit_id": 419
+  },
+  {
+   "session_date": "2024-10-29",
+   "instrument_id": 4916,
+   "value": 671,
+   "unit_id": 420
+  },
+  {
+   "session_date": "2024-10-29",
+   "instrument_id": 5002,
+   "value": 35920,
+   "unit_id": 420
+  },
+  {
+   "session_date": "2024-10-29",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 420
+  },
+  {
+   "session_date": "2024-10-29",
+   "instrument_id": 14160,
+   "value": 24,
+   "unit_id": 420
+  },
+  {
+   "session_date": "2024-10-29",
+   "instrument_id": 183748,
+   "value": 2130707,
+   "unit_id": 420
+  },
+  {
+   "session_date": "2024-10-29",
+   "instrument_id": 294973,
+   "value": 936,
+   "unit_id": 420
+  },
+  {
+   "session_date": "2024-10-30",
+   "instrument_id": 4916,
+   "value": 673,
+   "unit_id": 421
+  },
+  {
+   "session_date": "2024-10-30",
+   "instrument_id": 5002,
+   "value": 36440,
+   "unit_id": 421
+  },
+  {
+   "session_date": "2024-10-30",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 421
+  },
+  {
+   "session_date": "2024-10-30",
+   "instrument_id": 14160,
+   "value": 25,
+   "unit_id": 421
+  },
+  {
+   "session_date": "2024-10-30",
+   "instrument_id": 183748,
+   "value": 2132023,
+   "unit_id": 421
+  },
+  {
+   "session_date": "2024-10-30",
+   "instrument_id": 294973,
+   "value": 936,
+   "unit_id": 421
+  },
+  {
+   "session_date": "2024-10-31",
+   "instrument_id": 4916,
+   "value": 694,
+   "unit_id": 450
+  },
+  {
+   "session_date": "2024-10-31",
+   "instrument_id": 5002,
+   "value": 36777,
+   "unit_id": 450
+  },
+  {
+   "session_date": "2024-10-31",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 450
+  },
+  {
+   "session_date": "2024-10-31",
+   "instrument_id": 14160,
+   "value": 26,
+   "unit_id": 450
+  },
+  {
+   "session_date": "2024-10-31",
+   "instrument_id": 183748,
+   "value": 2112663,
+   "unit_id": 450
+  },
+  {
+   "session_date": "2024-10-31",
+   "instrument_id": 294973,
+   "value": 936,
+   "unit_id": 450
+  },
+  {
+   "session_date": "2024-11-01",
+   "instrument_id": 4916,
+   "value": 684,
+   "unit_id": 452
+  },
+  {
+   "session_date": "2024-11-01",
+   "instrument_id": 5002,
+   "value": 37268,
+   "unit_id": 452
+  },
+  {
+   "session_date": "2024-11-01",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 452
+  },
+  {
+   "session_date": "2024-11-01",
+   "instrument_id": 14160,
+   "value": 26,
+   "unit_id": 452
+  },
+  {
+   "session_date": "2024-11-01",
+   "instrument_id": 183748,
+   "value": 2100234,
+   "unit_id": 452
+  },
+  {
+   "session_date": "2024-11-01",
+   "instrument_id": 294973,
+   "value": 936,
+   "unit_id": 452
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 4916,
+   "value": 741,
+   "unit_id": 453
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 5002,
+   "value": 38438,
+   "unit_id": 453
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 453
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 453
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 183748,
+   "value": 2131243,
+   "unit_id": 453
+  },
+  {
+   "session_date": "2024-11-04",
+   "instrument_id": 294973,
+   "value": 1074,
+   "unit_id": 453
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 4916,
+   "value": 606,
+   "unit_id": 454
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 5002,
+   "value": 39681,
+   "unit_id": 454
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 454
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 454
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 183748,
+   "value": 2098958,
+   "unit_id": 454
+  },
+  {
+   "session_date": "2024-11-05",
+   "instrument_id": 294973,
+   "value": 1074,
+   "unit_id": 454
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 4916,
+   "value": 597,
+   "unit_id": 455
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 5002,
+   "value": 39809,
+   "unit_id": 455
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 455
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 455
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 183748,
+   "value": 2139008,
+   "unit_id": 455
+  },
+  {
+   "session_date": "2024-11-06",
+   "instrument_id": 294973,
+   "value": 1074,
+   "unit_id": 455
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 4916,
+   "value": 731,
+   "unit_id": 456
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 5002,
+   "value": 39590,
+   "unit_id": 456
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 456
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 456
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 183748,
+   "value": 2146575,
+   "unit_id": 456
+  },
+  {
+   "session_date": "2024-11-07",
+   "instrument_id": 294973,
+   "value": 1076,
+   "unit_id": 456
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 4916,
+   "value": 773,
+   "unit_id": 458
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 5002,
+   "value": 40711,
+   "unit_id": 458
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 458
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 458
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 183748,
+   "value": 2176421,
+   "unit_id": 458
+  },
+  {
+   "session_date": "2024-11-08",
+   "instrument_id": 294973,
+   "value": 1076,
+   "unit_id": 458
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 4916,
+   "value": 782,
+   "unit_id": 459
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 5002,
+   "value": 41208,
+   "unit_id": 459
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 459
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 459
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 183748,
+   "value": 2195542,
+   "unit_id": 459
+  },
+  {
+   "session_date": "2024-11-11",
+   "instrument_id": 294973,
+   "value": 1076,
+   "unit_id": 459
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 4916,
+   "value": 781,
+   "unit_id": 460
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 5002,
+   "value": 42598,
+   "unit_id": 460
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 460
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 460
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 183748,
+   "value": 2190667,
+   "unit_id": 460
+  },
+  {
+   "session_date": "2024-11-12",
+   "instrument_id": 294973,
+   "value": 1078,
+   "unit_id": 460
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 4916,
+   "value": 945,
+   "unit_id": 461
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 5002,
+   "value": 44532,
+   "unit_id": 461
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 461
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 14160,
+   "value": 28,
+   "unit_id": 461
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 183748,
+   "value": 2212068,
+   "unit_id": 461
+  },
+  {
+   "session_date": "2024-11-13",
+   "instrument_id": 294973,
+   "value": 1078,
+   "unit_id": 461
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 4916,
+   "value": 1370,
+   "unit_id": 462
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 5002,
+   "value": 46127,
+   "unit_id": 462
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 462
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 14160,
+   "value": 28,
+   "unit_id": 462
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 183748,
+   "value": 2212308,
+   "unit_id": 462
+  },
+  {
+   "session_date": "2024-11-14",
+   "instrument_id": 294973,
+   "value": 1078,
+   "unit_id": 462
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 4916,
+   "value": 1780,
+   "unit_id": 464
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 5002,
+   "value": 51657,
+   "unit_id": 464
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 464
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 464
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 183748,
+   "value": 2184375,
+   "unit_id": 464
+  },
+  {
+   "session_date": "2024-11-15",
+   "instrument_id": 294973,
+   "value": 1079,
+   "unit_id": 464
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 4916,
+   "value": 1799,
+   "unit_id": 465
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 5002,
+   "value": 62377,
+   "unit_id": 465
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 465
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 14160,
+   "value": 27,
+   "unit_id": 465
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 183748,
+   "value": 2182341,
+   "unit_id": 465
+  },
+  {
+   "session_date": "2024-11-18",
+   "instrument_id": 294973,
+   "value": 1079,
+   "unit_id": 465
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 4916,
+   "value": 1798,
+   "unit_id": 466
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 5002,
+   "value": 79022,
+   "unit_id": 466
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 466
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 14160,
+   "value": 28,
+   "unit_id": 466
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 183748,
+   "value": 2177319,
+   "unit_id": 466
+  },
+  {
+   "session_date": "2024-11-19",
+   "instrument_id": 294973,
+   "value": 1079,
+   "unit_id": 466
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 4916,
+   "value": 1807,
+   "unit_id": 467
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 5002,
+   "value": 84217,
+   "unit_id": 467
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 467
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 14160,
+   "value": 28,
+   "unit_id": 467
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 183748,
+   "value": 2174613,
+   "unit_id": 467
+  },
+  {
+   "session_date": "2024-11-20",
+   "instrument_id": 294973,
+   "value": 1079,
+   "unit_id": 467
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 4916,
+   "value": 1995,
+   "unit_id": 468
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 5002,
+   "value": 92210,
+   "unit_id": 468
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 468
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 14160,
+   "value": 24,
+   "unit_id": 468
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 183748,
+   "value": 2157239,
+   "unit_id": 468
+  },
+  {
+   "session_date": "2024-11-21",
+   "instrument_id": 294973,
+   "value": 1109,
+   "unit_id": 468
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 4916,
+   "value": 2155,
+   "unit_id": 470
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 5002,
+   "value": 97936,
+   "unit_id": 470
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 470
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 14160,
+   "value": 23,
+   "unit_id": 470
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 183748,
+   "value": 2165281,
+   "unit_id": 470
+  },
+  {
+   "session_date": "2024-11-22",
+   "instrument_id": 294973,
+   "value": 1109,
+   "unit_id": 470
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 4916,
+   "value": 2186,
+   "unit_id": 471
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 5002,
+   "value": 105439,
+   "unit_id": 471
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 471
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 14160,
+   "value": 22,
+   "unit_id": 471
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 183748,
+   "value": 2133701,
+   "unit_id": 471
+  },
+  {
+   "session_date": "2024-11-25",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 471
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 4916,
+   "value": 2309,
+   "unit_id": 472
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 5002,
+   "value": 110727,
+   "unit_id": 472
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 472
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 14160,
+   "value": 22,
+   "unit_id": 472
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 183748,
+   "value": 2158104,
+   "unit_id": 472
+  },
+  {
+   "session_date": "2024-11-26",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 472
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 4916,
+   "value": 2335,
+   "unit_id": 474
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 5002,
+   "value": 114538,
+   "unit_id": 474
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 474
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 14160,
+   "value": 22,
+   "unit_id": 474
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 183748,
+   "value": 2143436,
+   "unit_id": 474
+  },
+  {
+   "session_date": "2024-11-27",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 474
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 4916,
+   "value": 2403,
+   "unit_id": 501
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 5002,
+   "value": 119273,
+   "unit_id": 501
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 501
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 14160,
+   "value": 22,
+   "unit_id": 501
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 183748,
+   "value": 2133019,
+   "unit_id": 501
+  },
+  {
+   "session_date": "2024-11-29",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 501
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 4916,
+   "value": 2421,
+   "unit_id": 502
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 5002,
+   "value": 124661,
+   "unit_id": 502
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 502
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 502
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 183748,
+   "value": 2144818,
+   "unit_id": 502
+  },
+  {
+   "session_date": "2024-12-02",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 502
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 4916,
+   "value": 2416,
+   "unit_id": 503
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 5002,
+   "value": 128829,
+   "unit_id": 503
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 503
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 503
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 183748,
+   "value": 2146965,
+   "unit_id": 503
+  },
+  {
+   "session_date": "2024-12-03",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 503
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 4916,
+   "value": 2438,
+   "unit_id": 504
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 5002,
+   "value": 135358,
+   "unit_id": 504
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 504
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 504
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 183748,
+   "value": 2160734,
+   "unit_id": 504
+  },
+  {
+   "session_date": "2024-12-04",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 504
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 4916,
+   "value": 2597,
+   "unit_id": 505
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 5002,
+   "value": 148068,
+   "unit_id": 505
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 505
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 505
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 183748,
+   "value": 2130668,
+   "unit_id": 505
+  },
+  {
+   "session_date": "2024-12-05",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 505
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 4916,
+   "value": 2602,
+   "unit_id": 507
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 5002,
+   "value": 153355,
+   "unit_id": 507
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 507
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 507
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 183748,
+   "value": 2128011,
+   "unit_id": 507
+  },
+  {
+   "session_date": "2024-12-06",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 507
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 4916,
+   "value": 2715,
+   "unit_id": 508
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 5002,
+   "value": 163743,
+   "unit_id": 508
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 508
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 508
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 183748,
+   "value": 2148027,
+   "unit_id": 508
+  },
+  {
+   "session_date": "2024-12-09",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 508
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 4916,
+   "value": 2716,
+   "unit_id": 509
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 5002,
+   "value": 185895,
+   "unit_id": 509
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 509
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 509
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 183748,
+   "value": 2134744,
+   "unit_id": 509
+  },
+  {
+   "session_date": "2024-12-10",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 509
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 4916,
+   "value": 3253,
+   "unit_id": 510
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 5002,
+   "value": 216391,
+   "unit_id": 510
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 10252,
+   "value": 105,
+   "unit_id": 510
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 14160,
+   "value": 19,
+   "unit_id": 510
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 183748,
+   "value": 2124238,
+   "unit_id": 510
+  },
+  {
+   "session_date": "2024-12-11",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 510
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 4916,
+   "value": 3700,
+   "unit_id": 511
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 5002,
+   "value": 324628,
+   "unit_id": 511
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 10252,
+   "value": 98,
+   "unit_id": 511
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 14160,
+   "value": 19,
+   "unit_id": 511
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 183748,
+   "value": 2030565,
+   "unit_id": 511
+  },
+  {
+   "session_date": "2024-12-12",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 511
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 4916,
+   "value": 4443,
+   "unit_id": 513
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 5002,
+   "value": 724169,
+   "unit_id": 513
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 10252,
+   "value": 98,
+   "unit_id": 513
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 14160,
+   "value": 19,
+   "unit_id": 513
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 183748,
+   "value": 1625312,
+   "unit_id": 513
+  },
+  {
+   "session_date": "2024-12-13",
+   "instrument_id": 294973,
+   "value": 1131,
+   "unit_id": 513
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 4916,
+   "value": 4469,
+   "unit_id": 514
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 5002,
+   "value": 1485196,
+   "unit_id": 514
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 10252,
+   "value": 98,
+   "unit_id": 514
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 514
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 183748,
+   "value": 965789,
+   "unit_id": 514
+  },
+  {
+   "session_date": "2024-12-16",
+   "instrument_id": 294973,
+   "value": 1106,
+   "unit_id": 514
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 4916,
+   "value": 5044,
+   "unit_id": 515
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 5002,
+   "value": 1902280,
+   "unit_id": 515
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 10252,
+   "value": 98,
+   "unit_id": 515
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 515
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 183748,
+   "value": 687472,
+   "unit_id": 515
+  },
+  {
+   "session_date": "2024-12-17",
+   "instrument_id": 294973,
+   "value": 1106,
+   "unit_id": 515
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 4916,
+   "value": 5096,
+   "unit_id": 516
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 5002,
+   "value": 2064361,
+   "unit_id": 516
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 10252,
+   "value": 124,
+   "unit_id": 516
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 14160,
+   "value": 20,
+   "unit_id": 516
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 183748,
+   "value": 556365,
+   "unit_id": 516
+  },
+  {
+   "session_date": "2024-12-18",
+   "instrument_id": 294973,
+   "value": 1116,
+   "unit_id": 516
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 4916,
+   "value": 5747,
+   "unit_id": 517
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 5002,
+   "value": 2103014,
+   "unit_id": 517
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 10252,
+   "value": 205,
+   "unit_id": 517
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 14160,
+   "value": 24,
+   "unit_id": 517
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 183748,
+   "value": 506519,
+   "unit_id": 517
+  },
+  {
+   "session_date": "2024-12-19",
+   "instrument_id": 294973,
+   "value": 1141,
+   "unit_id": 517
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 4916,
+   "value": 6090,
+   "unit_id": 519
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 5002,
+   "value": 2113073,
+   "unit_id": 519
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 10252,
+   "value": 205,
+   "unit_id": 519
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 14160,
+   "value": 26,
+   "unit_id": 519
+  },
+  {
+   "session_date": "2024-12-20",
+   "instrument_id": 294973,
+   "value": 1151,
+   "unit_id": 519
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 4916,
+   "value": 6702,
+   "unit_id": 520
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 5002,
+   "value": 2073671,
+   "unit_id": 520
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 10252,
+   "value": 205,
+   "unit_id": 520
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 14160,
+   "value": 26,
+   "unit_id": 520
+  },
+  {
+   "session_date": "2024-12-23",
+   "instrument_id": 294973,
+   "value": 1151,
+   "unit_id": 520
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 4916,
+   "value": 7188,
+   "unit_id": 522
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 5002,
+   "value": 2075377,
+   "unit_id": 522
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 10252,
+   "value": 205,
+   "unit_id": 522
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 14160,
+   "value": 40,
+   "unit_id": 522
+  },
+  {
+   "session_date": "2024-12-24",
+   "instrument_id": 294973,
+   "value": 1151,
+   "unit_id": 522
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 4916,
+   "value": 7422,
+   "unit_id": 523
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 5002,
+   "value": 2076546,
+   "unit_id": 523
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 10252,
+   "value": 205,
+   "unit_id": 523
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 14160,
+   "value": 140,
+   "unit_id": 523
+  },
+  {
+   "session_date": "2024-12-26",
+   "instrument_id": 294973,
+   "value": 1151,
+   "unit_id": 523
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 4916,
+   "value": 7526,
+   "unit_id": 525
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 5002,
+   "value": 2056328,
+   "unit_id": 525
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 10252,
+   "value": 205,
+   "unit_id": 525
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 14160,
+   "value": 394,
+   "unit_id": 525
+  },
+  {
+   "session_date": "2024-12-27",
+   "instrument_id": 294973,
+   "value": 1152,
+   "unit_id": 525
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 4916,
+   "value": 7656,
+   "unit_id": 526
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 5002,
+   "value": 2055319,
+   "unit_id": 526
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 10252,
+   "value": 205,
+   "unit_id": 526
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 14160,
+   "value": 395,
+   "unit_id": 526
+  },
+  {
+   "session_date": "2024-12-30",
+   "instrument_id": 294973,
+   "value": 1152,
+   "unit_id": 526
+  }
+ ]
+}

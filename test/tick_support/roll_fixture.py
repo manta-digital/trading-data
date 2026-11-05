@@ -17,6 +17,7 @@ from manta_trading.data.tick.constants import calendar_for_product
 from manta_trading.data.tick.roll_types import (
     ContractDefinition,
     RollInputs,
+    SessionOpenInterest,
     SessionVolume,
 )
 from manta_trading.data.tick.tick_status import TickSessionStatus
@@ -43,6 +44,7 @@ def _read(product: str, name: str) -> dict[str, Any]:
 def recorded_inputs(product: str) -> RollInputs:
     definitions = _read(product, "definitions")
     volumes = _read(product, "volumes")
+    interest = _read(product, "open_interest")
     calendar_id = calendar_for_product(product)
     sessions = tuple(
         Session(
@@ -68,6 +70,16 @@ def recorded_inputs(product: str) -> RollInputs:
         },
         definitions_as_of=date.fromisoformat(definitions["definitions_as_of"]),
         calendar_horizon=sessions[-1].session_date,
+        open_interest=tuple(
+            SessionOpenInterest(
+                **(row | {"session_date": date.fromisoformat(row["session_date"])})
+            )
+            for row in interest["rows"]
+        ),
+        statistics_statuses={
+            date.fromisoformat(day): TickSessionStatus(status)
+            for day, status in interest["statuses"].items()
+        },
     )
 
 

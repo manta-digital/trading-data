@@ -1,6 +1,6 @@
 {
  "source": "Databento symbology.resolve (GLBX.MDP3, continuous \u2192 instrument_id)",
- "read_at": "2026-10-14T17:13:22.060386+00:00",
+ "read_at": "2026-11-05T13:20:16.134090+00:00",
  "start": "2024-08-30",
  "end_exclusive": "2025-01-03",
  "rows": {
@@ -88,6 +88,40 @@
    },
    {
     "start_date": "2024-12-02",
+    "end_date": "2025-01-03",
+    "instrument_id": 19604
+   }
+  ],
+  "GC.n.0": [
+   {
+    "start_date": "2024-08-30",
+    "end_date": "2024-11-21",
+    "instrument_id": 393
+   },
+   {
+    "start_date": "2024-11-21",
+    "end_date": "2025-01-03",
+    "instrument_id": 1551
+   }
+  ],
+  "GC.n.1": [
+   {
+    "start_date": "2024-08-30",
+    "end_date": "2024-09-27",
+    "instrument_id": 12609
+   },
+   {
+    "start_date": "2024-09-27",
+    "end_date": "2024-11-21",
+    "instrument_id": 1551
+   },
+   {
+    "start_date": "2024-11-21",
+    "end_date": "2024-11-28",
+    "instrument_id": 393
+   },
+   {
+    "start_date": "2024-11-28",
     "end_date": "2025-01-03",
     "instrument_id": 19604
    }

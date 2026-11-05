@@ -1,6 +1,6 @@
 {
  "source": "trading_tick (read-only): roll_inputs.session_volumes, status_reads.session_verdicts",
- "read_at": "2026-10-12T13:30:05.382032+00:00",
+ "read_at": "2026-11-05T13:20:13.625742+00:00",
  "statuses": {
   "2024-08-28": "edge_unknown",
   "2024-08-29": "edge_unknown",
