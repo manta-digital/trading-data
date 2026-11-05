@@ -6,6 +6,7 @@ own.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 
 from tick_support.roll_synthetic import (
@@ -109,7 +110,7 @@ def test_an_incomplete_lag_session_is_unresolved_naming_it_and_its_status() -> N
 
 def test_a_session_not_judged_for_statistics_says_so() -> None:
     run = inputs(RUN, [U, Z, H], interest=_interest())
-    run = run.__class__(**{**run.__dict__, "statistics_statuses": {}})
+    run = replace(run, statistics_statuses={})
     (answer,) = resolve_sessions(N0, run, DAYS[4], DAYS[5])
     assert isinstance(answer, Unresolved)
     assert answer.reason.endswith("is not judged")

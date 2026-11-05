@@ -41,6 +41,7 @@ from manta_trading.data.tick.statistics_session import (
     EPOCH_DATE,
     NO_DAY,
     UNDEF_TS_REF,
+    ReferenceCalendar,
     assign_batch,
 )
 from manta_trading.data.tick.unit_day_check import check_unit_day
@@ -126,34 +127,10 @@ class StatisticsProjector:
                 loaded.decode_seconds += time.monotonic() - started
                 if batch is None:
                     break
-                records = batch.records
-                ids = records["instrument_id"].astype(np.int64)
-                ts_recv = records["ts_recv"].astype(np.int64)
-                types = records["stat_type"].astype(np.int64)
-                check_unit_day(ts_recv, plan.unit.unit_date)
-                resolve(
-                    plan.definitions,
-                    ids,
-                    records["ts_event"],
-                    plan.product,
-                    by_id=True,
+                ts_recv, outside = self._project_batch(
+                    copy, batch.records, plan, calendar, ledger, carries
                 )
-                sessions = assign_batch(
-                    ids, types, records["ts_ref"], plan.unit.unit_date, calendar
-                )
-                before_dataset += sessions.before_dataset
-                has_session = sessions.days != NO_DAY
-                ledger.add(
-                    ids[has_session],
-                    types[has_session],
-                    sessions.days[has_session],
-                    ts_recv[has_session],
-                )
-                ordinals = _ordinals(
-                    carries, ids, ts_recv, records["sequence"].astype(np.int64), types
-                )
-                for row in self._rows(records, ordinals, sessions.days, plan):
-                    copy.write_row(row)
+                before_dataset += outside
                 if batch.count:
                     loaded.note_batch(
                         batch.count, int(ts_recv.min()), int(ts_recv.max())
@@ -166,6 +143,39 @@ class StatisticsProjector:
             )
         loaded.bookkeeping = ledger.rows()
         return loaded
+
+    def _project_batch(
+        self,
+        copy: Any,
+        records: npt.NDArray[Any],
+        plan: UnitIngestPlan,
+        calendar: ReferenceCalendar,
+        ledger: StatisticsLedgerAccumulator,
+        carries: dict[int, OrdinalCarry],
+    ) -> tuple[I64, int]:
+        """Check, place and write one batch; its receive times and the count of
+        records referencing dates before the dataset."""
+        ids = records["instrument_id"].astype(np.int64)
+        ts_recv = records["ts_recv"].astype(np.int64)
+        types = records["stat_type"].astype(np.int64)
+        check_unit_day(ts_recv, plan.unit.unit_date)
+        resolve(plan.definitions, ids, records["ts_event"], plan.product, by_id=True)
+        sessions = assign_batch(
+            ids, types, records["ts_ref"], plan.unit.unit_date, calendar
+        )
+        has_session = sessions.days != NO_DAY
+        ledger.add(
+            ids[has_session],
+            types[has_session],
+            sessions.days[has_session],
+            ts_recv[has_session],
+        )
+        ordinals = _ordinals(
+            carries, ids, ts_recv, records["sequence"].astype(np.int64), types
+        )
+        for row in self._rows(records, ordinals, sessions.days, plan):
+            copy.write_row(row)
+        return ts_recv, sessions.before_dataset
 
     @staticmethod
     def _rows(

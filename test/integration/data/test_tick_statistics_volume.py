@@ -12,6 +12,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import psycopg
+import pytest
 from tick_support.rows import (
     insert_bar_ledger_row,
     insert_day_condition,
@@ -164,12 +165,8 @@ async def test_the_bar_family_is_checked_against_its_own_ledger(
 async def test_only_a_volume_family_can_be_checked(migrated_tick_db: str) -> None:
     async with connect(migrated_tick_db) as conn:
         for family in (SchemaFamily.STATISTICS, SchemaFamily.DEFINITION):
-            try:
+            with pytest.raises(ValueError, match="no traded volume"):
                 await volume_check(conn, SHAPE, family, "ES", [])
-            except ValueError as error:
-                assert "no traded volume" in str(error)
-            else:
-                raise AssertionError(f"{family} was accepted")
 
 
 async def test_a_session_incomplete_in_either_family_is_skipped(
