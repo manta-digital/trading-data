@@ -194,3 +194,18 @@ GC `n.0` over 2024-11-04 to 2025-01-01: GCZ4, then GCG5; one session unresolved,
 2024-12-02, because Thanksgiving's lag session (2024-11-28) has no statistics.
 `v.0`: GCZ4 then GCG5, unresolved only 2024-11-04 and 2024-11-05 (no tick data
 before 2024-11-02: lag sessions 2024-10-31 and 2024-11-01 are missing).
+
+## Real-file tests (task 9)
+
+Whole purchased ES days 2024-12-03 (1,099 records) and 2024-12-04 (1,503) are
+committed (`test/fixtures/databento/real/`, job `GLBX-20261105-7C6BWV8WXS`, under
+1 MB each) and ingested by `test_tick_statistics_real.py` with the committed real
+definitions: provider = decoded = stored, every referenced record has a session,
+revisions resolve to one value per contract, statistic and session, and coverage
+agrees (a deleted row exits 3). The volume check against the committed real `tbbo`
+cut and the derived `ohlcv-1m` day gives no `over` and no `no_trades`. Those two
+files are cuts (about 3,700 trades of ~266,000), so their V / C is not a measure;
+the full-day figure for the same session, from the purchased tick tier in the
+throwaway database, is: ESZ4 cleared 991,961, traded 920,768 (0.928, `under`);
+ESH5 8,432 against 2,099 (0.249, `under`); ESM5 49 against 48 (0.98, `under`);
+ESU5, ESZ5 and ESZ6 0 against 0 (`agree`). So 3 of 6 outrights under, none over.

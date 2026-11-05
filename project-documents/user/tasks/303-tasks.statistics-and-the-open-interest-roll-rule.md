@@ -239,17 +239,18 @@ revision_number: 2
 
 ### 9. File fixtures from the purchase (D11)
 
-- [ ] **9.1 Copy the real files**
-  - [ ] Copy the purchased ES statistics files for 2024-12-03 and 2024-12-04 whole into `test/fixtures/databento/real/` (session 2024-12-03's window is those two days). If either is above 1 MB, cut it with `scripts/cut_tick_fixtures.py` to the outrights and both days' referenced records.
-  - [ ] Record the job in `test/fixtures/databento/SOURCES.md`.
-  - [ ] Success: files exist; sizes are under 1 MB.
+- [x] **9.1 Copy the real files**
+  - [x] Copy the purchased ES statistics files for 2024-12-03 and 2024-12-04 whole into `test/fixtures/databento/real/` (session 2024-12-03's window is those two days). If either is above 1 MB, cut it with `scripts/cut_tick_fixtures.py` to the outrights and both days' referenced records.
+  - [x] Record the job in `test/fixtures/databento/SOURCES.md`.
+  - [x] Success: files exist; sizes are under 1 MB.
 
-- [ ] **9.2 Integration tests on the real files** (extend `test_tick_statistics_ingest.py`; new `test_tick_statistics_real.py` if needed)
-  - [ ] Ingest the two real files with the held 2024-12-03 definitions fixture (and the 2024-12-04 definitions if the purchase supplies them); every record stored, referenced records assigned the session found in 8.4.
-  - [ ] Revisions as delivered resolve to one value per contract, statistic and session.
-  - [ ] The volume check against the held `tbbo` fixture (tick tier) and the derived 2024-12-03 bar day (`BAR_1M`) gives no `over` or `no_trades`.
-  - [ ] Status and coverage for the family on this data, including the exit-3 path via a deliberately tampered copy.
-  - [ ] Success: tests pass; note records any V / C `under` share on these files.
+- [x] **9.2 Integration tests on the real files** (extend `test_tick_statistics_ingest.py`; new `test_tick_statistics_real.py` if needed)
+  - [x] Ingest the two real files with the held 2024-12-03 definitions fixture (and the 2024-12-04 definitions if the purchase supplies them); every record stored, referenced records assigned the session found in 8.4.
+  - [x] Revisions as delivered resolve to one value per contract, statistic and session.
+  - [x] The volume check against the held `tbbo` fixture (tick tier) and the derived 2024-12-03 bar day (`BAR_1M`) gives no `over` or `no_trades`.
+  - [x] Status and coverage for the family on this data, including the exit-3 path via a deliberately tampered copy.
+  - [x] Success: tests pass; note records any V / C `under` share on these files.
+  - Note: Status completeness for the window was not asserted on these two files alone; the window also needs 2024-12-02, which is seeded as empty ingested units. The volume check is run directly through `volume_check` for both families, and the exit-3 path through the coverage CLI after a deliberate tamper (one settlement row deleted from the throwaway database).
 
 **Commit**: `test: add real statistics fixtures and ingest tests`
 
