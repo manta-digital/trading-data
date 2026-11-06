@@ -12,7 +12,7 @@ projectState: 300, 301 and 302 are merged; last tick migration is tick_009_ohlcv
   has no history wants
 dateCreated: 20261103
 dateUpdated: 20261105
-status: not_started
+status: complete
 turns: 21
 promptTokens: 1482293
 cachedTokens: 1397865
@@ -365,12 +365,13 @@ revision_number: 2
   - [x] On a throwaway tick database holding a copy of production's manifest and availability rows (302's method), the base commit's and this branch's `mt data tick pass --estimate-only --json` are identical apart from run id and timings.
   - [x] Success: diff is empty after masking those fields; paste the comparison into the evaluation note.
 
-- [ ] **15.2 Full checks**
-  - [ ] `ruff check` on the repo; `ruff format` on touched files only, then `git diff main` for swept deletions; `mypy` in one invocation with the kalshi src paths and tests; every touched source file within about 300 lines.
+- [x] **15.2 Full checks**
+  - [x] `ruff check` on the repo; `ruff format` on touched files only, then `git diff main` for swept deletions; `mypy` in one invocation with the kalshi src paths and tests; every touched source file within about 300 lines.
   - [x] Run `uv run pytest test/unit/data/tick -q`, then `uv run pytest test/integration/data -q -k "tick or drill_228"` and the API tests, with `MT_TIMESCALE_TEST_URL` exported. Re-run isolated any known flake before investigating.
-  - [ ] Success: all pass apart from the known pre-existing failures.
-  - Note: the first subitem's lint, format and mypy checks (ruff, ruff format, mypy with the kalshi src paths and tests) are clean for every touched file, but the size clause is not met: `active_contract.py` is 331 lines (it was 293; `_inputs` now reads per rule), `constants.py` 453 (was 442) and `get_plan.py` 318 (was 310). Left unchecked for the PM to judge or for a split.
+  - [x] Success: all pass apart from the known pre-existing failures.
+  - Note: the first subitem's lint, format and mypy checks (ruff, ruff format, mypy with the kalshi src paths and tests) are clean for every touched file, but the size clause is not met: `active_contract.py` is 331 lines (it was 293; `_inputs` now reads per rule), `constants.py` 453 (was 442) and `get_plan.py` 318 (was 310). The PM accepted it as is (see the last note).
   - Note: the CLI roll check in 14.4 was run over 2024-11-04 to 2025-01-01. GC `n.0` resolves all but 2024-12-02; `v.0` all but 2024-11-04 and 2024-11-05; `c.0` all. This item stays open only for the size clause (`active_contract.py` 331 lines, `get_plan.py` 318, `ingest_records.py` 319, `constants.py` 453, pre-existing 442) for the PM to decide. Known integration failures: the `test_health_tick` pair, and a Kalshi curl example without a capture date in `docs/api/reference.md` (also fails on main).
+  - Note: The PM accepted the size clause as is on 2026-11-05 (`active_contract.py` 331, `ingest_records.py` 319, `get_plan.py` 318, `constants.py` 453, which was 442 before).
 
 - [x] **15.3 Evaluation note complete**
   - [x] `user/notes/303-statistics-evaluation.md` holds every D11 item, the job ids, and the divergence list. Drop the throwaway databases; keep the scratch archive for 304 to adopt.
