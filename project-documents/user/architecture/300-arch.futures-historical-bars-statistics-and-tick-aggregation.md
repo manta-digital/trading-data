@@ -96,7 +96,7 @@ Provisional, in rough build order. Only the purchase test spends money before a 
 - **Archive generalisation** — Schema families, per-schema projector registry, family-scoped supersession, and the plan-inclusion marker with its configuration table and guard change. Everything below builds on it.
 - **`ohlcv-1m` with definition history** — The schema, its table, `definition` back to 2010, contract identity, and completeness for the tier (load-complete and the volume checks that need only `ohlcv-1m`), built on DBN sample files.
 - **`statistics` and the open-interest roll rule** — The schema, session assignment and revision rules, completeness for the tier, the cross-tier volume check against `ohlcv-1m`, and the rule evaluated against calendar and volume for ES and GC.
-- **Purchase test** — A small real purchase through the pass, invoice reconciled, ceilings raised once by the PM.
+- **Purchase test** — A small real purchase through the pass, invoice reconciled, ceilings raised once by the PM. Slice 304 sized it: `statistics` and `definition` for ES and GC over the full range, and ES `ohlcv-1m` from 2017; history acquisition takes the remainder. 304 reconciles the estimate against Databento's per-job charge only; the invoice comparison waits for November's invoice (issue #69) and must be done before history acquisition.
 - **`ohlcv-1s`** — The schema and its completeness, once its purpose is stated.
 - **Futures completeness surfaces** — Tick, bar and statistics verdicts together in `health`, `accounting`, `overview` and the status coverage aggregates, and the manifest-scale measurement.
 - **Serving the new tiers** — Bars with a named source under the rule above, open interest and settlement through `/api/v1/futures/*`, with documentation.
