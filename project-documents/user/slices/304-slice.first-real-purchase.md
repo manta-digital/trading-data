@@ -165,7 +165,7 @@ Status: decided
 Slice 303 bought ES and GC `statistics` for 2024-08-30 to 2024-12-31, with the definitions that window lacked. That was 16 jobs for $0.0647, on throwaway databases production's manifest does not know. 303's design proposed that 304 adopt them. This slice lets the pass buy the window again instead.
 
 - Adopting would need a staging copy readable by the service user, a cutover step, and a rehearsal comparison. It would also be the first use of `adopt` on statistics and definition jobs. All of that saves six cents and is not part of the purchase test.
-- The 303 scratch archive and throwaway databases are no longer needed once this design is accepted. The throwaway databases are dropped if still present (created by this process on the test cluster), and `~/scratch-303/archive` may be removed.
+- The 303 scratch archive is no longer needed once this design is accepted, and `~/scratch-303/archive` may be removed. The throwaway databases were dropped by 303's task 15.3. This slice drops no database: an earlier session created them, and a destructive statement may target only a database the current process created or one the PM designated.
 
 ### D3 — The purchase runs in production, through `sudo mt-run tick`, after release
 Status: decided
