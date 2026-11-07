@@ -106,8 +106,7 @@ class CandlesResponse(BaseModel):
     market_ticker: str
     period_minutes: int = Field(
         description=(
-            "Candle period in minutes. One value is collected today; it is "
-            "reported so a client need not assume it."
+            "Candle period in minutes: the request's ``period_minutes``, echoed back."
         )
     )
     collected: bool = Field(

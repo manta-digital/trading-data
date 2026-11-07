@@ -376,6 +376,16 @@
         "title": "CandleBidAsk",
         "type": "object"
       },
+      "CandlePeriod": {
+        "description": "Candlestick ``period_interval`` in minutes.\n\n``kalshi.market_candle_state.period`` derives its CHECK constraint from\nthis enum.",
+        "enum": [
+          1,
+          60,
+          1440
+        ],
+        "title": "CandlePeriod",
+        "type": "integer"
+      },
       "CandlePrice": {
         "description": "Traded price over the period: OHLC plus the previous and mean marks.\n\nA period with no trades carries ``previous_dollars`` alone; the other\nfields stay null rather than the object being dropped, so every candle has\nthe same shape.",
         "properties": {
@@ -566,7 +576,7 @@
             "type": "string"
           },
           "period_minutes": {
-            "description": "Candle period in minutes. One value is collected today; it is reported so a client need not assume it.",
+            "description": "Candle period in minutes: the request's ``period_minutes``, echoed back.",
             "title": "Period Minutes",
             "type": "integer"
           }
@@ -5304,7 +5314,7 @@
     },
     "/api/v1/kalshi/markets/{ticker}/candlesticks": {
       "get": {
-        "description": "Return this market's candlesticks over the requested window.\n\nThe window is half-open, ``[start, end)``, and holds the candles that\n*open* inside it; both bounds are optional and omitting both returns every\nstored candle. A bare date range ``D..E`` means ``[D 00:00, E+1 00:00)``\nUTC. The response reports whether the market is collected at all and how\nfar its coverage reaches, so an empty window is never ambiguous.",
+        "description": "Return this market's candlesticks over the requested window.\n\n``period_minutes`` picks the candle size. Only minutes are collected; 1h\nand 1d candles are built from the stored minutes on read, UTC-aligned, with\n``end_period_ts`` the period end. The newest hour or day is served from the\nminutes stored so far, with no partial flag: any period ending after\n``complete_through`` is partial.\n\nThe window is half-open, ``[start, end)``, and holds the candles that\n*open* inside it; both bounds are optional and omitting both returns every\nstored candle. A bare date range ``D..E`` means ``[D 00:00, E+1 00:00)``\nUTC. The response reports whether the market is collected at all and how\nfar its coverage reaches, so an empty window is never ambiguous.",
         "operationId": "get_candlesticks_api_v1_kalshi_markets__ticker__candlesticks_get",
         "parameters": [
           {
@@ -5314,6 +5324,17 @@
             "schema": {
               "title": "Ticker",
               "type": "string"
+            }
+          },
+          {
+            "description": "Candle period in minutes: 1, 60 or 1440.",
+            "in": "query",
+            "name": "period_minutes",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CandlePeriod",
+              "default": 1,
+              "description": "Candle period in minutes: 1, 60 or 1440."
             }
           },
           {

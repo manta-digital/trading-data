@@ -130,7 +130,12 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             record[name].append((args[1:], kwargs))
             return result
 
-        monkeypatch.setattr(route_module.series, name, fake)
+        target = (
+            route_module.periods
+            if name.endswith("period_candles")
+            else route_module.series
+        )
+        monkeypatch.setattr(target, name, fake)
 
     record["_spy"] = spy
     return record
@@ -147,6 +152,8 @@ def _seed(
     calls["_spy"]("market_context", context)
     calls["_spy"]("count_candles", candles)
     calls["_spy"]("fetch_candles", [_candle_row()] * candles)
+    calls["_spy"]("count_period_candles", candles)
+    calls["_spy"]("fetch_period_candles", [_candle_row()] * candles)
     calls["_spy"]("count_trades", trades)
     calls["_spy"]("fetch_trades", [_trade_row()] * trades)
     calls["_spy"]("tape_facts", facts)
@@ -254,6 +261,70 @@ class TestEmptyWindowIsUnambiguous:
 
         assert body["count"] == 0
         assert body["tape_filtered"] is True
+
+
+class TestPeriodMinutes:
+    """``period_minutes`` (issue 61): validated, echoed, and routed to the
+    derived-candle readers for anything but the collected minute."""
+
+    @pytest.mark.parametrize("period", [60, 1440])
+    def test_coarse_periods_use_the_derived_readers(
+        self, client: TestClient, calls: dict[str, Any], period: int
+    ) -> None:
+        _seed(calls, context=_context(), candles=2)
+        body = client.get(f"{CANDLES_PATH}?period_minutes={period}").json()
+
+        assert body["period_minutes"] == period
+        assert body["count"] == 2
+        assert calls["count_candles"] == []
+        assert calls["fetch_candles"] == []
+        assert calls["count_period_candles"][0][1]["period"] == period
+        assert calls["fetch_period_candles"][0][1]["period"] == period
+
+    def test_one_minute_is_sent_explicitly_and_reads_stored_rows(
+        self, client: TestClient, calls: dict[str, Any]
+    ) -> None:
+        _seed(calls, context=_context(), candles=1)
+        body = client.get(f"{CANDLES_PATH}?period_minutes=1").json()
+
+        assert body["period_minutes"] == 1
+        assert calls["count_period_candles"] == []
+        assert len(calls["fetch_candles"]) == 1
+
+    def test_omitted_period_is_the_collected_minute(
+        self, client: TestClient, calls: dict[str, Any]
+    ) -> None:
+        _seed(calls, context=_context(), candles=1)
+        assert client.get(CANDLES_PATH).json()["period_minutes"] == 1
+
+    @pytest.mark.parametrize("period", [0, 5, 61, 10080, "hour"])
+    def test_any_other_period_is_422(
+        self, client: TestClient, calls: dict[str, Any], period: Any
+    ) -> None:
+        _seed(calls, context=_context())
+        response = client.get(f"{CANDLES_PATH}?period_minutes={period}")
+
+        assert response.status_code == 422
+        assert calls["market_context"] == []
+
+    def test_ceiling_counts_served_rows_for_coarse_periods(
+        self, client: TestClient, calls: dict[str, Any]
+    ) -> None:
+        _seed(calls, context=_context(), candles=0)
+        calls["_spy"]("count_period_candles", CEILING + 1)
+        response = client.get(f"{CANDLES_PATH}?period_minutes=60")
+
+        assert response.status_code == 422
+        assert calls["fetch_period_candles"] == []
+
+    def test_complete_through_is_the_minute_collection_instant(
+        self, client: TestClient, calls: dict[str, Any]
+    ) -> None:
+        _seed(calls, context=_context(), candles=1)
+        body = client.get(f"{CANDLES_PATH}?period_minutes=1440").json()
+
+        assert body["complete_through"] == "2026-06-01T12:00:00Z"
+        assert calls["market_context"][0][1]["period"] == 1
 
 
 class TestWindowResolution:

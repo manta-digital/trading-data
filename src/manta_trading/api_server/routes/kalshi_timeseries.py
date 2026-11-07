@@ -44,12 +44,56 @@ from manta_trading.api_server.serialization import (
     send_timeseries,
     timeseries_200,
 )
+from manta_trading.data.kalshi import serve_candle_periods as periods
 from manta_trading.data.kalshi import serve_timeseries as series
-from manta_trading.data.kalshi.constants import COLLECTED_CANDLE_PERIOD
+from manta_trading.data.kalshi.constants import (
+    COLLECTED_CANDLE_PERIOD,
+    CandlePeriod,
+)
 
 router = APIRouter(prefix="/api/v1/kalshi")
 
 _PERIOD_MINUTES = int(COLLECTED_CANDLE_PERIOD)
+
+
+def _count_candles(
+    conn: psycopg.Connection[Any],
+    ticker: str,
+    period: int,
+    start: datetime | None,
+    end: datetime | None,
+) -> int:
+    """Count served candles: stored rows at the collected period, derived
+    periods otherwise."""
+    if period == _PERIOD_MINUTES:
+        return series.count_candles(conn, ticker, period=period, start=start, end=end)
+    return periods.count_period_candles(
+        conn,
+        ticker,
+        stored_period=_PERIOD_MINUTES,
+        period=period,
+        start=start,
+        end=end,
+    )
+
+
+def _fetch_candles(
+    conn: psycopg.Connection[Any],
+    ticker: str,
+    period: int,
+    start: datetime | None,
+    end: datetime | None,
+) -> list[series.CandleRow]:
+    if period == _PERIOD_MINUTES:
+        return series.fetch_candles(conn, ticker, period=period, start=start, end=end)
+    return periods.fetch_period_candles(
+        conn,
+        ticker,
+        stored_period=_PERIOD_MINUTES,
+        period=period,
+        start=start,
+        end=end,
+    )
 
 
 @dataclass(frozen=True)
@@ -76,11 +120,21 @@ async def get_candlesticks(
     ticker: str,
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     max_rows: Annotated[int, Depends(get_max_bars)],
+    period_minutes: Annotated[
+        CandlePeriod,
+        Query(description="Candle period in minutes: 1, 60 or 1440."),
+    ] = COLLECTED_CANDLE_PERIOD,
     start: date | datetime | None = None,
     end: date | datetime | None = None,
     fmt: Annotated[ResponseFormat, Query(alias="format")] = "json",
 ) -> Response:
     """Return this market's candlesticks over the requested window.
+
+    ``period_minutes`` picks the candle size. Only minutes are collected; 1h
+    and 1d candles are built from the stored minutes on read, UTC-aligned, with
+    ``end_period_ts`` the period end. The newest hour or day is served from the
+    minutes stored so far, with no partial flag: any period ending after
+    ``complete_through`` is partial.
 
     The window is half-open, ``[start, end)``, and holds the candles that
     *open* inside it; both bounds are optional and omitting both returns every
@@ -89,6 +143,7 @@ async def get_candlesticks(
     far its coverage reaches, so an empty window is never ambiguous.
     """
     lower, upper = resolve_half_open_window(start, end)
+    period = int(period_minutes)
     loop = asyncio.get_running_loop()
 
     def _read() -> _Read[series.CandleRow]:
@@ -98,20 +153,16 @@ async def get_candlesticks(
             context = series.market_context(conn, ticker, period=_PERIOD_MINUTES)
             if context is None:
                 raise not_found("Market", ticker)
-            count = series.count_candles(
-                conn, ticker, period=_PERIOD_MINUTES, start=lower, end=upper
-            )
+            count = _count_candles(conn, ticker, period, lower, upper)
             if count > max_rows:
                 # Refused by the caller once the connection is back.
                 return _Read(context=context, count=count, rows=[])
-            rows = series.fetch_candles(
-                conn, ticker, period=_PERIOD_MINUTES, start=lower, end=upper
-            )
+            rows = _fetch_candles(conn, ticker, period, lower, upper)
         return _Read(context=context, count=count, rows=rows)
 
     read = await loop.run_in_executor(None, _read)
     admit_rows(read.count, max_rows, remedy=NARROW_WINDOW)
-    response = CandlesResponse.build(read.context, _PERIOD_MINUTES, read.rows)
+    response = CandlesResponse.build(read.context, period, read.rows)
     return await send_timeseries(request, response, fmt)
 
 

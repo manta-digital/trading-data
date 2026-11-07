@@ -258,12 +258,15 @@ presence of the object.
 
 ### "How did this market trade?"
 
-`GET /api/v1/kalshi/markets/{ticker}/candlesticks?start=…&end=…` → periodic
-bid/ask/price candles.
+`GET /api/v1/kalshi/markets/{ticker}/candlesticks?period_minutes=…&start=…&end=…`
+→ periodic bid/ask/price candles; `period_minutes` is `1`, `60` or `1440`.
 
 <!-- endpoint: /api/v1/kalshi/markets/{ticker}/candlesticks
-     params: start:date|date-time, end:date|date-time, format:json|msgpack
+     params: period_minutes:CandlePeriod, start:date|date-time, end:date|date-time, format:json|msgpack
      errors: 422, 504 -->
+
+Hourly and daily candles are built from the stored minutes. The newest one is
+partial if it ends after `complete_through` (no flag is served).
 
 **Check `collected` before reading `count`.** `collected: false` means this
 market is not in the candle collection set at all — no candles are stored for

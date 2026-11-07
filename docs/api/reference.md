@@ -1168,13 +1168,14 @@ on statement timeout.
 ### 5.1 `GET /api/v1/kalshi/markets/{ticker}/candlesticks`
 
 <!-- endpoint: /api/v1/kalshi/markets/{ticker}/candlesticks
-     params: start:date|date-time, end:date|date-time, format:json|msgpack
+     params: period_minutes:CandlePeriod, start:date|date-time, end:date|date-time, format:json|msgpack
      errors: 422, 504 -->
 
 Candlesticks for one market over a window.
 
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
+| `period_minutes` | integer | no | `1` | Candle period: `1`, `60` or `1440`; anything else is a `422`. Echoed in the response. |
 | `start` | date or date-time | no | — | Window start, UTC, inclusive. |
 | `end` | date or date-time | no | — | Window end, UTC, **exclusive**. A bare date means the end of that day (`end=D` reads through the last candle of day D). |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
@@ -1185,6 +1186,23 @@ open is in `[start, end)`. `start=D&end=D` is the whole UTC day D, and the
 23:59–00:00 candle (ending D+1 00:00) is in it. This differs from §2.2 and from
 the trades route, which stay inclusive.
 
+**Hourly and daily candles are derived on read** from the stored minute
+candles, grouped by UTC-aligned period (hours on the hour, days at 00:00 UTC);
+`end_period_ts` is the period end and the bar starts at `end - period`.
+
+- `open` / `previous`: the first minute's. `close` / `open_interest_fp`: the last
+  minute's. `high` / `low`: max / min. `volume_fp`: the sum.
+- Traded `price` open/close skip minutes with no trade. `mean_dollars` is the
+  volume-weighted mean of the minute means (exact: Kalshi's minute mean is the
+  volume-weighted price).
+- Same sparseness as 1m: a period with no stored minute has no row; a period
+  with book movement but no trades has null traded OHLC with `previous`, bid and
+  ask filled.
+- The 75,000-row ceiling counts the candles returned, not the minutes read.
+- The newest hour or day is served from the minutes stored so far, with no
+  partial flag. `complete_through` stays the minute-collection instant, never
+  rounded: **any period ending after it is partial.**
+
 **Response**
 
 The four described fields below carry the descriptions published in the schema.
@@ -1192,7 +1210,7 @@ The four described fields below carry the descriptions published in the schema.
 | Field | Type | Null? | Unit / time base | Meaning |
 |---|---|---|---|---|
 | `market_ticker` | string | no | — | Echoed back. |
-| `period_minutes` | integer | no | minutes | Candle period. One value is collected today; it is reported so a client need not assume it. |
+| `period_minutes` | integer | no | minutes | Candle period: the request's `period_minutes`, echoed back. |
 | `collected` | boolean | no | — | Whether this market is in the candle collection set. **`false` means no candles are stored for it — not that the window was empty.** |
 | `coverage_from` | string | yes | UTC | Oldest period this market's candles have been collected from. Null when the market is not collected. |
 | `complete_through` | string | yes | UTC | Requested and stored through this instant — **not "the newest stored candle"**. A quiet market produces no candle for a period it was nonetheless asked for, so the two differ. |
