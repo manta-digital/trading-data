@@ -48,16 +48,16 @@ revision_number: 2
 
 ### 1. Universe edit (D1)
 
-- [ ] **1.1 Add the history wants to `TICK_UNIVERSE`**
-  - [ ] In `data/tick/universe.py`, give the ES entry `history=(definition 2010-06-06..2026-11-01, statistics 2010-06-06..2026-11-01, ohlcv-1m 2024-01-01..2025-01-01)` and the GC entry the same `definition` and `statistics` wants and no `ohlcv-1m`. Use `HistoryWant` with `TickSchema` members. Every end is the fixed date, never `None`.
-  - [ ] Add a comment above `TICK_UNIVERSE` that states why the ends are fixed (an open end would buy the newest days on every later pass), citing slice 304 D1. Update the module docstring's "Production configures none" sentence.
-  - [ ] Do not change `tier`, `start`, `end`, symbols or any other file in `src/`.
-  - [ ] Success: the module imports (import-time validation accepts the wants).
+- [x] **1.1 Add the history wants to `TICK_UNIVERSE`**
+  - [x] In `data/tick/universe.py`, give the ES entry `history=(definition 2010-06-06..2026-11-01, statistics 2010-06-06..2026-11-01, ohlcv-1m 2024-01-01..2025-01-01)` and the GC entry the same `definition` and `statistics` wants and no `ohlcv-1m`. Use `HistoryWant` with `TickSchema` members. Every end is the fixed date, never `None`.
+  - [x] Add a comment above `TICK_UNIVERSE` that states why the ends are fixed (an open end would buy the newest days on every later pass), citing slice 304 D1. Update the module docstring's "Production configures none" sentence.
+  - [x] Do not change `tier`, `start`, `end`, symbols or any other file in `src/`.
+  - [x] Success: the module imports (import-time validation accepts the wants).
 
-- [ ] **1.2 Tests for 1.1**
-  - [ ] In `test/unit/data/tick/test_universe.py`, replace `test_production_universe_has_no_history` with a test pinning D1's table exactly: per product, the `(schema, start, end)` of each want, with no `ohlcv-1m` for GC and no open end anywhere.
-  - [ ] Read `test/unit/data/tick` for any other test that assumes production has no history (grep `history == ()` and `TICK_UNIVERSE`), and update it to the new truth rather than weakening it.
-  - [ ] Success: `uv run pytest test/unit/data/tick -q` passes.
+- [x] **1.2 Tests for 1.1**
+  - [x] In `test/unit/data/tick/test_universe.py`, replace `test_production_universe_has_no_history` with a test pinning D1's table exactly: per product, the `(schema, start, end)` of each want, with no `ohlcv-1m` for GC and no open end anywhere.
+  - [x] Read `test/unit/data/tick` for any other test that assumes production has no history (grep `history == ()` and `TICK_UNIVERSE`), and update it to the new truth rather than weakening it.
+  - [x] Success: `uv run pytest test/unit/data/tick -q` passes.
 
 **Commit**: `feat: add ES and GC history wants for the first real purchase`
 

@@ -11,8 +11,8 @@ owns). ES's tier and range were set by slice 226's go/no-go.
 ``--start/--end`` on ``pass`` only narrow the configured range.
 
 ``history`` (slice 302 D5, 303 D6) lists wants beyond the tick tier: ``ohlcv-1m``
-bars, ``statistics`` and the ``definition`` days they need. Production configures
-none.
+bars, ``statistics`` and the ``definition`` days they need. Slice 304 configures
+them for ES and GC: the first real purchase.
 """
 
 from __future__ import annotations
@@ -69,6 +69,18 @@ class TickUniverseEntry:
 # roll and the metals Thanksgiving closes, bought at tbbo. GC.FUT parent keeps
 # the spreads, measured before purchase at 6.6% of GC's tbbo rows; a product
 # drops its spreads only above a quarter of its rows.
+#
+# History (slice 304 D1): ``definition`` and ``statistics`` over the whole CME
+# dataset for both products, and one year of ES ``ohlcv-1m`` (2024, which
+# overlaps the held tbbo). Every end is a fixed date, never None: an open end
+# would buy the newest days on every later pass, spend nobody chose. With a
+# fixed end the purchase is bounded and a re-run plans nothing.
+_HISTORY_START = date(2010, 6, 6)
+_HISTORY_END = date(2026, 11, 1)
+_DEFINITION_AND_STATISTICS = (
+    HistoryWant(TickSchema.DEFINITION, _HISTORY_START, _HISTORY_END),
+    HistoryWant(TickSchema.STATISTICS, _HISTORY_START, _HISTORY_END),
+)
 TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
     TickUniverseEntry(
         "ES",
@@ -77,6 +89,10 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
         tier=TickSchema.TBBO,
         start=date(2024, 11, 2),
         end=date(2025, 1, 1),
+        history=(
+            *_DEFINITION_AND_STATISTICS,
+            HistoryWant(TickSchema.OHLCV_1M, date(2024, 1, 1), date(2025, 1, 1)),
+        ),
     ),
     TickUniverseEntry(
         "GC",
@@ -85,6 +101,7 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
         tier=TickSchema.TBBO,
         start=date(2024, 11, 2),
         end=date(2025, 1, 1),
+        history=_DEFINITION_AND_STATISTICS,
     ),
 )
 
