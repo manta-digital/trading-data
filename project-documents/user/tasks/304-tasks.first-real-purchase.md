@@ -168,25 +168,26 @@ The script is two files: `cutover_304_checks.py` (task 4) and `scripts/cutover_3
 ### 6. Validation pass
 
 - [ ] **6.1 Format, lint, types and tests over everything touched**
-  - [ ] `ruff format` on the touched files only, then `git diff main` and check for swept or deleted pre-existing lines; restore any. `ruff check` on touched files.
-  - [ ] mypy over the touched files in one invocation with the kalshi src paths and tests.
+  - [x] `ruff format` on the touched files only, then `git diff main` and check for swept or deleted pre-existing lines; restore any. `ruff check` on touched files.
+  - [x] mypy over the touched files in one invocation with the kalshi src paths and tests.
   - [ ] Unit tier: the whole unit tier with `MT_TIMESCALE_TEST_URL` exported from `.env`. Integration tier separately; any failure outside the pre-existing list is re-run in isolation before it is investigated.
-  - [ ] Confirm no file the slice touches exceeds about 300 lines and that the only `src/` change is `universe.py`.
+  - [x] Confirm no file the slice touches exceeds about 300 lines and that the only `src/` change is `universe.py`.
   - [ ] Success: all pass apart from the named pre-existing failures.
+  - BLOCKED: the tick integration tests (`-k tick`) show 40 new failures caused by D1's universe edit (the other 2, `test_health_tick`, are the known `MT_BACKUP_ROOTS` pair). One root cause: the pass and `status` read the calendar from `2010-06-06T00:00Z`, but CME_EQUITY and CME_METALS are populated only from `2010-06-06T22:00Z`, so `sessions_between` raises `OutOfPopulatedRangeError` (`session_days.py:55`, `status_reads.py:240`). It would fail the same way in production: `mt data tick status` and the cutover's estimate. Verified: with main's `universe.py` the same files pass. Needs a PM decision on the start of the 2010 wants.
 
 **Commit** (only if 6.1 changed files; otherwise make no commit): `style: format and lint touched files for 304`
 
 ### 7. Runbook and the evidence note skeleton (D3, D4)
 
-- [ ] **7.1 Update `user/runbooks/100-production-operations.md`**
-  - [ ] Add a "Purchase slices" subsection beside "Adding a futures product (slice 232)": the procedure (universe edit released, then the cutover script, then reconciliation and verdicts), where the evidence goes, and that the reconciliation script reads production from the dev checkout read-only and `--cap-usd` is always passed explicitly.
-  - [ ] Document `deploy/set-tick-spend-ceilings.sh`: arguments, that it replaces existing keys only, that it is root-run and absent from the sudoers file, and that 307 reuses it with its own figures.
-  - [ ] Amend step 8's last sentence ("Afterwards the PM restores the per-pass ceiling") for purchase slices: no restore afterwards, because every want is covered with a fixed end so a pass plans nothing until a reviewed universe change asks for more. Add a revision-log line.
-  - [ ] Success: the runbook names each new script by path and the amended rule matches D4's "No restore afterwards".
+- [x] **7.1 Update `user/runbooks/100-production-operations.md`**
+  - [x] Add a "Purchase slices" subsection beside "Adding a futures product (slice 232)": the procedure (universe edit released, then the cutover script, then reconciliation and verdicts), where the evidence goes, and that the reconciliation script reads production from the dev checkout read-only and `--cap-usd` is always passed explicitly.
+  - [x] Document `deploy/set-tick-spend-ceilings.sh`: arguments, that it replaces existing keys only, that it is root-run and absent from the sudoers file, and that 307 reuses it with its own figures.
+  - [x] Amend step 8's last sentence ("Afterwards the PM restores the per-pass ceiling") for purchase slices: no restore afterwards, because every want is covered with a fixed end so a pass plans nothing until a reviewed universe change asks for more. Add a revision-log line.
+  - [x] Success: the runbook names each new script by path and the amended rule matches D4's "No restore afterwards".
 
-- [ ] **7.2 Create the evidence note skeleton `user/notes/304-first-purchase-evidence.md`**
-  - [ ] Front matter per `file-naming-conventions.md`, status `not_started`. Headings only, each with a one-line statement of what Phase 7 fills in: Reconciliation (per-request estimate, manifest and Databento charge, with total and delta); Verdicts (`status`, each `coverage` result); Findings by D6 class (product, schema, UTC day or session, failure reason, causing record); D7 results (session placement, `tick_definition` growth before and after per product, request and unit counts, pass and ingest durations for 305); Second-run result (nothing to buy, $0); Open items (issue #69 invoice comparison, issue #70).
-  - [ ] Do not invent figures; every section is empty until the purchase runs.
-  - [ ] Success: the file exists with the headings above and no numbers.
+- [x] **7.2 Create the evidence note skeleton `user/notes/304-first-purchase-evidence.md`**
+  - [x] Front matter per `file-naming-conventions.md`, status `not_started`. Headings only, each with a one-line statement of what Phase 7 fills in: Reconciliation (per-request estimate, manifest and Databento charge, with total and delta); Verdicts (`status`, each `coverage` result); Findings by D6 class (product, schema, UTC day or session, failure reason, causing record); D7 results (session placement, `tick_definition` growth before and after per product, request and unit counts, pass and ingest durations for 305); Second-run result (nothing to buy, $0); Open items (issue #69 invoice comparison, issue #70).
+  - [x] Do not invent figures; every section is empty until the purchase runs.
+  - [x] Success: the file exists with the headings above and no numbers.
 
 **Commit**: `docs: add the purchase runbook section and the 304 evidence note skeleton`

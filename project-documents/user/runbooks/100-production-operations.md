@@ -4,7 +4,7 @@ project: trading-data
 scope: project-wide
 host: <prod_host>
 dateCreated: 20260427
-dateUpdated: 20261016
+dateUpdated: 20261107
 status: current
 supersedes: the by-hand dev-checkout runbook (slice 916 made the /opt + systemd target real; see git history of this file)
 ---
@@ -1219,7 +1219,9 @@ the PM sets the ceilings.
 8. **Pass, then ingest.** `mt data tick pass`, then `mt data tick ingest`. Every
    unit must end *ingested*; a `session_boundary:` failure is a calendar finding
    (the calendar is too narrow), never a reason to loosen the check. Afterwards
-   the PM restores the per-pass ceiling.
+   the PM restores the per-pass ceiling. (Purchase slices differ: see
+   "Purchase slices" below; no restore, because a fixed-end want leaves nothing
+   to buy until a reviewed universe change asks for more.)
 9. **Session check, too-wide direction.** The boundary check cannot see an
    early close seeded too late. For each exception session in the bought range,
    `mt data tick get 1m --product <ROOT> --start D --end D+1` (session dates)
@@ -1232,6 +1234,46 @@ the PM sets the ceilings.
     per-product lag.
 11. **Surfaces.** `mt data tick status`, `mt data tick coverage --start D --end D`
     and `mt data overview` show the product with no code change.
+
+### Purchase slices (slice 304)
+
+A purchase slice buys history through the pass that already exists. The code
+change is one edit to `TICK_UNIVERSE`; the buying is a cutover script run after
+the release.
+
+1. **Universe edit, released.** Add `history` wants to the entries in
+   `src/manta_trading/data/tick/universe.py`. Every want has a fixed end date,
+   never `None`: an open end buys the newest days on every later pass. A unit
+   test pins the table. Release it as usual (`/release`).
+2. **Ceilings, root, once.** The PM's root runs
+   `sudo deploy/set-tick-spend-ceilings.sh --per-pass USD --cap-30d USD`. It
+   replaces the two existing keys `MT_TICK_SPEND_CEILING_USD` and
+   `MT_TICK_SPEND_30D_CEILING_USD` in `/etc/manta-trading.env` in place (file
+   mode and owner kept), refuses a non-numeric or negative value or a missing
+   key and writes nothing then, and prints the old and new values. It is
+   deliberately absent from `deploy/sudoers.d/manta-ops`, so an agent cannot
+   raise a ceiling. Slice 307 reuses it with its own figures.
+3. **Cutover.** `uv run python scripts/cutover_304_first_purchase.py <tag>`
+   (agent work): preflight (no plan configured, both ceilings set; otherwise it
+   names the command above), install, free estimate, `sudo mt-run tick` while
+   it exits 6, evidence, checks. It stops before buying if the estimate exceeds
+   a ceiling or plans anything outside the universe's wants. It is re-runnable;
+   a re-run after a complete purchase finds nothing to buy and goes straight to
+   evidence.
+4. **Reconciliation.** `uv run python scripts/reconcile_tick_spend.py --since
+   <UTC instant> --cap-usd <amount>` prints each request's estimate, manifest
+   actual and Databento's own charge, and exits non-zero on an unheld provider
+   job, a delivered request with no actual, a total over the cap, or an
+   unreadable job list. It reads production from the dev checkout, read-only
+   (the dev `.env` reaches the same tick database and Databento account);
+   `--cap-usd` is always passed explicitly, never taken from an environment.
+5. **Verdicts.** `mt data tick status` and `mt data tick coverage` (per
+   product and schema) must show ledger equal to raw in every session whose
+   units ingested; every other session is classified in the evidence note.
+   `mt data health` must exit as it did before the cutover.
+6. **Evidence.** The findings and figures go in
+   `project-documents/user/notes/<slice>-first-purchase-evidence.md`; the
+   narration of each run is a log beside it.
 
 ### Exit codes (the read verbs)
 
@@ -1302,6 +1344,10 @@ runs unchanged against a newer additive schema.
 
 ## Revision Log
 
+- 2026-11-07 (slice 304): "Purchase slices" under the tick tier;
+  `deploy/set-tick-spend-ceilings.sh`, `scripts/reconcile_tick_spend.py` and
+  `scripts/cutover_304_first_purchase.py`; step 8 of "Adding a futures product"
+  no longer restores the per-pass ceiling for a fixed-end purchase.
 - 2026-10-16 (slice 172): the eligible rollup build,
   `scripts/cutover_172_eligible_rollups.py`, and the `_next` rows it adds to
   `mt data caggs status`.
