@@ -11,7 +11,7 @@ This module belongs with the routes, not the readers: it raises
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import HTTPException
 from fastapi import status as http_status
@@ -54,10 +54,22 @@ def instant_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
+def _reject_reversed(lower: datetime | None, upper: datetime | None) -> None:
+    """422 when both bounds are set and ``lower`` is after ``upper``."""
+    if lower is not None and upper is not None and lower > upper:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"start ({lower.isoformat()}) is after end ({upper.isoformat()}); "
+                "the requested range is empty"
+            ),
+        )
+
+
 def resolve_window(
     start: datetime | date | None, end: datetime | date | None
 ) -> tuple[datetime | None, datetime | None]:
-    """Resolve an optional time window to aware UTC bounds.
+    """Resolve an optional time window to aware UTC bounds, both inclusive.
 
     ``None`` on either side means unbounded there — the reader emits no
     predicate for it rather than substituting a sentinel date.
@@ -68,12 +80,29 @@ def resolve_window(
     """
     lower = None if start is None else _as_utc(start, upper=False)
     upper = None if end is None else _as_utc(end, upper=True)
-    if lower is not None and upper is not None and lower > upper:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"start ({lower.isoformat()}) is after end ({upper.isoformat()}); "
-                "the requested range is empty"
-            ),
-        )
+    _reject_reversed(lower, upper)
+    return lower, upper
+
+
+def resolve_half_open_window(
+    start: datetime | date | None, end: datetime | date | None
+) -> tuple[datetime | None, datetime | None]:
+    """Resolve an optional window to aware UTC bounds ``[start, end)``.
+
+    The candlestick routes' convention (issue 61): a window holds the periods
+    that open inside it. A bare date range ``D..E`` is
+    ``[D 00:00 UTC, E+1 00:00 UTC)``; explicit date-times are used as given.
+    The trades route keeps :func:`resolve_window`'s inclusive bounds.
+
+    Raises:
+        HTTPException: 422 when ``start`` is after ``end``.
+    """
+    lower = None if start is None else _as_utc(start, upper=False)
+    if end is None:
+        upper = None
+    elif isinstance(end, datetime):
+        upper = instant_utc(end)
+    else:
+        upper = window_start_utc(end + timedelta(days=1))
+    _reject_reversed(lower, upper)
     return lower, upper

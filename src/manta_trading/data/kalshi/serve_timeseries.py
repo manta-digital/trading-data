@@ -14,6 +14,7 @@ refuses.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from psycopg import sql
@@ -180,12 +181,15 @@ def _window(
     start: datetime | None,
     end: datetime | None,
     extra: dict[str, Any] | None = None,
+    *,
+    end_exclusive: bool = False,
 ) -> _Window:
     """The shared predicate for both time series: ticker plus optional bounds.
 
     An omitted bound emits no predicate at all rather than a sentinel date, so
     an unbounded request scans no wider than it must. Bounds bind as
-    ``timestamptz`` (D4).
+    ``timestamptz`` (D4). The lower bound is always inclusive; the upper is
+    inclusive (trades) unless ``end_exclusive`` (candles, issue 61).
     """
     clauses: list[sql.Composable] = [sql.SQL("market_ticker = %(ticker)s")]
     params: dict[str, Any] = {"ticker": ticker, **(extra or {})}
@@ -193,7 +197,10 @@ def _window(
         clauses.append(sql.SQL("{} >= %(start)s").format(sql.Identifier(column)))
         params["start"] = start
     if end is not None:
-        clauses.append(sql.SQL("{} <= %(end)s").format(sql.Identifier(column)))
+        operator = "<" if end_exclusive else "<="
+        clauses.append(
+            sql.SQL("{} {} %(end)s").format(sql.Identifier(column), sql.SQL(operator))
+        )
         params["end"] = end
     if extra:
         clauses.append(sql.SQL("period = %(period)s"))
@@ -212,10 +219,31 @@ def _count(conn: psycopg.Connection, table: str, window: _Window) -> int:
     return int(row[0])
 
 
+def candle_period_ends(
+    period: int, start: datetime | None, end: datetime | None
+) -> tuple[datetime | None, datetime | None]:
+    """Turn a window ``[start, end)`` on period *opens* into bounds on
+    ``end_period_ts``: opens in ``[start, end)`` are ends in
+    ``[start + period, end + period)`` (issue 61)."""
+    span = timedelta(minutes=period)
+    return (
+        None if start is None else start + span,
+        None if end is None else end + span,
+    )
+
+
 def _candle_window(
     ticker: str, period: int, start: datetime | None, end: datetime | None
 ) -> _Window:
-    return _window("end_period_ts", ticker, start, end, {"period": period})
+    first_end, end_bound = candle_period_ends(period, start, end)
+    return _window(
+        "end_period_ts",
+        ticker,
+        first_end,
+        end_bound,
+        {"period": period},
+        end_exclusive=True,
+    )
 
 
 def count_candles(
@@ -226,7 +254,8 @@ def count_candles(
     start: datetime | None,
     end: datetime | None,
 ) -> int:
-    """How many candles the window holds, for the admission guard (D8)."""
+    """How many candles the window ``[start, end)`` holds, for the admission
+    guard (D8). A candle is in the window when its open is."""
     window = _candle_window(ticker, period, start, end)
     return _count(conn, "kalshi.candlesticks", window)
 
@@ -239,7 +268,7 @@ def fetch_candles(
     start: datetime | None,
     end: datetime | None,
 ) -> list[CandleRow]:
-    """Every candle in the window, oldest first."""
+    """Every candle opening in ``[start, end)``, oldest first."""
     window = _candle_window(ticker, period, start, end)
     statement = sql.SQL(
         "SELECT end_period_ts, {cols} FROM kalshi.candlesticks "

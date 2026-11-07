@@ -35,7 +35,10 @@ from manta_trading.api_server.models.kalshi_timeseries import (
     TradesResponse,
 )
 from manta_trading.api_server.models.responses import GATEWAY_TIMEOUT_RESPONSE
-from manta_trading.api_server.routes.windows import resolve_window
+from manta_trading.api_server.routes.windows import (
+    resolve_half_open_window,
+    resolve_window,
+)
 from manta_trading.api_server.serialization import (
     ResponseFormat,
     send_timeseries,
@@ -79,12 +82,13 @@ async def get_candlesticks(
 ) -> Response:
     """Return this market's candlesticks over the requested window.
 
-    ``start`` and ``end`` are inclusive and optional; omitting both returns
-    every stored candle. A bare date means that whole UTC day. The response
-    reports whether the market is collected at all and how far its coverage
-    reaches, so an empty window is never ambiguous.
+    The window is half-open, ``[start, end)``, and holds the candles that
+    *open* inside it; both bounds are optional and omitting both returns every
+    stored candle. A bare date range ``D..E`` means ``[D 00:00, E+1 00:00)``
+    UTC. The response reports whether the market is collected at all and how
+    far its coverage reaches, so an empty window is never ambiguous.
     """
-    lower, upper = resolve_window(start, end)
+    lower, upper = resolve_half_open_window(start, end)
     loop = asyncio.get_running_loop()
 
     def _read() -> _Read[series.CandleRow]:

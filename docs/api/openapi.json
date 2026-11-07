@@ -4011,7 +4011,7 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, gap status, the Kalshi prediction-market catalog and time series, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.24.4"
+    "version": "0.25.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5304,7 +5304,7 @@
     },
     "/api/v1/kalshi/markets/{ticker}/candlesticks": {
       "get": {
-        "description": "Return this market's candlesticks over the requested window.\n\n``start`` and ``end`` are inclusive and optional; omitting both returns\nevery stored candle. A bare date means that whole UTC day. The response\nreports whether the market is collected at all and how far its coverage\nreaches, so an empty window is never ambiguous.",
+        "description": "Return this market's candlesticks over the requested window.\n\nThe window is half-open, ``[start, end)``, and holds the candles that\n*open* inside it; both bounds are optional and omitting both returns every\nstored candle. A bare date range ``D..E`` means ``[D 00:00, E+1 00:00)``\nUTC. The response reports whether the market is collected at all and how\nfar its coverage reaches, so an empty window is never ambiguous.",
         "operationId": "get_candlesticks_api_v1_kalshi_markets__ticker__candlesticks_get",
         "parameters": [
           {

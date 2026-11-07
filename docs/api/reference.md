@@ -79,6 +79,8 @@ dates with no time component.
 
 ### 2.2 Date windows are inclusive at both ends
 
+(Kalshi candlesticks are the exception: half-open `[start, end)` on candle opens, §5.1.)
+
 `start` and `end` are both inclusive, at every granularity:
 `start=2024-06-10&end=2024-06-14` returns Monday through Friday, and
 `start=2024-06-10&end=2024-06-10` returns that whole day. The equity store
@@ -1173,9 +1175,15 @@ Candlesticks for one market over a window.
 
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
-| `start` | date or date-time | no | — | Inclusive window start, UTC. |
-| `end` | date or date-time | no | — | Inclusive window end, UTC. |
+| `start` | date or date-time | no | — | Window start, UTC, inclusive. |
+| `end` | date or date-time | no | — | Window end, UTC, **exclusive**. A bare date means the end of that day (`end=D` reads through the last candle of day D). |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
+
+**The window is half-open and holds the candles that open inside it.** A
+candle covers `[end_period_ts - period, end_period_ts)`; it is returned when its
+open is in `[start, end)`. `start=D&end=D` is the whole UTC day D, and the
+23:59–00:00 candle (ending D+1 00:00) is in it. This differs from §2.2 and from
+the trades route, which stay inclusive.
 
 **Response**
 

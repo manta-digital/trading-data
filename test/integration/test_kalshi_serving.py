@@ -493,29 +493,33 @@ class TestCandleWindow:
         stamps = [r.end_period_ts for r in rows]
         assert stamps == sorted(stamps)
 
-    async def test_bounds_are_inclusive_at_both_edges(
+    async def test_window_holds_the_candles_that_open_inside_it(
         self, timeseries: psycopg.Connection
     ):
+        """``[start, end)`` on opens: a candle opening at ``start`` is in, one
+        opening at ``end`` is out (issue 61)."""
         stamps = sorted(c.end_period_ts for c in _recorded_candles())
+        span = timedelta(minutes=PERIOD)
         rows = st.fetch_candles(
             timeseries,
             CANDLE_TICKER,
             period=PERIOD,
-            start=stamps[0],
+            start=stamps[0] - span,
             end=stamps[-1],
         )
         assert len(rows) == len(stamps)
 
-    async def test_a_row_just_outside_each_bound_is_excluded(
+    async def test_a_candle_just_outside_each_bound_is_excluded(
         self, timeseries: psycopg.Connection
     ):
         stamps = sorted(c.end_period_ts for c in _recorded_candles())
+        span = timedelta(minutes=PERIOD)
         rows = st.fetch_candles(
             timeseries,
             CANDLE_TICKER,
             period=PERIOD,
-            start=stamps[0] + timedelta(seconds=1),
-            end=stamps[-1] - timedelta(seconds=1),
+            start=stamps[0] - span + timedelta(seconds=1),
+            end=stamps[-1] - span,
         )
         assert len(rows) == len(stamps) - 2
         assert rows[0].end_period_ts == stamps[1]

@@ -279,14 +279,37 @@ class TestWindowResolution:
         assert pool.checkouts == 0
         assert calls["market_context"] == []
 
-    def test_bare_dates_become_the_whole_utc_day(
+    def test_bare_dates_become_a_half_open_utc_day(
         self, client: TestClient, calls: dict[str, Any]
     ) -> None:
+        """``D..D`` is ``[D 00:00, D+1 00:00)`` — issue 61."""
         _seed(calls, context=_context(), candles=0)
         client.get(f"{CANDLES_PATH}?start=2026-06-01&end=2026-06-01")
 
         kwargs = calls["count_candles"][0][1]
         assert kwargs["start"] == datetime(2026, 6, 1, 0, 0, tzinfo=UTC)
+        assert kwargs["end"] == datetime(2026, 6, 2, 0, 0, tzinfo=UTC)
+
+    def test_explicit_datetime_bounds_are_used_as_given(
+        self, client: TestClient, calls: dict[str, Any]
+    ) -> None:
+        _seed(calls, context=_context(), candles=0)
+        client.get(
+            f"{CANDLES_PATH}?start=2026-06-01T08:00:00Z&end=2026-06-01T09:00:00Z"
+        )
+
+        kwargs = calls["count_candles"][0][1]
+        assert kwargs["start"] == datetime(2026, 6, 1, 8, 0, tzinfo=UTC)
+        assert kwargs["end"] == datetime(2026, 6, 1, 9, 0, tzinfo=UTC)
+
+    def test_trades_keep_the_inclusive_day(
+        self, client: TestClient, calls: dict[str, Any]
+    ) -> None:
+        """Only candles moved to half-open; trades are a separate issue."""
+        _seed(calls, context=_context(), trades=0)
+        client.get(f"{TRADES_PATH}?start=2026-06-01&end=2026-06-01")
+
+        kwargs = calls["count_trades"][0][1]
         assert kwargs["end"] == datetime(2026, 6, 1, 23, 59, 59, 999999, tzinfo=UTC)
 
     def test_naive_datetime_is_read_as_utc(
