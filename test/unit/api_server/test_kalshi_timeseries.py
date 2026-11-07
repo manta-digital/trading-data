@@ -373,15 +373,15 @@ class TestWindowResolution:
         assert kwargs["start"] == datetime(2026, 6, 1, 8, 0, tzinfo=UTC)
         assert kwargs["end"] == datetime(2026, 6, 1, 9, 0, tzinfo=UTC)
 
-    def test_trades_keep_the_inclusive_day(
+    def test_trades_use_the_same_half_open_day(
         self, client: TestClient, calls: dict[str, Any]
     ) -> None:
-        """Only candles moved to half-open; trades are a separate issue."""
         _seed(calls, context=_context(), trades=0)
         client.get(f"{TRADES_PATH}?start=2026-06-01&end=2026-06-01")
 
         kwargs = calls["count_trades"][0][1]
-        assert kwargs["end"] == datetime(2026, 6, 1, 23, 59, 59, 999999, tzinfo=UTC)
+        assert kwargs["start"] == datetime(2026, 6, 1, 0, 0, tzinfo=UTC)
+        assert kwargs["end"] == datetime(2026, 6, 2, 0, 0, tzinfo=UTC)
 
     def test_naive_datetime_is_read_as_utc(
         self, client: TestClient, calls: dict[str, Any]

@@ -600,11 +600,14 @@ class TestTradeWindow:
         rows = st.fetch_trades(conn, CANDLE_TICKER, start=None, end=None)
         assert len(rows) == len(stamps)
 
-    async def test_bounds_are_inclusive_at_both_edges(
+    async def test_start_is_inclusive_and_end_is_exclusive(
         self, traded: tuple[psycopg.Connection, list[datetime]]
     ):
         conn, stamps = traded
         rows = st.fetch_trades(conn, CANDLE_TICKER, start=stamps[0], end=stamps[-1])
+        assert len(rows) == len(stamps) - 1
+        end_past = stamps[-1] + timedelta(microseconds=1)
+        rows = st.fetch_trades(conn, CANDLE_TICKER, start=stamps[0], end=end_past)
         assert len(rows) == len(stamps)
 
     async def test_a_row_just_outside_each_bound_is_excluded(

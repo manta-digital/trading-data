@@ -79,7 +79,7 @@ dates with no time component.
 
 ### 2.2 Date windows are inclusive at both ends
 
-(Kalshi candlesticks are the exception: half-open `[start, end)` on candle opens, §5.1.)
+(The Kalshi routes are the exception: half-open `[start, end)`, §5.1 and §5.2.)
 
 `start` and `end` are both inclusive, at every granularity:
 `start=2024-06-10&end=2024-06-14` returns Monday through Friday, and
@@ -1183,8 +1183,8 @@ Candlesticks for one market over a window.
 **The window is half-open and holds the candles that open inside it.** A
 candle covers `[end_period_ts - period, end_period_ts)`; it is returned when its
 open is in `[start, end)`. `start=D&end=D` is the whole UTC day D, and the
-23:59–00:00 candle (ending D+1 00:00) is in it. This differs from §2.2 and from
-the trades route, which stay inclusive.
+23:59–00:00 candle (ending D+1 00:00) is in it. This differs from §2.2; the trades
+route (§5.2) uses the same `[start, end)` window over `created_time`.
 
 **Hourly and daily candles are derived on read** from the stored minute
 candles, grouped by UTC-aligned period (hours on the hour, days at 00:00 UTC);
@@ -1266,7 +1266,9 @@ reversed range; `504` on statement timeout.
      params: start:date|date-time, end:date|date-time, format:json|msgpack
      errors: 422, 504 -->
 
-The trade tape for one market over a window. Parameters are those of §5.1.
+The trade tape for one market over a window. Parameters are those of §5.1
+(without `period_minutes`). A trade is returned when `created_time` is in
+`[start, end)`; a bare `end` date means through the end of that day.
 
 **Response**
 

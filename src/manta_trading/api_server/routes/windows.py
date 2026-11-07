@@ -1,9 +1,8 @@
 """Time-window resolution shared by the bars and Kalshi time-series routes.
 
-The day-boundary convention lives here rather than in ``bars.py`` because two
-route families now depend on it, and two derivations of "the last instant of a
-day" is exactly how one of them ends up exclusive by accident (see
-:func:`window_end_utc`).
+The Kalshi routes use the half-open ``[start, end)`` convention (issue 68);
+:func:`window_end_utc`, the inclusive "last instant of a day", remains for the
+stock bars route only, until it moves to half-open too.
 
 This module belongs with the routes, not the readers: it raises
 ``HTTPException``. Readers take resolved ``datetime | None`` bounds only.
@@ -35,22 +34,12 @@ def window_end_utc(d: date) -> datetime:
     return datetime.combine(d, time.max, tzinfo=UTC)
 
 
-def _as_utc(value: datetime | date, *, upper: bool) -> datetime:
-    """Resolve one bound to an aware UTC datetime.
-
-    A bare date takes the day-boundary convention above. A naive datetime is
-    read as UTC rather than as local time: the API's every other timestamp is
-    UTC, and guessing the server's zone would make the same request mean
-    different windows on different hosts.
-    """
-    if not isinstance(value, datetime):
-        return window_end_utc(value) if upper else window_start_utc(value)
-    return instant_utc(value)
-
-
 def instant_utc(value: datetime) -> datetime:
-    """``value`` as an aware UTC instant; a naive one is read as UTC (see
-    :func:`_as_utc`). The futures ``from``/``until`` bounds use it too (231)."""
+    """``value`` as an aware UTC instant; a naive one is read as UTC.
+
+    The API's every other timestamp is UTC, and guessing the server's zone
+    would make the same request mean different windows on different hosts. The
+    futures ``from``/``until`` bounds use it too (231)."""
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
@@ -66,38 +55,24 @@ def _reject_reversed(lower: datetime | None, upper: datetime | None) -> None:
         )
 
 
-def resolve_window(
-    start: datetime | date | None, end: datetime | date | None
-) -> tuple[datetime | None, datetime | None]:
-    """Resolve an optional time window to aware UTC bounds, both inclusive.
-
-    ``None`` on either side means unbounded there — the reader emits no
-    predicate for it rather than substituting a sentinel date.
-
-    Raises:
-        HTTPException: 422 when the resolved ``start`` is after the resolved
-            ``end``, with the bars route's reversed-range message.
-    """
-    lower = None if start is None else _as_utc(start, upper=False)
-    upper = None if end is None else _as_utc(end, upper=True)
-    _reject_reversed(lower, upper)
-    return lower, upper
-
-
 def resolve_half_open_window(
     start: datetime | date | None, end: datetime | date | None
 ) -> tuple[datetime | None, datetime | None]:
     """Resolve an optional window to aware UTC bounds ``[start, end)``.
 
-    The candlestick routes' convention (issue 61): a window holds the periods
-    that open inside it. A bare date range ``D..E`` is
-    ``[D 00:00 UTC, E+1 00:00 UTC)``; explicit date-times are used as given.
-    The trades route keeps :func:`resolve_window`'s inclusive bounds.
+    The Kalshi routes' convention (issues 61, 68): a bare date range ``D..E``
+    is ``[D 00:00 UTC, E+1 00:00 UTC)``; explicit date-times are used as given.
+    Candlesticks hold the periods that *open* inside the window.
 
     Raises:
         HTTPException: 422 when ``start`` is after ``end``.
     """
-    lower = None if start is None else _as_utc(start, upper=False)
+    if start is None:
+        lower = None
+    elif isinstance(start, datetime):
+        lower = instant_utc(start)
+    else:
+        lower = window_start_utc(start)
     if end is None:
         upper = None
     elif isinstance(end, datetime):

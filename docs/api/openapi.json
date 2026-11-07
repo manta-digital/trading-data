@@ -5436,7 +5436,7 @@
     },
     "/api/v1/kalshi/markets/{ticker}/trades": {
       "get": {
-        "description": "Return this market's trades over the requested window.\n\n``start`` and ``end`` are inclusive and optional; omitting both returns\nevery stored trade. The response reports how far the tape reaches and\nwhether this market's category is excluded from collection, so an empty\nwindow is never ambiguous.",
+        "description": "Return this market's trades over the requested window.\n\nThe window is half-open, ``[start, end)``; both bounds are optional and\nomitting both returns every stored trade. A bare date range ``D..E`` means\n``[D 00:00, E+1 00:00)`` UTC. The response reports how far the tape reaches and\nwhether this market's category is excluded from collection, so an empty\nwindow is never ambiguous.",
         "operationId": "get_trades_api_v1_kalshi_markets__ticker__trades_get",
         "parameters": [
           {

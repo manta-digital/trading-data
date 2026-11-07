@@ -181,15 +181,12 @@ def _window(
     start: datetime | None,
     end: datetime | None,
     extra: dict[str, Any] | None = None,
-    *,
-    end_exclusive: bool = False,
 ) -> _Window:
     """The shared predicate for both time series: ticker plus optional bounds.
 
     An omitted bound emits no predicate at all rather than a sentinel date, so
     an unbounded request scans no wider than it must. Bounds bind as
-    ``timestamptz`` (D4). The lower bound is always inclusive; the upper is
-    inclusive (trades) unless ``end_exclusive`` (candles, issue 61).
+    ``timestamptz`` (D4). The window is half-open, ``[start, end)`` (issue 68).
     """
     clauses: list[sql.Composable] = [sql.SQL("market_ticker = %(ticker)s")]
     params: dict[str, Any] = {"ticker": ticker, **(extra or {})}
@@ -197,10 +194,7 @@ def _window(
         clauses.append(sql.SQL("{} >= %(start)s").format(sql.Identifier(column)))
         params["start"] = start
     if end is not None:
-        operator = "<" if end_exclusive else "<="
-        clauses.append(
-            sql.SQL("{} {} %(end)s").format(sql.Identifier(column), sql.SQL(operator))
-        )
+        clauses.append(sql.SQL("{} < %(end)s").format(sql.Identifier(column)))
         params["end"] = end
     if extra:
         clauses.append(sql.SQL("period = %(period)s"))
@@ -242,7 +236,6 @@ def _candle_window(
         first_end,
         end_bound,
         {"period": period},
-        end_exclusive=True,
     )
 
 
@@ -294,7 +287,8 @@ def count_trades(
     start: datetime | None,
     end: datetime | None,
 ) -> int:
-    """How many trades the window holds, for the admission guard (D8)."""
+    """How many trades the window ``[start, end)`` holds, for the admission
+    guard (D8)."""
     return _count(conn, "kalshi.trades", _trade_window(ticker, start, end))
 
 
@@ -305,7 +299,7 @@ def fetch_trades(
     start: datetime | None,
     end: datetime | None,
 ) -> list[TradeRow]:
-    """Every trade in the window, oldest first.
+    """Every trade created in ``[start, end)``, oldest first.
 
     Ordered by ``(created_time, trade_id)`` so the order is total: two trades
     can share a microsecond, and a partial order would let successive reads of

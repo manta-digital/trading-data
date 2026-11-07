@@ -35,8 +35,8 @@ tables; it tells you which route to call and how to read what happens.
 - **Fields ending `_dollars` or `_fp` are decimal strings**, not numbers:
   `"0.4900"`. Parse into a decimal type, never a float.
 - **Date windows are inclusive at both ends**, with three exceptions:
-  Kalshi candlesticks, half-open `[start, end)` on candle opens (a bare `end`
-  date still means through the end of that day); `/api/v1/gaps`, whose day end is exclusive at the next midnight, and every
+  the Kalshi candlesticks and trades routes, half-open `[start, end)` (a bare
+  `end` date still means through the end of that day); `/api/v1/gaps`, whose day end is exclusive at the next midnight, and every
   `/api/v1/futures/*` route, whose `start`/`end` are session dates with `end`
   exclusive (§3).
 - **No pagination.** A request is answered completely or refused with `422`.

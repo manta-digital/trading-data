@@ -35,10 +35,7 @@ from manta_trading.api_server.models.kalshi_timeseries import (
     TradesResponse,
 )
 from manta_trading.api_server.models.responses import GATEWAY_TIMEOUT_RESPONSE
-from manta_trading.api_server.routes.windows import (
-    resolve_half_open_window,
-    resolve_window,
-)
+from manta_trading.api_server.routes.windows import resolve_half_open_window
 from manta_trading.api_server.serialization import (
     ResponseFormat,
     send_timeseries,
@@ -183,12 +180,13 @@ async def get_trades(
 ) -> Response:
     """Return this market's trades over the requested window.
 
-    ``start`` and ``end`` are inclusive and optional; omitting both returns
-    every stored trade. The response reports how far the tape reaches and
+    The window is half-open, ``[start, end)``; both bounds are optional and
+    omitting both returns every stored trade. A bare date range ``D..E`` means
+    ``[D 00:00, E+1 00:00)`` UTC. The response reports how far the tape reaches and
     whether this market's category is excluded from collection, so an empty
     window is never ambiguous.
     """
-    lower, upper = resolve_window(start, end)
+    lower, upper = resolve_half_open_window(start, end)
     loop = asyncio.get_running_loop()
 
     def _read() -> _Read[series.TradeRow]:
