@@ -63,17 +63,17 @@ revision_number: 2
 
 ### 2. The ceiling script (D4)
 
-- [ ] **2.1 Write `deploy/set-tick-spend-ceilings.sh`**
-  - [ ] Usage `--per-pass USD --cap-30d USD`, run as root. Model it on `deploy/add-tick-env.sh`: `set -euo pipefail`, `die`, source `deploy/lib/env_value.sh` to read old values. The ceiling key names are `MT_TICK_SPEND_CEILING_USD` and `MT_TICK_SPEND_30D_CEILING_USD`; define each once at the top.
-  - [ ] Check-then-act: refuse, writing nothing, unless both values are non-negative decimals and the target file exists. Both keys must already be present in the file (refuse and name the missing key otherwise; this script replaces, it does not add).
-  - [ ] Replace the two values in place, so the file's mode and owner are kept (rewrite the file's contents, never `mv` a new file over it). Print the old and new value of each key. Ceilings are not secrets; print no other line of the file.
-  - [ ] One test hook: the target path is `/etc/manta-trading.env` unless an env var (named in the script header comment) overrides it. No other hooks, no log file, no mode or owner re-assertion.
-  - [ ] Header comment states what it does and that it is deliberately absent from `deploy/sudoers.d/manta-ops`.
-  - [ ] Success: `~/.local/bin/shellcheck deploy/set-tick-spend-ceilings.sh` is clean; the file is executable.
+- [x] **2.1 Write `deploy/set-tick-spend-ceilings.sh`**
+  - [x] Usage `--per-pass USD --cap-30d USD`, run as root. Model it on `deploy/add-tick-env.sh`: `set -euo pipefail`, `die`, source `deploy/lib/env_value.sh` to read old values. The ceiling key names are `MT_TICK_SPEND_CEILING_USD` and `MT_TICK_SPEND_30D_CEILING_USD`; define each once at the top.
+  - [x] Check-then-act: refuse, writing nothing, unless both values are non-negative decimals and the target file exists. Both keys must already be present in the file (refuse and name the missing key otherwise; this script replaces, it does not add).
+  - [x] Replace the two values in place, so the file's mode and owner are kept (rewrite the file's contents, never `mv` a new file over it). Print the old and new value of each key. Ceilings are not secrets; print no other line of the file.
+  - [x] One test hook: the target path is `/etc/manta-trading.env` unless an env var (named in the script header comment) overrides it. No other hooks, no log file, no mode or owner re-assertion.
+  - [x] Header comment states what it does and that it is deliberately absent from `deploy/sudoers.d/manta-ops`.
+  - [x] Success: `~/.local/bin/shellcheck deploy/set-tick-spend-ceilings.sh` is clean; the file is executable.
 
-- [ ] **2.2 Test for 2.1**
-  - [ ] New `test/unit/deploy/test_set_tick_spend_ceilings.py`, modelled on `test_add_tick_env.py`. One test of the replace path: both values replaced, another key and its position untouched, file mode unchanged, old and new values printed. One test of the refusal path: a bad value (non-numeric or negative) exits non-zero and the file is byte-identical afterwards.
-  - [ ] Success: `uv run pytest test/unit/deploy -q` passes.
+- [x] **2.2 Test for 2.1**
+  - [x] New `test/unit/deploy/test_set_tick_spend_ceilings.py`, modelled on `test_add_tick_env.py`. One test of the replace path: both values replaced, another key and its position untouched, file mode unchanged, old and new values printed. One test of the refusal path: a bad value (non-numeric or negative) exits non-zero and the file is byte-identical afterwards.
+  - [x] Success: `uv run pytest test/unit/deploy -q` passes.
 
 **Commit**: `feat: add script to set the tick spend ceilings`
 
