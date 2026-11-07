@@ -34,10 +34,10 @@ revision_number: 2
 
 ## Overview
 
-This slice runs 220's purchase path with real money, in production, for the first time. The cap is $25 (PM, 2026-10-28). Everything bought is kept:
+This slice runs 220's purchase path with real money, in production, for the first time. The purchase is about $6.3. Everything bought is kept:
 
 - `statistics` and `definition` for ES and GC over the whole CME dataset, 2010-06-06 to 2026-11-01;
-- ES `ohlcv-1m` from 2017-01-01 to 2026-11-01, which is as many recent years as the rest of the cap buys.
+- ES `ohlcv-1m` for calendar 2024, 2024-01-01 to 2025-01-01: one year of bars, enough to exercise the bar path.
 
 The purchase is a universe edit (history wants on the ES and GC entries) released to production. It runs through `sudo mt-run tick`, the production form slice 234 built: estimate, spend guard, manifest, batch download, verify, ingest. The window slice 303 bought on throwaway databases for its evaluation (2024-08-30 to 2024-12-31, $0.065) is not in production's manifest, so the pass buys it again (D2).
 
@@ -51,17 +51,17 @@ Costs measured on 2026-11-07 with free `metadata.get_cost` calls (`GLBX.MDP3`, p
 | GC `definition` | 2010-06-06 to 2026-11-01 | $2.574 |
 | ES `statistics` | 2010-06-06 to 2026-11-01 | $0.452 |
 | GC `statistics` | 2010-06-06 to 2026-11-01 | $1.010 |
-| ES `ohlcv-1m` | 2017-01-01 to 2026-11-01 | $20.04 (yearly: 1.91, 2.08, 2.00, 2.14, 1.94, 2.11, 2.03, 2.07, 2.08, 1.68 for Jan to Oct 2026) |
-| **Total** | | **$24.23** |
+| ES `ohlcv-1m` | 2024-01-01 to 2025-01-01 | $2.074 |
+| **Total** | | **$6.27** |
 
-The planned figure is a little lower. Days production already holds are not bought again: the definitions bought with the held `tbbo` days. Starting ES bars in 2016 would add $1.97 and pass the cap.
+The planned figure is a little lower. Days production already holds are not bought again: the definitions bought with the held `tbbo` days.
 
 ## Value
 
-- **The purchase path is proven at real size before the large pull.** Slice 307 buys about $70 more through the same path. It should not be the first run at about 900 batch requests and 19,000 units, or the first run on pre-2020 data.
+- **The purchase path is proven at real size before the large pull.** Slice 307 buys about $70 more through the same path. It should not be the first run at about 800 batch requests and 16,500 units, or the first run on pre-2020 data.
 - **Open interest and settlement over the whole history.** The open-interest roll rule (`n`, slice 303) can answer back to 2010 for both products.
 - **Contract identity back to 2010.** Bars and statistics resolve their instrument through definition validity windows, so every later history pull depends on these definitions.
-- **Ten years of ES minute bars with a named source.** Slice 306 serves them as the default source for ES time bars, and the volume roll rule gains a bar basis for 2017 to 2023.
+- **A year of ES minute bars with a named source.** The bar path runs on real data, and the year overlaps the `tbbo` already held for 2024-11 to 2024-12, which 306's parity check needs.
 - **The estimate is checked against the charge.** An estimate that drifts from what Databento bills would make every spend ceiling meaningless. This is the reconciliation the architecture asks for, at a size where a small per-request error would show.
 
 ## Technical Scope
@@ -76,7 +76,7 @@ The planned figure is a little lower. Days production already holds are not boug
 
 **Excluded**
 
-- GC `ohlcv-1m`, and ES `ohlcv-1m` before 2017 (307).
+- GC `ohlcv-1m`, and ES `ohlcv-1m` outside 2024 (307).
 - Any `ohlcv-1s`, any tick tier change, any change to the tick ranges.
 - Health, accounting and overview verdicts for the new tiers, and the manifest-scale measurement (305). This slice records its own run's durations and counts, which 305 can use, but adds no benchmark.
 - Serving, and the tick-against-provider bar parity (306).
@@ -102,7 +102,7 @@ The planned figure is a little lower. Days production already holds are not boug
 - `mt data tick status --json`, `coverage --schema {ohlcv-1m,statistics} --json`, `debug requests|units|definitions`.
 - `tick_request.estimated_cost_usd` (set at plan time from `get_cost`) and `actual_cost_usd` (set from the batch job's reported cost when it is `done`).
 - `scripts/cutover_common.py` and `upgrade_production.py`: preflight, timer hold and release, install, logging.
-- `scripts/verify_cme_sessions.py`: unchanged. Its first pre-2020 run is here, as slice 301 recorded.
+- `scripts/verify_cme_sessions.py`: unchanged. Its first pre-2020 run moves to 307, which buys the pre-2020 bars.
 
 ## Architecture
 
@@ -119,7 +119,6 @@ scripts/cutover_304_first_purchase.py                ── agent, after release
         ├─ scripts/reconcile_tick_spend.py --since <cutover start> --cap-usd <per-pass ceiling>
         ├─ mt-run data tick status / coverage --json
         ├─ mt-run data tick debug requests|units|definitions --json
-        └─ scripts/verify_cme_sessions.py on 2017–2019 bar jobs
 user/notes/304-first-purchase-evidence.md            ── narration + findings
 ```
 
@@ -127,7 +126,7 @@ The cutover and reconciliation scripts read production state; only the `mt` verb
 
 ### Data Flow
 
-1. **Plan.** The pass reads the new wants. For each want it takes the product's session days in range, drops covered days, and keeps those whose dataset condition is `available` or `degraded`. It groups them into month runs per schema and product, and puts definitions first within a day. Expect about 900 requests (four full-range wants of about 197 months each, plus 118 months of ES bars) and about 19,000 units.
+1. **Plan.** The pass reads the new wants. For each want it takes the product's session days in range, drops covered days, and keeps those whose dataset condition is `available` or `degraded`. It groups them into month runs per schema and product, and puts definitions first within a day. Expect about 800 requests (four full-range wants of about 197 months each, plus 12 months of ES bars) and about 16,500 units.
 2. **Guard.** Trailing 30-day spend (manifest rows plus provider jobs the manifest lacks) plus the planned figure is checked against both ceilings. No request is plan-included, because no plan is configured.
 3. **Buy and download.** Batch jobs are submitted and awaited. Each job's files are downloaded to the archive and verified against size, hash and record counts. `actual_cost_usd` is written when the job is done.
 4. **Project and ingest.** Definitions are projected by the acquisition pass. Statistics and bars are ingested by the ingest pass, one unit per transaction, into `tick_statistics` and `tick_ohlcv_1m` with their ledgers.
@@ -135,9 +134,9 @@ The cutover and reconciliation scripts read production state; only the `mt` verb
 
 ### State Management
 
-- **Production manifest** (`tick_request`, `tick_archive_unit`) gains about 900 requests and about 19,000 units. These rows are the record of the purchase.
+- **Production manifest** (`tick_request`, `tick_archive_unit`) gains about 800 requests and about 16,500 units. These rows are the record of the purchase.
 - **Archive** `/data/tick-archive` gains the files: a few GB, against 996 GB free on `/data`. The pass's space verdict checks this before buying. They are backed up by the existing tick-archive backup (227); no backup change.
-- **Tick database**: `tick_statistics` about 19.4 M rows, `tick_ohlcv_1m` about 5.4 M rows, and `tick_definition` grows by distinct instruments. The row counts go in the evidence note, read from `debug` and `status`.
+- **Tick database**: `tick_statistics` about 19.4 M rows, `tick_ohlcv_1m` about 0.6 M rows, and `tick_definition` grows by distinct instruments. The row counts go in the evidence note, read from `debug` and `status`.
 - **Production env file**: the two ceilings, set by the PM (D4). Nothing else changes.
 
 ## Technical Decisions
@@ -149,15 +148,15 @@ Both entries gain `history`. Every end is the fixed date 2026-11-01 (exclusive),
 
 | Entry | `definition` | `statistics` | `ohlcv-1m` |
 |---|---|---|---|
-| ES | 2010-06-06 – 2026-11-01 | 2010-06-06 – 2026-11-01 | 2017-01-01 – 2026-11-01 |
+| ES | 2010-06-06 – 2026-11-01 | 2010-06-06 – 2026-11-01 | 2024-01-01 – 2025-01-01 |
 | GC | 2010-06-06 – 2026-11-01 | 2010-06-06 – 2026-11-01 | none |
 
-- The PM's split: statistics and definitions for both products over the full range, and ES bars with the rest of the cap. At the measured prices that buys bars from 2017. The start is a calendar year so 307's remainder is whole years.
+- The PM's call (2026-11-07): statistics and definitions for both products over the full range, and one year of ES bars. Nothing here needs more bars. The year is 2024 because it overlaps the `tbbo` already held. It is a calendar year so 307's remainder is whole years.
 - **Fixed end.** An open end would make every later `mt-run tick` buy the newest days, which is spend nobody chose. With a fixed end the purchase is bounded, the reconciliation is exact, and a re-run plans nothing. 307 decides whether its ends are open.
 - Universe validation already holds for these values: each want starts on or after `CME_DATASET_START`, `statistics` and `ohlcv-1m` lie inside `definition`, and both entries have a tier (`tbbo`).
 - The end leaves the last statistics session or two `edge_unknown`. Their publication falls in a UTC day after 2026-11-01, as at the end of 303's window. That is expected, and 307 closes it.
-- **If the cutover's estimate exceeds $25.00**, the cutover stops before buying (D3, step 3), and the bar start moves to 2018-01-01 in a fix release. This is decided now. The $24.23 measured above makes it unlikely.
-- *Rejected: split the cap between ES and GC bars.* GC bars cost about $3.50 a year against ES's $2.00, so a split buys fewer years of each. The PM named ES.
+- **If the cutover's estimate exceeds the per-pass ceiling**, the cutover stops before buying (D3, step 3). The $6.27 measured above is under the ceiling of 7.00.
+- *Rejected: split the cap between ES and GC bars.* The PM named ES.
 
 ### D2 — Re-buy 303's window, do not adopt it
 Status: decided
@@ -180,8 +179,8 @@ The universe is code, so the purchase needs a release. It runs as the production
   3. **estimate** with `sudo mt-run data tick pass --estimate-only --json`. Stop if the planned figure exceeds the per-pass ceiling or the 30-day room; the stop names the figure and the PM's command (D4). Also stop if any planned request is outside D1's wants (for example a `tbbo` request). Nothing is bought in either case.
   4. **buy and ingest**: `sudo mt-run tick`, run up to `PASS_ATTEMPTS = 5` times while it exits 6. Exit 3 (units failed) continues to evidence, since failed units are findings (D6). If the attempts run out, the script stops: "jobs still processing after 5 runs; re-run the cutover". Exit 1, 2, 4 or 5, or a pass that dies mid-download, stops the script with the pass's exit code and the last journal lines. In every case, re-running the cutover resumes. The cases at this scale are listed below.
   5. **evidence** (D5, D6, D7), narrated to `user/notes/`.
-- **Failure cases at about 900 requests.** These are the existing pass's behaviour (224 and 234), stated with their values:
-  - *Wait budget.* Each run's await phase polls for `TICK_WAIT_BUDGET_SECONDS = 1800`, every 15 s. Five attempts give 2.5 h of waiting per cutover run. That bound is not claimed to cover 900 jobs. When it runs out, the cutover stops with the reason above, and running it again waits again. Jobs keep processing at Databento meanwhile, and none is re-submitted.
+- **Failure cases at about 800 requests.** These are the existing pass's behaviour (224 and 234), stated with their values:
+  - *Wait budget.* Each run's await phase polls for `TICK_WAIT_BUDGET_SECONDS = 1800`, every 15 s. Five attempts give 2.5 h of waiting per cutover run. That bound is not claimed to cover 800 jobs. When it runs out, the cutover stops with the reason above, and running it again waits again. Jobs keep processing at Databento meanwhile, and none is re-submitted.
   - *Unit time limit.* `mt-tick-pass.service` has `TimeoutStartSec=4h`. A run killed at 4 h loses nothing, because units commit one at a time. The kill surfaces as a non-zero exit that stops the cutover, and the next run resumes.
   - *Throttling or refusal part-way through submission.* A 429 or an auth refusal marks that request's units `FAILED_RETRYABLE` and ends the run `provider_abort` (exit 2). Requests submitted before it are recorded, and the cutover stops. Any other 4xx exhausts that request (`RETRY_EXHAUSTED`) and submission continues; the run ends `partial` (exit 3), and the evidence note lists those requests. Re-running the cutover submits only the requests not yet accepted.
   - *Death after submit, before the job is recorded.* The request row is written, with its attempt stamped, before the paid call. On the next run, any row with no job id is matched against Databento's job list, and a match is recorded. Such a row is never submitted again: if no match is found within `TICK_SUBMIT_RESOLVE_AGE = 1h`, it becomes `RETRY_EXHAUSTED`, and only `reset` re-submits it. Meanwhile the spend guard counts any unrecorded provider job, so the 30-day cap still holds. The reconciliation fails if any provider job is still missing from the manifest at the end.
@@ -198,13 +197,13 @@ The runbook reserves the ceilings to the PM ("No agent edits them"). The env fil
 - It has one test hook, the target path, so that one pytest can run it against a temporary file.
 - It is not added to `deploy/sudoers.d/manta-ops`, so an agent cannot raise a ceiling.
 
-**Values for this run:** per-pass **25.00** (the PM's cap). 30-day **35.00**: trailing spend was $8.50 on 2026-11-05, so 25 plus at most 10 of trailing spend. The PM's command:
+**Values for this run:** per-pass **7.00**. 30-day **16.00**: trailing spend was $8.50 on 2026-11-05, plus the purchase's $6.27 is $14.77. The PM's command:
 
 ```bash
-sudo /home/manta/source/repos/manta/trading-data/deploy/set-tick-spend-ceilings.sh --per-pass 25 --cap-30d 35
+sudo /home/manta/source/repos/manta/trading-data/deploy/set-tick-spend-ceilings.sh --per-pass 7 --cap-30d 16
 ```
 
-**No restore afterwards.** After the purchase the trailing spend is about $33, so the 30-day cap leaves about $2 of room until that spend ages out. By then every want is covered and has a fixed end, so a pass plans nothing until a reviewed universe change (307) asks for more. 307 sets its own figures with the same command. Runbook 100's "afterwards the PM restores the per-pass ceiling" is amended for purchase slices to say this.
+**No restore afterwards.** After the purchase the trailing spend is about $14.8, so the 30-day cap leaves about $1.2 of room until that spend ages out. By then every want is covered and has a fixed end, so a pass plans nothing until a reviewed universe change (307) asks for more. 307 sets its own figures with the same command. Runbook 100's "afterwards the PM restores the per-pass ceiling" is amended for purchase slices to say this.
 
 ### D5 — Reconciliation: estimate, manifest, Databento's charge
 Status: decided
@@ -216,7 +215,7 @@ Status: decided
 - the total actual exceeds `--cap-usd`, or
 - Databento's job list cannot be read (an error or a timeout). The script stops with the provider's error and never treats a failed read as an empty list.
 
-`--cap-usd` is required and is never read from an environment, because the dev checkout's `.env` holds the dev ceilings, not production's. The cutover passes the per-pass ceiling it read from `/etc/manta-trading.env` in preflight, 25.00 for this run.
+`--cap-usd` is required and is never read from an environment, because the dev checkout's `.env` holds the dev ceilings, not production's. The cutover passes the per-pass ceiling it read from `/etc/manta-trading.env` in preflight, 7.00 for this run.
 
 A non-zero delta between estimate and actual is reported per request and totalled. It does not fail the script; it is the slice's result. 303 saw exact equality on 16 jobs, so a delta here is a finding about `get_cost`, written up with the requests it affects.
 
@@ -230,7 +229,6 @@ The first pre-2020 data is expected to show provider shapes the 2024 window did 
 
 - **A definition with an undefined activation or expiration** fails its unit, naming the instrument (302). The bar and statistics days that need it stay `awaiting definitions`.
 - **A statistics record whose `ts_ref` is not a session** fails `stat_reference` (303's unit 506, ESZ9 on a Saturday). The unit stays `retry_exhausted`.
-- **ES bars before the Sunday open on 2018-08-05** (one bar, recorded by 301 as unexplained) fail `session_boundary` for the 2018-08-06 unit.
 - **Holiday sessions with no statistics of their own** remain content findings, as 303 found.
 - **A day the provider marks `missing`** is tallied and never bought. A `degraded` day is bought and shown as degraded.
 
@@ -241,7 +239,7 @@ Status: decided
 
 No new script. Existing commands cover what 301 and 302 handed over, and the results go in the evidence note. The close-minute bar check 301 also handed over is deferred to issue #70, since it is not part of the purchase test.
 
-- **Session placement before 2020** (301): `verify_cme_sessions.py --calendar CME_EQUITY` over the 2017–2019 ES `ohlcv-1m` job directories in the archive. Exit 1 lists records outside any session, which should be the 2018-08-05 bar alone. It is not run on statistics or definitions: their `ts_event` is a publication time, not a trading time.
+- **Session placement** (301): `verify_cme_sessions.py --calendar CME_EQUITY` over the 2024 ES `ohlcv-1m` job directories in the archive. Exit 1 lists records outside any session. It is not run on statistics or definitions: their `ts_event` is a publication time, not a trading time.
 - **`tick_definition` growth** (302): rows before and after, per product, from `mt data tick debug definitions`.
 - **The run's own scale**: request and unit counts from `debug requests` and `debug units`, and pass and ingest durations from the run's `pass_runs` row (`mt data overview`). These are recorded for 305; this slice does no other measuring.
 
@@ -265,8 +263,8 @@ No schema, table or migration change. The production change is the universe cons
 ### Provides to Other Slices
 
 - **305**: real bar and statistics data over 2010–2026 for its completeness surfaces, and this run's request and unit counts and durations as a first data point at manifest scale.
-- **306**: ES `ohlcv-1m` 2017-01 to 2026-10 to serve and roll up, overlapping held `tbbo` (2024-11 to 2024-12) for the parity check. Open interest and settlement for both products over the whole history.
-- **307**: a proven purchase path at about 900 requests, the reconciliation script, the ceiling command, issue #69 (the invoice comparison, which 307 waits on), and a precise remainder: ES `ohlcv-1m` 2010-06-06 to 2017-01-01, GC `ohlcv-1m` in full, and every want past 2026-11-01.
+- **306**: ES `ohlcv-1m` for 2024 to serve and roll up, overlapping held `tbbo` (2024-11 to 2024-12) for the parity check. Open interest and settlement for both products over the whole history.
+- **307**: a proven purchase path at about 800 requests, the reconciliation script, the ceiling command, issue #69 (the invoice comparison, which 307 waits on), and a precise remainder: ES `ohlcv-1m` outside 2024, GC `ohlcv-1m` in full, and every want past 2026-11-01.
 
 ### Consumes from Other Slices
 
@@ -278,7 +276,7 @@ No schema, table or migration change. The production change is the universe cons
 
 1. `TICK_UNIVERSE` holds D1's wants, and import-time validation accepts them. A unit test pins the ranges.
 2. In production, `sudo mt-run tick` completes. Every request is delivered or ends with a named failure (D3's failure cases), and every unit is in a final state: ingested, or failed with a reason D6 classifies.
-3. `reconcile_tick_spend.py --cap-usd 25` exits 0 (D5).
+3. `reconcile_tick_spend.py --cap-usd 7` exits 0 (D5).
 4. `status` and `coverage` (walkthrough step 4) show ledger equal to raw in every session whose units ingested. Every other session is in the evidence note, classified by D6. The evidence note is the one place that lists the findings and D7's results.
 
 ### Technical Requirements
@@ -296,7 +294,7 @@ No schema, table or migration change. The production change is the universe cons
 
 ### Verification Walkthrough
 
-Run from the checkout root. Step 1 is Phase 6. Steps 2 to 5 run in Phase 7, after the release, and step 2 is the only one that spends money: about $24, usage-billed. Commands marked *(new)* do not exist yet.
+Run from the checkout root. Step 1 is Phase 6. Steps 2 to 5 run in Phase 7, after the release, and step 2 is the only one that spends money: about $6.3, usage-billed. Commands marked *(new)* do not exist yet.
 
 1. **Tests.**
    ```bash
@@ -310,18 +308,18 @@ Run from the checkout root. Step 1 is Phase 6. Steps 2 to 5 run in Phase 7, afte
    ```bash
    uv run python scripts/cutover_304_first_purchase.py v0.27.x       # (new)
    ```
-   Expected: preflight passes; estimate at most $25 (about 24.2) with verdict `allowed`, only D1's wants and about 900 requests; `sudo mt-run tick` ends 0, or 3 with the failed units named; the narration lands in `user/notes/`.
+   Expected: preflight passes; estimate at most $7 (about 6.3) with verdict `allowed`, only D1's wants and about 800 requests; `sudo mt-run tick` ends 0, or 3 with the failed units named; the narration lands in `user/notes/`.
 
 3. **Reconcile.**
    ```bash
-   uv run python scripts/reconcile_tick_spend.py --since <cutover start, UTC> --cap-usd 25   # (new)
+   uv run python scripts/reconcile_tick_spend.py --since <cutover start, UTC> --cap-usd 7   # (new)
    ```
-   Expected: exit 0, with about 900 lines and the delta reported (303 saw 0).
+   Expected: exit 0, with about 800 lines and the delta reported (303 saw 0).
 
 4. **Verdicts.**
    ```bash
    sudo mt-run data tick status --json
-   sudo mt-run data tick coverage --product ES --schema ohlcv-1m --start 2017-01-01 --end 2026-11-01 --json
+   sudo mt-run data tick coverage --product ES --schema ohlcv-1m --start 2024-01-01 --end 2025-01-01 --json
    sudo mt-run data tick coverage --product ES --schema statistics --start 2010-06-07 --end 2026-11-01 --json
    sudo mt-run data tick coverage --product GC --schema statistics --start 2010-06-07 --end 2026-11-01 --json
    sudo mt-run data tick debug units --json     # every unit not ingested has a failure reason
@@ -330,24 +328,24 @@ Run from the checkout root. Step 1 is Phase 6. Steps 2 to 5 run in Phase 7, afte
 
 5. **Checks and nothing left to buy.**
    ```bash
-   uv run python scripts/verify_cme_sessions.py --calendar CME_EQUITY /data/tick-archive/<2017–2019 ohlcv-1m job dirs>
+   uv run python scripts/verify_cme_sessions.py --calendar CME_EQUITY /data/tick-archive/<2024 ohlcv-1m job dirs>
    sudo mt-run data tick debug definitions --json                   # definition rows per product
    sudo mt-run data tick pass --estimate-only --json
    sudo mt-run data health
    ```
-   Expected: session placement exits 0, or 1 listing only the 2018-08-05 bar. The estimate is `nothing_to_buy` at $0. Health is unchanged in kind.
+   Expected: session placement exits 0. The estimate is `nothing_to_buy` at $0. Health is unchanged in kind.
 
 ## Risk Assessment
 
 ### Technical Risks
 
-- **Scale.** About 900 batch jobs in one pass is roughly 50 times any earlier pass. Databento's job queue, the pass's wait budget and the manifest queries behind `status` are untested at this size.
+- **Scale.** About 800 batch jobs in one pass is roughly 40 times any earlier pass. Databento's job queue, the pass's wait budget and the manifest queries behind `status` are untested at this size.
 - **Pre-2020 provider shapes.** Definitions with undefined windows, or statistics with non-session `ts_ref`, could be common rather than rare. Many days would then sit `awaiting definitions` or failed after the money is spent.
 
 ### Mitigation Strategies
 
 - The pass is idempotent and resumable, and each scale failure case has a stated outcome (D3). In-flight jobs are reused, never re-submitted. A query too slow for `status` is a finding for 305, not a blocker here.
-- Files are kept whatever happens, so a rule change later re-ingests them with `reset`, without buying again. The money at stake is $24, and finding these shapes now is the purpose of buying before 307.
+- Files are kept whatever happens, so a rule change later re-ingests them with `reset`, without buying again. The money at stake is $6, and finding these shapes now is the purpose of buying before 307.
 
 ## Implementation Notes
 
