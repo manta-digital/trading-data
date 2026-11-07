@@ -30,6 +30,8 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,11 +61,29 @@ TICK_MIGRATION = ("tick", "tick_010_statistics")
 SERVE_URL = "http://127.0.0.1:8100"
 CANDLES_ROUTE = "/api/v1/kalshi/markets/{ticker}/candlesticks"
 PERIOD_PARAM = "period_minutes"
+#: mt-serve is active before it listens; the restart returns first.
+SERVE_UP_ATTEMPTS = 30
+SERVE_UP_INTERVAL_SECONDS = 2
+
+
+def _fetch_openapi() -> bytes:
+    """The live spec, waiting for the restarted server to start listening."""
+    for _ in range(SERVE_UP_ATTEMPTS):
+        try:
+            with urllib.request.urlopen(
+                SERVE_URL + "/openapi.json", timeout=30
+            ) as response:
+                body: bytes = response.read()
+            return body
+        except urllib.error.URLError:
+            # Connection refused while the new process binds its port; any
+            # other failure surfaces once the attempts run out.
+            time.sleep(SERVE_UP_INTERVAL_SECONDS)
+    raise CutoverError(f"{SERVE_URL} did not answer after the restart")
 
 
 def verify_period_param() -> None:
-    with urllib.request.urlopen(SERVE_URL + "/openapi.json", timeout=30) as response:
-        spec = json.loads(response.read())
+    spec = json.loads(_fetch_openapi())
     params = spec["paths"][CANDLES_ROUTE]["get"]["parameters"]
     if PERIOD_PARAM not in [param["name"] for param in params]:
         raise CutoverError(f"{CANDLES_ROUTE} does not publish {PERIOD_PARAM!r}")
