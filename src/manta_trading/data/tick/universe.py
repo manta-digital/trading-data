@@ -75,7 +75,11 @@ class TickUniverseEntry:
 # overlaps the held tbbo). Every end is a fixed date, never None: an open end
 # would buy the newest days on every later pass, spend nobody chose. With a
 # fixed end the purchase is bounded and a re-run plans nothing.
-_HISTORY_START = date(2010, 6, 6)
+# 2010-06-08, not the dataset start 2010-06-06: the calendars are populated from
+# 2010-06-06T22:00Z, and the planner and status read them from each want's start
+# day (coverage from the day before), so an earlier start raises
+# OutOfPopulatedRangeError. The first sessions (2010-06-07) are not bought.
+_HISTORY_START = date(2010, 6, 8)
 _HISTORY_END = date(2026, 11, 1)
 _DEFINITION_AND_STATISTICS = (
     HistoryWant(TickSchema.DEFINITION, _HISTORY_START, _HISTORY_END),

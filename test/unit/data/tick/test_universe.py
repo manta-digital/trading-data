@@ -95,7 +95,7 @@ WITH_HISTORY = replace(GOOD, history=(DEFINITIONS, BARS))
 
 def test_production_universe_history_is_slice_304_d1() -> None:
     """D1's table exactly: fixed ends everywhere, no GC bars."""
-    first, last, bars_from = date(2010, 6, 6), date(2026, 11, 1), date(2024, 1, 1)
+    first, last, bars_from = date(2010, 6, 8), date(2026, 11, 1), date(2024, 1, 1)
     got = {
         entry.product: [(w.schema, w.start, w.end) for w in entry.history]
         for entry in TICK_UNIVERSE
