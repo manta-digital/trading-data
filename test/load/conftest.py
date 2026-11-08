@@ -45,6 +45,9 @@ from kalshi_support.schema import apply_kalshi_track
 from psycopg_pool import ConnectionPool
 from tick_support.api import no_dev_tick_settings  # noqa: F401  (231 guard)
 
+from load.manifest_scale_seed import (
+    manifest_scale,  # noqa: F401  (305: pytest discovers it here)
+)
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.routes.bars import _max_span_days
 from manta_trading.constants import (
