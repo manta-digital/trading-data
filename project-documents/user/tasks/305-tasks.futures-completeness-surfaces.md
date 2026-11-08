@@ -135,33 +135,34 @@ revision_number: 2
 
 ## 3. Cross-Tier Checks (D4)
 
-- [ ] **3.1 Define `INACTIVE_CROSS_TIER_CHECKS`** in `data/tick/cross_tier_checks.py`
-  - [ ] `INACTIVE_CROSS_TIER_CHECKS: Mapping[str, str]` with one entry: `ohlcv_1s_minute_sum` → `needs the ohlcv-1s family`. Comment names issue #71 and the three steps to activate (D4).
-  - [ ] Import `FamilyStatus` only under `TYPE_CHECKING` (with `from __future__ import annotations`), because `family_report.py` imports this module.
-  - [ ] Success: importable with no import cycle (`python -c "import manta_trading.data.tick.family_report"`).
+- [x] **3.1 Define `INACTIVE_CROSS_TIER_CHECKS`** in `data/tick/cross_tier_checks.py`
+  - [x] `INACTIVE_CROSS_TIER_CHECKS: Mapping[str, str]` with one entry: `ohlcv_1s_minute_sum` → `needs the ohlcv-1s family`. Comment names issue #71 and the three steps to activate (D4).
+  - [x] Import `FamilyStatus` only under `TYPE_CHECKING` (with `from __future__ import annotations`), because `family_report.py` imports this module.
+  - [x] Success: importable with no import cycle (`python -c "import manta_trading.data.tick.family_report"`).
 
-- [ ] **3.2 Implement `traded_vs_cleared(conn, entry, reports) -> tuple[CrossTierResult, ...]`**
-  - [ ] Applies only when the entry wants statistics and at least one of `VOLUME_FAMILIES` (tick tier, `BAR_1M`); otherwise returns `()`.
-  - [ ] For each wanted volume family: sessions that are `complete` in that family's report **and** in the statistics report; one call to 303's `volume_check` over them, unchanged; count verdicts per `VolumeClass`. Do not call `checkable_sessions` and do not judge sessions again.
-  - [ ] Range is every such session in the wanted range (no recent window).
-  - [ ] Success: callable with a stubbed `volume_check`.
+- [x] **3.2 Implement `traded_vs_cleared(conn, entry, reports) -> tuple[CrossTierResult, ...]`**
+  - [x] Applies only when the entry wants statistics and at least one of `VOLUME_FAMILIES` (tick tier, `BAR_1M`); otherwise returns `()`.
+  - [x] For each wanted volume family: sessions that are `complete` in that family's report **and** in the statistics report; one call to 303's `volume_check` over them, unchanged; count verdicts per `VolumeClass`. Do not call `checkable_sessions` and do not judge sessions again.
+  - [x] Range is every such session in the wanted range (no recent window).
+  - [x] Success: callable with a stubbed `volume_check`.
+  - Note: `traded_vs_cleared` takes `scopes: Mapping[SchemaFamily, ProductScope]` (the scopes `family_reports` already built) instead of `reports`, because `FamilyStatus` carries only bucket counts, not per-session verdicts.
 
-- [ ] **3.3 Test `traded_vs_cleared`**
-  - [ ] Unit (stubbed `volume_check`): no statistics want returns `()`; statistics but no volume family returns `()`; two volume families return two results; only sessions complete in both families are passed to `volume_check`.
-  - [ ] Counts per class are summed correctly, including a session class of `over`.
-  - [ ] Integration (real 303 fixtures, `test_tick_statistics_real.py`'s seeding): the counts equal `mt data tick coverage --schema statistics` for the same range (criterion 6).
-  - [ ] Success: all pass.
+- [x] **3.3 Test `traded_vs_cleared`**
+  - [x] Unit (stubbed `volume_check`): no statistics want returns `()`; statistics but no volume family returns `()`; two volume families return two results; only sessions complete in both families are passed to `volume_check`.
+  - [x] Counts per class are summed correctly, including a session class of `over`.
+  - [x] Integration (real 303 fixtures, `test_tick_statistics_real.py`'s seeding): the counts equal `mt data tick coverage --schema statistics` for the same range (criterion 6).
+  - [x] Success: all pass.
 
-- [ ] **3.4 Wire into `family_reports` and `status`**
-  - [ ] `family_reports` with `cross_tier=True` writes the `traded_vs_cleared` step to `progress`, then attaches the results to the volume families' `FamilyStatus.cross_tier`.
-  - [ ] `tick status` text and JSON print the counts per family and list every `INACTIVE_CROSS_TIER_CHECKS` entry as `not active: <reason>` (criterion 7).
-  - [ ] A family with `load_complete_only` set prints the label constant from 2.1 (criterion 5), matching 302's existing wording.
-  - [ ] Success: status output shows counts and the inactive line.
+- [x] **3.4 Wire into `family_reports` and `status`**
+  - [x] `family_reports` with `cross_tier=True` writes the `traded_vs_cleared` step to `progress`, then attaches the results to the volume families' `FamilyStatus.cross_tier`.
+  - [x] `tick status` text and JSON print the counts per family and list every `INACTIVE_CROSS_TIER_CHECKS` entry as `not active: <reason>` (criterion 7).
+  - [x] A family with `load_complete_only` set prints the label constant from 2.1 (criterion 5), matching 302's existing wording.
+  - [x] Success: status output shows counts and the inactive line.
 
-- [ ] **3.5 Test the status wiring**
-  - [ ] Status text and JSON contain the cross-tier counts, the `ohlcv_1s_minute_sum` inactive line with its reason, and `load-complete only` for a product without a statistics want.
-  - [ ] `cross_tier=False` leaves `FamilyStatus.cross_tier` empty and issues no `volume_check` statement (count statements).
-  - [ ] Success: all pass.
+- [x] **3.5 Test the status wiring**
+  - [x] Status text and JSON contain the cross-tier counts, the `ohlcv_1s_minute_sum` inactive line with its reason, and `load-complete only` for a product without a statistics want.
+  - [x] `cross_tier=False` leaves `FamilyStatus.cross_tier` empty and issues no `volume_check` statement (count statements).
+  - [x] Success: all pass.
 
 **Commit**: `feat: add traded-vs-cleared cross-tier check to the family report`
 

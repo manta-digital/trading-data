@@ -18,12 +18,13 @@ concurrency") can name where it stopped.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Final
 
 from manta_trading.data.tick.constants import CME_DATASET, DatasetCondition
+from manta_trading.data.tick.cross_tier_checks import traded_vs_cleared
 from manta_trading.data.tick.cross_tier_result import CrossTierResult
 from manta_trading.data.tick.family_edges import family_source_edge
 from manta_trading.data.tick.manifest_reads import Conn
@@ -145,7 +146,7 @@ async def _family_report(
     scope: ProductScope | None,
     progress: ReadProgress | None,
     wants_statistics: bool,
-) -> FamilyStatus:
+) -> tuple[FamilyStatus, ProductScope]:
     family, product = want.family, entry.product
     statistics = family is SchemaFamily.STATISTICS
     _mark(progress, ReadStep.SCOPE, product, family)
@@ -184,11 +185,15 @@ async def _family_report(
         load_complete_only=family in VOLUME_FAMILIES and not wants_statistics,
     )
     if not statistics:
-        return base
+        return base, scope
     _mark(progress, ReadStep.CONTENT, product, family)
     findings = await content_findings(conn, entry, scope.sessions, verdicts)
-    return StatisticsFamilyStatus(
-        **{f.name: getattr(base, f.name) for f in fields(base)}, findings=findings
+    return (
+        StatisticsFamilyStatus(
+            **{f.name: getattr(base, f.name) for f in fields(base)},
+            findings=findings,
+        ),
+        scope,
     )
 
 
@@ -205,25 +210,33 @@ async def family_reports(
     """One report per wanted family, in ``family_wants`` order.
 
     ``tier_scope`` is a tick-tier scope the caller already read (``status``
-    does), reused rather than read again. Writes the product, family and step
-    to ``progress`` before each step and catches nothing.
+    does), reused rather than read again. With ``cross_tier`` the volume
+    families carry their ``traded_vs_cleared`` result (D4). Writes the product,
+    family and step to ``progress`` before each step and catches nothing.
     """
     wants = family_wants(entry)
     wants_statistics = any(w.family is SchemaFamily.STATISTICS for w in wants)
+    reports: list[FamilyStatus] = []
+    scopes: dict[SchemaFamily, ProductScope] = {}
+    for want in wants:
+        report, scopes[want.family] = await _family_report(
+            conn,
+            calendar_url,
+            entry,
+            edge,
+            want,
+            tier_scope if want.family is SchemaFamily.TICK_TIER else None,
+            progress,
+            wants_statistics,
+        )
+        reports.append(report)
+    if not cross_tier:
+        return tuple(reports)
+    _mark(progress, ReadStep.TRADED_VS_CLEARED, entry.product, SchemaFamily.STATISTICS)
+    results = await traded_vs_cleared(conn, entry, scopes)
     return tuple(
-        [
-            await _family_report(
-                conn,
-                calendar_url,
-                entry,
-                edge,
-                want,
-                tier_scope if want.family is SchemaFamily.TICK_TIER else None,
-                progress,
-                wants_statistics,
-            )
-            for want in wants
-        ]
+        replace(r, cross_tier=tuple(x for x in results if x.family.value == r.family))
+        for r in reports
     )
 
 

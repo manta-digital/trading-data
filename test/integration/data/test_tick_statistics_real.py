@@ -9,7 +9,9 @@ file covers (2024-12-02) are empty ingested units.
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
@@ -30,6 +32,7 @@ from manta_trading.config import Settings
 from manta_trading.data.base.session_index import Session
 from manta_trading.data.tick import universe
 from manta_trading.data.tick.constants import TickSchema
+from manta_trading.data.tick.family_report import FamilyStatus, family_reports
 from manta_trading.data.tick.ingest_plan import Calendars
 from manta_trading.data.tick.ingest_worker import UnitResult
 from manta_trading.data.tick.schema_families import SchemaFamily
@@ -229,3 +232,36 @@ def test_coverage_agrees_on_the_real_files_and_a_tampered_copy_exits_3(
         assert deleted.rowcount == 1
     result = runner.invoke(app, ARGS)
     assert result.exit_code == 3, result.output
+
+
+def test_the_report_cross_tier_counts_equal_what_coverage_reports(
+    real_window: str, session_migrated_db: str
+) -> None:
+    """Criterion 6: the verdicts the report carries are ``coverage``'s, for the
+    same range, from the real purchased files."""
+
+    async def report() -> tuple[FamilyStatus, ...]:
+        async with connect(real_window) as conn:
+            return await family_reports(
+                conn, session_migrated_db, WITH_STATISTICS, None, cross_tier=True
+            )
+
+    # ``coverage`` runs its own event loop, so this test is sync and runs
+    # the report in one of its own.
+    reports = asyncio.run(report())
+    (tier,) = [r for r in reports if r.family == SchemaFamily.TICK_TIER.value]
+    (result,) = tier.cross_tier
+    covered = runner.invoke(app, ARGS)
+    assert covered.exit_code == 0, covered.output
+    (es,) = json.loads(covered.stdout)["products"]
+    expected = Counter(
+        v["verdict"]
+        for v in es["volume_checks"]
+        if v["family"] == SchemaFamily.TICK_TIER.value
+    )
+    assert sum(expected.values()) > 0
+    assert {c.value: getattr(result, c.value) for c in VolumeClass} == {
+        c.value: expected.get(c.value, 0) for c in VolumeClass
+    }
+    statistics = [r for r in reports if r.family == SchemaFamily.STATISTICS.value]
+    assert statistics and not statistics[0].cross_tier  # only volume families

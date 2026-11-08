@@ -18,7 +18,7 @@ in ``families`` as load-complete only.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from typing import Any
 
@@ -29,6 +29,7 @@ from manta_trading.data.tick.constants import (
     DatasetCondition,
     calendar_for_product,
 )
+from manta_trading.data.tick.cross_tier_checks import INACTIVE_CROSS_TIER_CHECKS
 from manta_trading.data.tick.family_edges import family_source_edge
 from manta_trading.data.tick.family_report import FamilyStatus, family_reports
 from manta_trading.data.tick.manifest_reads import Conn
@@ -84,6 +85,10 @@ class ProductStatus:
 class TickStatus:
     products: tuple[ProductStatus, ...]
     complete_basis: str = COMPLETE_BASIS
+    #: Cross-tier checks that do not run, and why (305 D4).
+    cross_tier_not_active: dict[str, str] = field(
+        default_factory=lambda: dict(INACTIVE_CROSS_TIER_CHECKS)
+    )
 
     def to_dict(self) -> dict[str, Any]:
         body: dict[str, Any] = jsonable(asdict(self))

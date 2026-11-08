@@ -7,11 +7,13 @@ conditions, the edge and the calendar.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
 
 import psycopg
+import pytest
 from tick_support.rows import (
     insert_bar_ledger_row,
     insert_dataset_edge,
@@ -23,17 +25,22 @@ from tick_support.runs import connect
 from tick_support.statistics_seed import seed_unit
 from tick_support.universe import UNTIERED
 
+from manta_trading.cli.commands.tick_status_render import _product_lines
+from manta_trading.data.tick import cross_tier_checks
 from manta_trading.data.tick.constants import CME_DATASET, TickSchema
 from manta_trading.data.tick.family_report import (
+    LOAD_COMPLETE_ONLY,
     FamilyStatus,
     StatisticsFamilyStatus,
     family_reports,
 )
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.status_reads import dataset_edge
+from manta_trading.data.tick.tick_status_build import build_status
 from manta_trading.data.tick.universe import HistoryWant
 
 DAY = date(2024, 12, 3)
+NOW = datetime(2026, 11, 7, 12, tzinfo=UTC)
 ES = UNTIERED[0]
 WANTS_ALL = replace(
     ES,
@@ -109,3 +116,86 @@ async def test_no_dataset_edge_gives_no_source_edge_and_no_verdict(
 ) -> None:
     reports = await _reports(migrated_tick_db, session_migrated_db, WITHOUT_STATISTICS)
     assert [(r.source_edge, r.caught_up) for r in reports] == [(None, None)] * 2
+
+
+class _VolumeSpy:
+    """Counts ``volume_check`` calls and answers like a session with no
+    comparable contract."""
+
+    def __init__(self) -> None:
+        self.families: list[SchemaFamily] = []
+
+    async def __call__(
+        self, conn: Any, shape: Any, family: SchemaFamily, *rest: Any
+    ) -> tuple[()]:
+        self.families.append(family)
+        return ()
+
+
+@pytest.fixture
+def volume_spy(monkeypatch: pytest.MonkeyPatch) -> _VolumeSpy:
+    spy = _VolumeSpy()
+    monkeypatch.setattr(cross_tier_checks, "volume_check", spy)
+    return spy
+
+
+async def test_cross_tier_false_leaves_results_empty_and_never_checks_volume(
+    migrated_tick_db: str, session_migrated_db: str, volume_spy: _VolumeSpy
+) -> None:
+    _seed(migrated_tick_db)
+    async with connect(migrated_tick_db) as conn:
+        edge = await dataset_edge(conn, CME_DATASET)
+        off = await family_reports(
+            conn, session_migrated_db, WANTS_ALL, edge, cross_tier=False
+        )
+        assert volume_spy.families == []
+        on = await family_reports(
+            conn, session_migrated_db, WANTS_ALL, edge, cross_tier=True
+        )
+    assert not any(r.cross_tier for r in off)
+    assert volume_spy.families == [SchemaFamily.TICK_TIER, SchemaFamily.BAR_1M]
+    tier, bars, statistics = on
+    assert [len(r.cross_tier) for r in (tier, bars, statistics)] == [1, 1, 0]
+
+
+async def test_status_prints_the_counts_the_inactive_check_and_the_label(
+    migrated_tick_db: str, session_migrated_db: str, volume_spy: _VolumeSpy
+) -> None:
+    _seed(migrated_tick_db)
+    async with connect(migrated_tick_db) as conn:
+        checked = await build_status(
+            conn, session_migrated_db, [WANTS_ALL], NOW, tick_url=migrated_tick_db
+        )
+        alone = await build_status(
+            conn,
+            session_migrated_db,
+            [WITHOUT_STATISTICS],
+            NOW,
+            tick_url=migrated_tick_db,
+        )
+    (product,) = checked.products
+    text = "\n".join(_product_lines(product))
+    assert "traded_vs_cleared (tick_tier): agree 0   under 0   over 0" in text
+    assert "traded_vs_cleared (bar_1m): agree 0" in text
+    assert (
+        "cross-tier ohlcv_1s_minute_sum: not active: needs the ohlcv-1s family" in text
+    )
+    body = json.loads(json.dumps(checked.to_dict()))
+    assert body["cross_tier_not_active"] == {
+        "ohlcv_1s_minute_sum": "needs the ohlcv-1s family"
+    }
+    tier_json = body["products"][0]["families"][0]
+    assert tier_json["cross_tier"] == [
+        {
+            "check": "traded_vs_cleared",
+            "family": "tick_tier",
+            "agree": 0,
+            "under": 0,
+            "over": 0,
+            "no_trades": 0,
+        }
+    ]
+    assert tier_json["load_complete_only"] is False
+    (bare,) = alone.products
+    assert LOAD_COMPLETE_ONLY in "\n".join(_product_lines(bare))
+    assert [f.load_complete_only for f in bare.families] == [True, True]

@@ -8,7 +8,7 @@ The layout is the LLD's API Contracts. ``--json`` is the result's
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -18,6 +18,8 @@ from rich.markup import escape
 from manta_trading.cli.commands.tick_active_render import active_line_text
 from manta_trading.cli.output import make_table, print_result
 from manta_trading.data.tick.constants import TickSchema
+from manta_trading.data.tick.cross_tier_checks import INACTIVE_CROSS_TIER_CHECKS
+from manta_trading.data.tick.cross_tier_result import CrossTierResult
 from manta_trading.data.tick.family_report import (
     LOAD_COMPLETE_ONLY,
     FamilyStatus,
@@ -81,6 +83,20 @@ def _caught_up_line(caught_up: bool | None, holed: tuple[Any, ...]) -> str:
     return f"  caught up: {'yes' if caught_up else 'no'}{holes}"
 
 
+def cross_tier_lines(results: Sequence[CrossTierResult]) -> list[str]:
+    """One line per result: verdicts per class, in ``CrossTierResult`` order."""
+    return [
+        f"  {r.check} ({r.family.value}): agree {r.agree}   under {r.under}"
+        f"   over {r.over}   no_trades {r.no_trades}"
+        for r in results
+    ]
+
+
+def not_active_lines(checks: Mapping[str, str]) -> list[str]:
+    """Each inactive cross-tier check and why (305 criterion 7)."""
+    return [f"  cross-tier {name}: not active: {why}" for name, why in checks.items()]
+
+
 def _family_lines(family: FamilyStatus) -> list[str]:
     """A non-tick family's section: the same buckets, headed load-complete only."""
     schemas = ", ".join(family.schemas)
@@ -89,6 +105,7 @@ def _family_lines(family: FamilyStatus) -> list[str]:
         f"  sessions held: {family.sessions_held}",
         *_bucket_lines(family.buckets, family.degraded),
         _caught_up_line(family.caught_up, family.holed_sessions),
+        *cross_tier_lines(family.cross_tier),
     ]
     if isinstance(family, StatisticsFamilyStatus):
         lines.extend(_finding_lines(family))
@@ -130,6 +147,16 @@ def _product_lines(p: ProductStatus) -> list[str]:
     lines.append(f"  sessions held: {p.sessions_held}")
     lines.extend(_bucket_lines(p.buckets, p.degraded))
     lines.append(_caught_up_line(p.caught_up, p.holed_sessions))
+    lines.extend(
+        cross_tier_lines(
+            [
+                r
+                for f in p.families
+                if f.family == SchemaFamily.TICK_TIER
+                for r in f.cross_tier
+            ]
+        )
+    )
     lines.append(f"  {COMPLETE_NOTE}")
     hidden = (
         f"outrights; {p.spreads_hidden} spreads hidden, --all-instruments to list"
@@ -156,13 +183,11 @@ def _product_lines(p: ProductStatus) -> list[str]:
 
 
 def _other_family_lines(p: ProductStatus) -> list[str]:
-    """Sections for every wanted family but the tick tier (printed above)."""
-    return [
-        line
-        for family in p.families
-        if family.family != SchemaFamily.TICK_TIER
-        for line in _family_lines(family)
-    ]
+    """Sections for every wanted family but the tick tier (printed above), then
+    the checks that do not run (only a product with another family has any)."""
+    others = [f for f in p.families if f.family != SchemaFamily.TICK_TIER]
+    lines = [line for family in others for line in _family_lines(family)]
+    return lines + (not_active_lines(INACTIVE_CROSS_TIER_CHECKS) if others else [])
 
 
 def print_status(status: TickStatus, exit_code: int, *, json_mode: bool) -> None:

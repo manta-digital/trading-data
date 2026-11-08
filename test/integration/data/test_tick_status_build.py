@@ -188,7 +188,9 @@ WITH_BARS = replace(
 
 
 def _without_families(body: dict[str, Any]) -> dict[str, Any]:
-    """The pre-302 JSON shape: ``families`` is the one added key."""
+    """The pre-302 JSON shape: ``families`` and ``cross_tier_not_active`` are
+    the added keys."""
+    body = {k: v for k, v in body.items() if k != "cross_tier_not_active"}
     return {
         **body,
         "products": [
