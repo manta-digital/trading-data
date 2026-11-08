@@ -291,40 +291,41 @@ revision_number: 2
 
 ## 9. Manifest-Scale Seed and Measurement (D9)
 
-- [ ] **9.1 Create the seed fixture and the units** in `test/load/manifest_scale_seed.py`
-  - [ ] Session-scoped fixture creating one throwaway database on the test cluster, migrated to head. It never reads the production URL variable. The finalizer drops only the database this fixture created, so an aborted run leaves nothing behind (destructive-statement rule).
-  - [ ] Seed ES and GC, 2010-06-08 to 2026-11-01, every real-calendar session: `definition`, `statistics`, `ohlcv-1m` units plus held-window `tbbo` units, all `ingested`, in month-run requests (about 30,000 units). Bulk-load with set-based SQL (`generate_series`/`COPY`), not per-row inserts.
-  - [ ] Success: the fixture builds once per test session and prints the unit count (about 30,000).
+- [x] **9.1 Create the seed fixture and the units** in `test/load/manifest_scale_seed.py`
+  - [x] Session-scoped fixture creating one throwaway database on the test cluster, migrated to head. It never reads the production URL variable. The finalizer drops only the database this fixture created, so an aborted run leaves nothing behind (destructive-statement rule).
+  - [x] Seed ES and GC, 2010-06-08 to 2026-11-01, every real-calendar session: `definition`, `statistics`, `ohlcv-1m` units plus held-window `tbbo` units, all `ingested`, in month-run requests (about 30,000 units). Bulk-load with set-based SQL (`generate_series`/`COPY`), not per-row inserts.
+  - [x] Success: the fixture builds once per test session and prints the unit count (about 30,000).
+  - Note: the seed is split across `test/load/manifest_scale_seed.py` (the fixture and the units) and `test/load/manifest_scale_rows.py` (ledgers, definitions, day conditions, dataset edge, statistics and compression), so each file stays under ~300 lines.
 
-- [ ] **9.2 Seed ledgers, definitions, day conditions and the dataset edge** (same file)
-  - [ ] Ledger rows per unit at real proportions (instruments per day and stat types per instrument from the real fixtures under `test/fixtures/databento/real/`, the same ones `test_tick_statistics_real.py` seeds from); `tick_definition` rows per instrument; day conditions for every day; one `tick_dataset_edge` row. No `tick_ohlcv_1m` raw rows.
-  - [ ] Success: every family's ledger count is non-zero.
+- [x] **9.2 Seed ledgers, definitions, day conditions and the dataset edge** (same file)
+  - [x] Ledger rows per unit at real proportions (instruments per day and stat types per instrument from the real fixtures under `test/fixtures/databento/real/`, the same ones `test_tick_statistics_real.py` seeds from); `tick_definition` rows per instrument; day conditions for every day; one `tick_dataset_edge` row. No `tick_ohlcv_1m` raw rows.
+  - [x] Success: every family's ledger count is non-zero.
 
-- [ ] **9.3 Seed `tick_statistics` and compress** (same file)
-  - [ ] `tick_statistics` at full size (about 19.4 M rows, real stat-type mix from the fixtures).
-  - [ ] Compress chunks explicitly with `compress_chunk` (the test cluster has no scheduler).
-  - [ ] Success: row count within 10% of 19.4 M and chunks report compressed.
+- [x] **9.3 Seed `tick_statistics` and compress** (same file)
+  - [x] `tick_statistics` at full size (about 19.4 M rows, real stat-type mix from the fixtures).
+  - [x] Compress chunks explicitly with `compress_chunk` (the test cluster has no scheduler).
+  - [x] Success: row count within 10% of 19.4 M and chunks report compressed.
 
-- [ ] **9.4 Test the seed's shape** in `test/load/test_305_manifest_scale_nfr.py` (first test only)
-  - [ ] Assert unit count within 5% of 30,000, per-family ledger counts non-zero, `tick_statistics` row count within 10% of 19.4 M, and chunks compressed.
-  - [ ] Confirm the load tier's existing guard test (which refuses the production URL) picks up the new file. The load tier runs only under `MT_RUN_LOAD_TESTS=1` and is not part of CI (`.github/workflows` has no load step), so this file adds no CI wiring.
-  - [ ] Success: passes under `MT_RUN_LOAD_TESTS=1`; skipped otherwise.
+- [x] **9.4 Test the seed's shape** in `test/load/test_305_manifest_scale_nfr.py` (first test only)
+  - [x] Assert unit count within 5% of 30,000, per-family ledger counts non-zero, `tick_statistics` row count within 10% of 19.4 M, and chunks compressed.
+  - [x] Confirm the load tier's existing guard test (which refuses the production URL) picks up the new file. The load tier runs only under `MT_RUN_LOAD_TESTS=1` and is not part of CI (`.github/workflows` has no load step), so this file adds no CI wiring.
+  - [x] Success: passes under `MT_RUN_LOAD_TESTS=1`; skipped otherwise.
 
 **Commit**: `test: add manifest-scale seed fixture`
 
-- [ ] **9.5 Add the timed tests (D9 table)** in the same file
-  - [ ] Each is the median of three runs after one warm-up, printing the samples:
+- [x] **9.5 Add the timed tests (D9 table)** in the same file
+  - [x] Each is the median of three runs after one warm-up, printing the samples:
     - `futures_completeness(cross_tier=True)`, both products, every family: ≤ 5 s total and no single statement ≥ 5 s;
     - the API tick block (`cross_tier=False`): added latency < 0.25 s;
     - `build_status`, both products: ≤ 30 s;
     - tick preflight plus a steady-state `pass --estimate-only` that plans nothing: ≤ 10 s;
     - `select_units` with nothing selectable: ≤ 2 s.
-  - [ ] Record the slowest statement by timing each statement through the connection's logging hook. In the same test run, execute `EXPLAIN (ANALYZE, BUFFERS)` on that statement and print the statement and its plan, so the note and any fix start from the output (the database is dropped afterwards).
-  - [ ] Success: the test runs and prints every median, its bound, and the slowest statement with its plan.
+  - [x] Record the slowest statement by timing each statement through the connection's logging hook. In the same test run, execute `EXPLAIN (ANALYZE, BUFFERS)` on that statement and print the statement and its plan, so the note and any fix start from the output (the database is dropped afterwards).
+  - [x] Success: the test runs and prints every median, its bound, and the slowest statement with its plan.
 
-- [ ] **9.6 Run the measurement**
-  - [ ] `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_305_manifest_scale_nfr.py -s`. The run takes several minutes; run it in the background with output to `/tmp/305-measurement.log` and read that file when it finishes.
-  - [ ] Success: the run completes and its output is in `/tmp/305-measurement.log`; the throwaway database is dropped afterwards (verify with `\l` on the test cluster).
+- [x] **9.6 Run the measurement**
+  - [x] `MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_305_manifest_scale_nfr.py -s`. The run takes several minutes; run it in the background with output to `/tmp/305-measurement.log` and read that file when it finishes.
+  - [x] Success: the run completes and its output is in `/tmp/305-measurement.log`; the throwaway database is dropped afterwards (verify with `\l` on the test cluster).
 
 **Commit**: `test: add manifest-scale seed and futures surfaces load test`
 
@@ -332,25 +333,26 @@ revision_number: 2
 
 ## 10. Fix Any Missed Bound (D10) and Record the Note
 
-- [ ] **10.1 Triage the result**
+- [x] **10.1 Triage the result**
   - [ ] If every bound passed, mark 10.2 and 10.3 not applicable in a note line and continue to 10.4.
-  - [ ] Otherwise, take each miss's statement and plan from the 9.5 output in `/tmp/305-measurement.log` (written by 9.6).
-  - [ ] Success: each miss has a recorded plan.
+  - [x] Otherwise, take each miss's statement and plan from the 9.5 output in `/tmp/305-measurement.log` (written by 9.6).
+  - [x] Success: each miss has a recorded plan.
 
-- [ ] **10.2 Fix a miss by query rewrite or index only (D10)**
-  - [ ] Rewrite per-session reads to set-based reads, or add tick migration `tick_011_*` (read the last migration id in the tick migrations directory first; it should follow `tick_010_statistics`). An index migration needs its own migration test and an entry in the migration-chain test.
-  - [ ] Never raise a bound. If the fix needs stored or cached derived state, a new table or a change in what a surface reports, stop: file an issue on trading-data with the measurement, note that 307 depends on it, and record that in the note.
-  - [ ] Success: the code change is minimal and the surface tests from tasks 4–8 still pass.
+- [x] **10.2 Fix a miss by query rewrite or index only (D10)**
+  - [x] Rewrite per-session reads to set-based reads, or add tick migration `tick_011_*` (read the last migration id in the tick migrations directory first; it should follow `tick_010_statistics`). An index migration needs its own migration test and an entry in the migration-chain test.
+  - [x] Never raise a bound. If the fix needs stored or cached derived state, a new table or a change in what a surface reports, stop: file an issue on trading-data with the measurement, note that 307 depends on it, and record that in the note.
+  - [x] Success: the code change is minimal and the surface tests from tasks 4–8 still pass.
 
-- [ ] **10.3 Re-measure**
-  - [ ] Re-run 9.6 until every bound passes, or the issue in 10.2 is filed.
-  - [ ] Success: the final run's medians are all within bound, or each remaining miss names its issue.
+- [x] **10.3 Re-measure**
+  - [x] Re-run 9.6 until every bound passes, or the issue in 10.2 is filed.
+  - [x] Success: the final run's medians are all within bound, or each remaining miss names its issue.
+  - Note: two bounds remain missed after the 10.2 fixes: the cross-tier read (`futures_completeness(cross_tier=True)`, median 7.48 s against 5 s) and the API tick block (median 3.85 s against 0.25 s). Both need stored derived state, which the fix rule in this section keeps out of this slice, so issue [#74](https://github.com/manta-digital/trading-data/issues/74) carries them. The two tests are `xfail(strict=True)` referencing #74, so they fail once the bound is met and the marker is removed with the fix. No bound was raised.
 
 **Commit** (only if 10.2 changed code, after the re-measurement passes): `fix: bring futures surfaces within manifest-scale bounds`
 
-- [ ] **10.4 Write `project-documents/user/notes/305-manifest-scale-measurement.md`** (with YAML front matter per `file-naming-conventions`)
-  - [ ] Unit and request counts; each median with its three samples and its bound; the slowest statement with its `EXPLAIN (ANALYZE, BUFFERS)`; the host (CPU, RAM, Postgres and TimescaleDB versions); and any D10 fix or issue with its before and after medians.
-  - [ ] Success: the note exists and every figure matches the last run's output.
+- [x] **10.4 Write `project-documents/user/notes/305-manifest-scale-measurement.md`** (with YAML front matter per `file-naming-conventions`)
+  - [x] Unit and request counts; each median with its three samples and its bound; the slowest statement with its `EXPLAIN (ANALYZE, BUFFERS)`; the host (CPU, RAM, Postgres and TimescaleDB versions); and any D10 fix or issue with its before and after medians.
+  - [x] Success: the note exists and every figure matches the last run's output.
 
 **Commit**: `docs: record 305 manifest-scale measurement`
 
