@@ -80,6 +80,7 @@ def _seed(url: str) -> None:
 _ROW = re.compile(
     r"(?P<complete>[\d,]+)/(?P<total>[\d,]+) complete to (?P<edge>\d{4}-\d\d-\d\d);"
     r" (?P<verdict>caught up|not caught up)(?:: (?P<counts>[^;]+))?"
+    r"(?:; other sessions in scope: (?P<other>[^;]+))?"
 )
 
 
@@ -87,7 +88,7 @@ def _health(row: str) -> dict[str, Any]:
     found = _ROW.match(row)
     assert found, row
     counts: dict[str, int] = {}
-    for part in (found["counts"] or "").split(", "):
+    for part in (found["counts"] or found["other"] or "").split(", "):
         if part:
             number, _, name = part.partition(" ")
             counts[name.replace(" ", "_")] = int(number)

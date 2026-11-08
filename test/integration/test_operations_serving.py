@@ -285,9 +285,15 @@ class TestTheSplitGuard:
 
         assert db_only.open_runs == both.open_runs
         assert db_only.latest_ended == both.latest_ended
-        # The CLI adds one source the API never sees (230 TD7, FR13).
-        assert db_only.sources == both.sources[:-1]
-        assert both.sources[-1].name == "futures ticks"
+        # The CLI adds sources the API never sees: the tick line (230 TD7, FR13)
+        # and 305's per-family lines.
+        added = len(both.sources) - len(db_only.sources)
+        assert db_only.sources == both.sources[:-added]
+        assert [source.name for source in both.sources[-added:]] == [
+            "futures ticks",
+            "futures ohlcv-1m",
+            "futures statistics",
+        ]
         assert db_only.now == both.now
         assert db_only.hostname == both.hostname
         assert db_only.minute_firing_days == both.minute_firing_days

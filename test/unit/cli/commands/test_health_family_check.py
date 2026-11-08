@@ -138,3 +138,13 @@ def test_the_detail_names_buckets_cross_tier_counts_and_findings() -> None:
 def test_a_family_with_no_statistics_check_says_so() -> None:
     check = family_check("ES", _report(load_complete_only=True))
     assert check.detail.endswith("load-complete only")
+
+
+def test_a_caught_up_family_names_the_sessions_in_scope_outside_the_judged_range() -> (
+    None
+):
+    check = family_check("ES", _report(buckets=_buckets(missing=2, edge_unknown=1)))
+    assert check.detail == (
+        "4,118/4,121 complete to 2026-11-06; caught up;"
+        " other sessions in scope: 2 missing, 1 edge unknown"
+    )

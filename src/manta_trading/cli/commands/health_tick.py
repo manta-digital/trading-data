@@ -90,8 +90,15 @@ def _detail(report: FamilyStatus, findings: int) -> str:
     total = sum(report.buckets.values())
     complete = report.buckets[TickSessionStatus.COMPLETE.value]
     parts = [f"{complete:,}/{total:,} complete to {report.source_edge:%Y-%m-%d}"]
-    verdict = "caught up" if report.caught_up else "not caught up"
-    parts.append(f"{verdict}: {_counts(report)}" if _counts(report) else verdict)
+    counts = _counts(report)
+    if report.caught_up:
+        # Caught up means every judged session is complete or a declared hole,
+        # so what else is in scope lies outside the judged range.
+        parts.append("caught up")
+        if counts:
+            parts.append(f"other sessions in scope: {counts}")
+    else:
+        parts.append(f"not caught up: {counts}" if counts else "not caught up")
     parts += [
         f"{x.check} {report.schema}: {x.over} over, {x.no_trades} no_trades"
         for x in report.cross_tier
