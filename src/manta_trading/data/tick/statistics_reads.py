@@ -26,8 +26,7 @@ from manta_trading.data.tick.statistics_constants import (
     StatUpdateAction,
 )
 from manta_trading.data.tick.statistics_status import (
-    listed_instruments,
-    outrights,
+    listed_outrights,
     statistics_verdicts,
 )
 from manta_trading.data.tick.status_reads import (
@@ -216,10 +215,10 @@ async def volume_check(
         for row in await resolved(conn, shape, [StatType.CLEARED_VOLUME], first, last)
     }
     traded = await ledger_volumes(conn, shape, family, first, last)
-    definitions = await outrights(conn, product)
+    listed = await listed_outrights(conn, product, sessions)
     verdicts = []
     for session in sessions:
-        for instrument_id in listed_instruments(definitions, session):
+        for instrument_id, symbol in listed.get(session.session_date, []):
             quantity = cleared.get((instrument_id, session.session_date))
             if quantity is None:
                 continue
@@ -228,7 +227,7 @@ async def volume_check(
                 VolumeVerdict(
                     session.session_date,
                     instrument_id,
-                    definitions[instrument_id][0],
+                    symbol,
                     family,
                     quantity,
                     volume,

@@ -33,6 +33,7 @@ from manta_trading.data.tick.constants import (
     TICK_API_POOL_MAX,
     TICK_API_POOL_MIN,
     TICK_DB_CONNECT_TIMEOUT_SECONDS,
+    TICK_JIT_STATEMENT,
 )
 from manta_trading.data.tick.get_plan import ContractNotFound
 from manta_trading.data.tick.line_state import (
@@ -92,6 +93,7 @@ def _configure(
         for statement in session_statements(session):
             await conn.execute(statement)
         await conn.execute(_READ_ONLY)
+        await conn.execute(TICK_JIT_STATEMENT)
 
     return configure
 

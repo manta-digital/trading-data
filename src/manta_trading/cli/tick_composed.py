@@ -25,6 +25,7 @@ from manta_trading.config import Settings
 from manta_trading.data.tick.constants import (
     TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS,
     TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS,
+    TICK_JIT_OPTION,
 )
 from manta_trading.data.tick.line_state import (
     READ_FAILURES,
@@ -72,6 +73,7 @@ async def connect(settings: Settings) -> Conn | TickUnavailable:
         options=(
             f"-c statement_timeout={TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS}s"
             " -c default_transaction_read_only=on"
+            f" {TICK_JIT_OPTION}"
         ),
     )
     try:

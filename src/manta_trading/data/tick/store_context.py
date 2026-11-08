@@ -48,6 +48,7 @@ from manta_trading.data.tick.constants import (
     TICK_DB_CONNECT_TIMEOUT_SECONDS,
     TICK_ENV_PREFIX,
     TICK_INGEST_LOCK_KEY,
+    TICK_JIT_OPTION,
     TICK_MIGRATE_COMMAND,
 )
 from manta_trading.market.schema.databases import (
@@ -158,7 +159,10 @@ def database_url(settings: Settings) -> str:
 async def _connect(url: str) -> psycopg.AsyncConnection[Any]:
     try:
         return await psycopg.AsyncConnection.connect(
-            url, connect_timeout=TICK_DB_CONNECT_TIMEOUT_SECONDS, autocommit=True
+            url,
+            connect_timeout=TICK_DB_CONNECT_TIMEOUT_SECONDS,
+            options=TICK_JIT_OPTION,
+            autocommit=True,
         )
     except psycopg.OperationalError as exc:
         env_var = env_var_for(Database.TICK, Credential.APPLICATION)

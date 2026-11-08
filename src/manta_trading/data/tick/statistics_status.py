@@ -36,7 +36,6 @@ from manta_trading.data.tick.statistics_constants import (
 )
 from manta_trading.data.tick.status_reads import (
     SHAPE_WHERE,
-    Shape,
     calendar_sessions,
     conditions,
     ledger_units,
@@ -136,55 +135,96 @@ def statistics_verdicts(calendar_url: str) -> VerdictReader:
     return read
 
 
-async def outrights(
-    conn: Conn, product: str
-) -> dict[int, tuple[str | None, list[tuple[int, int]]]]:
-    """Per outright: its symbol and every definition window (activation, expiration)."""
+#: The outrights listed for each session, as the CTEs two statements share
+#: (305 D10): ``complete`` is the sessions' dates and UTC bounds, ``symbols``
+#: each outright's first symbol, ``listed`` the (session, outright) pairs whose
+#: definition window holds the whole session. A contract that expires (or first
+#: lists) inside the session is not listed for it: nothing is required of it.
+_LISTING = """
+complete (session_date, open_ns, close_ns) AS (
+    SELECT * FROM unnest(
+        %(dates)s::date[], %(opens)s::bigint[], %(closes)s::bigint[])
+),
+symbols AS (
+    SELECT DISTINCT ON (instrument_id) instrument_id, raw_symbol
+    FROM tick_definition
+    WHERE asset = %(product)s AND instrument_class = %(outright)s
+    ORDER BY instrument_id, activation_ns
+),
+listed AS (
+    SELECT DISTINCT c.session_date, d.instrument_id
+    FROM complete c JOIN tick_definition d
+      ON d.asset = %(product)s AND d.instrument_class = %(outright)s
+     AND d.activation_ns <= c.open_ns AND d.expiration_ns >= c.close_ns
+)
+"""
+
+
+def _session_params(product: str, sessions: Sequence[Session]) -> dict[str, object]:
+    return {
+        "dates": [s.session_date for s in sessions],
+        "opens": [utc_ns(s.open_utc) for s in sessions],
+        "closes": [utc_ns(s.close_utc) for s in sessions],
+        "product": product,
+        "outright": OUTRIGHT_CLASS,
+    }
+
+
+async def listed_outrights(
+    conn: Conn, product: str, sessions: Sequence[Session]
+) -> dict[date, list[tuple[int, str | None]]]:
+    """Per session, its listed outrights as (instrument id, symbol), by id."""
     cursor = await conn.execute(
-        "SELECT instrument_id, raw_symbol, activation_ns, expiration_ns"
-        " FROM tick_definition WHERE asset = %s AND instrument_class = %s"
-        " ORDER BY instrument_id, activation_ns",
-        (product, OUTRIGHT_CLASS),
+        f"WITH {_LISTING} SELECT l.session_date, l.instrument_id, s.raw_symbol"
+        " FROM listed l JOIN symbols s USING (instrument_id)"
+        " ORDER BY l.session_date, l.instrument_id",
+        _session_params(product, sessions),
     )
-    found: dict[int, tuple[str | None, list[tuple[int, int]]]] = {}
-    for instrument_id, symbol, activation, expiration in await cursor.fetchall():
-        found.setdefault(instrument_id, (symbol, []))[1].append(
-            (activation, expiration)
-        )
+    found: dict[date, list[tuple[int, str | None]]] = {}
+    for session_date, instrument_id, symbol in await cursor.fetchall():
+        found.setdefault(session_date, []).append((instrument_id, symbol))
     return found
 
 
-def listed_instruments(
-    definitions: dict[int, tuple[str | None, list[tuple[int, int]]]], session: Session
-) -> list[int]:
-    """The outrights whose definition window holds the whole session, by id.
-
-    A contract that expires (or first lists) inside the session is not listed
-    for it: nothing is required of it.
-    """
-    opened, closed = utc_ns(session.open_utc), utc_ns(session.close_utc)
-    return [
-        instrument_id
-        for instrument_id, (_, windows) in sorted(definitions.items())
-        if any(a <= opened and e >= closed for a, e in windows)
-    ]
-
-
-async def _held_types(
-    conn: Conn, shape: Shape, first: date, last: date
-) -> dict[tuple[int, date], set[int]]:
-    """The stat types each (instrument, session) has ledger records for."""
-    cursor = await conn.execute(
-        "SELECT l.instrument_id, l.session_date, l.stat_type"
-        f" FROM {ledger_units(SchemaFamily.STATISTICS)} WHERE {SHAPE_WHERE}"
-        " AND l.record_count > 0 AND l.session_date BETWEEN %(first)s AND %(last)s"
-        " GROUP BY 1, 2, 3",
-        shape.params(SchemaFamily.STATISTICS) | {"first": first, "last": last},
-    )
-    held: dict[tuple[int, date], set[int]] = {}
-    for instrument_id, session_date, stat_type in await cursor.fetchall():
-        held.setdefault((instrument_id, session_date), set()).add(stat_type)
-    return held
+#: Findings in one statement (305 D10): a listed outright (its definition
+#: window holds the whole session) missing a type it is owed. ``held`` is the
+#: ledger's (instrument, session, type) triples over the complete sessions'
+#: range; ``reported`` the types an instrument reported anywhere in it. What a
+#: contract is owed (``owed``) is ``always`` plus the required types it
+#: reported; the anti-join against ``held`` leaves what is missing. Set-based:
+#: the per-session version took about 6 s of Python at 16 years (305's
+#: measurement).
+_FINDINGS_SQL = f"""
+WITH {_LISTING},
+held AS (
+    SELECT l.instrument_id, l.session_date, l.stat_type
+    FROM {ledger_units(SchemaFamily.STATISTICS)}
+    WHERE {SHAPE_WHERE} AND l.record_count > 0
+      AND l.session_date BETWEEN %(first)s AND %(last)s
+    GROUP BY 1, 2, 3
+),
+reported AS (SELECT DISTINCT instrument_id, stat_type FROM held),
+owed AS (
+    SELECT instrument_id, stat_type FROM reported
+    WHERE stat_type = ANY(%(required)s::smallint[])
+    UNION
+    SELECT s.instrument_id, a.stat_type
+    FROM symbols s CROSS JOIN unnest(%(always)s::smallint[]) AS a (stat_type)
+),
+needed AS (
+    SELECT l.session_date, l.instrument_id, o.stat_type
+    FROM listed l JOIN owed o ON o.instrument_id = l.instrument_id
+)
+SELECT n.session_date, n.instrument_id, s.raw_symbol,
+       array_agg(n.stat_type ORDER BY n.stat_type)
+FROM needed n
+JOIN symbols s ON s.instrument_id = n.instrument_id
+LEFT JOIN held h ON h.instrument_id = n.instrument_id
+ AND h.session_date = n.session_date AND h.stat_type = n.stat_type
+WHERE h.instrument_id IS NULL
+GROUP BY n.session_date, n.instrument_id, s.raw_symbol
+ORDER BY n.session_date, n.instrument_id
+"""
 
 
 async def content_findings(
@@ -205,31 +245,18 @@ async def content_findings(
     ]
     if not complete:
         return ()
-    listed_for = await outrights(conn, entry.product)
-    held = await _held_types(
-        conn,
-        shape_of(entry),
-        min(s.session_date for s in complete),
-        max(s.session_date for s in complete),
+    params = (
+        shape_of(entry).params(SchemaFamily.STATISTICS)
+        | _session_params(entry.product, complete)
+        | {
+            "first": min(s.session_date for s in complete),
+            "last": max(s.session_date for s in complete),
+            "always": sorted(int(t) for t in UNCONDITIONAL_STAT_TYPES),
+            "required": sorted(int(t) for t in REQUIRED_STAT_TYPES),
+        }
     )
-    required = {int(stat_type) for stat_type in REQUIRED_STAT_TYPES}
-    always = {int(stat_type) for stat_type in UNCONDITIONAL_STAT_TYPES}
-    reported: dict[int, set[int]] = {}
-    for (instrument_id, _), types in held.items():
-        reported.setdefault(instrument_id, set()).update(types)
-    findings = []
-    for session in complete:
-        for instrument_id in listed_instruments(listed_for, session):
-            symbol = listed_for[instrument_id][0]
-            needed = always | (required & reported.get(instrument_id, set()))
-            missing = needed - held.get((instrument_id, session.session_date), set())
-            if missing:
-                findings.append(
-                    ContentFinding(
-                        session.session_date,
-                        instrument_id,
-                        symbol,
-                        tuple(sorted(missing)),
-                    )
-                )
-    return tuple(findings)
+    cursor = await conn.execute(_FINDINGS_SQL, params)
+    return tuple(
+        ContentFinding(session_date, instrument_id, symbol, tuple(missing))
+        for session_date, instrument_id, symbol, missing in await cursor.fetchall()
+    )

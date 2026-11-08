@@ -423,6 +423,17 @@ TICK_COMPOSED_CONNECT_TIMEOUT_SECONDS = 5
 #: status's verdict step, far inside this on today's data; 232 re-checks it.
 TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS = 10
 
+#: Session option every tick read connection sets (slice 305 D10). A statement
+#: over ``tick_statistics`` plans across every chunk (about 800 at 307's scale),
+#: so its estimated cost clears ``jit_above_cost`` and PostgreSQL JIT-compiles
+#: thousands of functions for a scan that takes a fraction of a second: cleared
+#: volume over the full range took 37.4 s with JIT and 0.42 s without, measured
+#: on the manifest-scale seed (``user/notes/305-manifest-scale-measurement.md``).
+TICK_JIT_OPTION = "-c jit=off"
+#: The same setting as a statement, for a pool that configures connections by
+#: statement (the API's).
+TICK_JIT_STATEMENT = "SET jit = off"
+
 
 # -- Slice 231: the API's tick pool and overview source (LLD 231 TD2, TD7) ---
 
