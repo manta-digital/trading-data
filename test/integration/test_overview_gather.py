@@ -42,10 +42,10 @@ from manta_trading.data.acquisition.pass_runs import (
     PassRunOutcome,
     PassRunRepository,
 )
-from manta_trading.data.tick import universe as universe_module  # noqa: E402
-from manta_trading.data.tick.constants import TickSchema  # noqa: E402
-from manta_trading.data.tick.roll_types import utc_from_ns  # noqa: E402
-from manta_trading.data.tick.universe import TICK_UNIVERSE  # noqa: E402
+from manta_trading.data.tick import universe as universe_module
+from manta_trading.data.tick.constants import TickSchema
+from manta_trading.data.tick.roll_types import utc_from_ns
+from manta_trading.data.tick.universe import TICK_UNIVERSE
 
 BAR_NS = 1_733_184_000_000_000_000  # 2024-12-03 00:00 UTC
 _HOST = "manta-test"

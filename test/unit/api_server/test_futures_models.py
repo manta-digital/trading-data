@@ -272,6 +272,11 @@ def test_a_tick_tier_nothing_wants_is_a_product_but_not_a_family() -> None:
     assert product.families == []
 
 
+def test_a_product_without_one_tick_tier_line_names_the_product() -> None:
+    with pytest.raises(ValueError, match="ES: expected one tick-tier"):
+        TickBlock.from_result([_line("statistics", "statistics")])
+
+
 def test_the_json_names_the_schema_key_and_carries_no_cross_tier() -> None:
     block = TickBlock.from_result([_line("tick_tier", "tbbo")])
     body = json.loads(block.model_dump_json(by_alias=True))

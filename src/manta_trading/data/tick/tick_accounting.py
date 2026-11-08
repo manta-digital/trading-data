@@ -13,9 +13,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import groupby
 
 from manta_trading.data.tick.cross_tier_result import CrossTierResult
 from manta_trading.data.tick.family_report import FamilyStatus
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
 
@@ -60,3 +62,20 @@ def accounting_lines(
         for product, reports in reports_by_product.items()
         for report in reports
     ]
+
+
+def lines_by_product(
+    lines: Sequence[TickAccountingLine],
+) -> list[tuple[str, list[TickAccountingLine]]]:
+    """Lines grouped by product, in order (a product's lines are adjacent)."""
+    return [(p, list(group)) for p, group in groupby(lines, key=lambda x: x.product)]
+
+
+def tier_line(product: str, lines: Sequence[TickAccountingLine]) -> TickAccountingLine:
+    """The product's tick-tier line; ``futures_completeness`` emits exactly one."""
+    tiers = [x for x in lines if x.family == SchemaFamily.TICK_TIER.value]
+    if len(tiers) != 1:
+        raise ValueError(
+            f"{product}: expected one tick-tier accounting line, got {len(tiers)}"
+        )
+    return tiers[0]

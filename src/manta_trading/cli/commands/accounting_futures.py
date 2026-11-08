@@ -8,9 +8,7 @@ list carrying every family, the tick tier included.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import asdict
-from itertools import groupby
 from typing import Any, Final
 
 from manta_trading.cli.commands.tick_status_render import (
@@ -24,8 +22,11 @@ from manta_trading.data.tick.line_state import (
     TickUnavailable,
     unavailable_text,
 )
-from manta_trading.data.tick.schema_families import SchemaFamily
-from manta_trading.data.tick.tick_accounting import TickAccountingLine
+from manta_trading.data.tick.tick_accounting import (
+    TickAccountingLine,
+    lines_by_product,
+    tier_line,
+)
 from manta_trading.data.tick.tick_status import TickSessionStatus
 from manta_trading.data.tick.tick_status_build import jsonable
 
@@ -48,19 +49,15 @@ def tick_payload(tick: TickResult) -> dict[str, Any]:
     return {
         "state": TickLineState.OK.value,
         "detail": None,
-        "products": [_product_payload(lines) for _, lines in _by_product(tick)],
+        "products": [
+            _product_payload(product, lines)
+            for product, lines in lines_by_product(tick)
+        ],
     }
 
 
-def _by_product(
-    lines: Sequence[TickAccountingLine],
-) -> list[tuple[str, list[TickAccountingLine]]]:
-    """Lines grouped by product, in order (a product's lines are adjacent)."""
-    return [(p, list(group)) for p, group in groupby(lines, key=lambda x: x.product)]
-
-
-def _product_payload(lines: list[TickAccountingLine]) -> dict[str, Any]:
-    (tier,) = [x for x in lines if x.family == SchemaFamily.TICK_TIER.value]
+def _product_payload(product: str, lines: list[TickAccountingLine]) -> dict[str, Any]:
+    tier = tier_line(product, lines)
     body = asdict(tier)
     return {k: body[k] for k in _TIER_FIELDS} | {
         "families": [jsonable(asdict(x)) for x in lines]
@@ -92,7 +89,7 @@ def tick_text(tick: TickResult) -> str:
     if isinstance(tick, TickUnavailable):
         return f"{TICK_SECTION_TITLE}  {unavailable_text(tick)}"
     out = [TICK_SECTION_TITLE]
-    for product, lines in _by_product(tick):
+    for product, lines in lines_by_product(tick):
         out.append(f"  {product}")
         for line in lines:
             out.append(_line_text(line))

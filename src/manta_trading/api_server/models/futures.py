@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, datetime
-from itertools import groupby
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,8 +21,11 @@ from manta_trading.data.tick.get_plan import ContractTarget, GetPlan
 from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
 from manta_trading.data.tick.roll_payload import basis_text
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
-from manta_trading.data.tick.schema_families import SchemaFamily
-from manta_trading.data.tick.tick_accounting import TickAccountingLine
+from manta_trading.data.tick.tick_accounting import (
+    TickAccountingLine,
+    lines_by_product,
+    tier_line,
+)
 from manta_trading.data.tick.tick_format import cell_value
 from manta_trading.data.tick.tick_reads import BAR_COLUMNS, TICK_COLUMNS, Row
 from manta_trading.data.tick.tick_status import TickSessionStatus
@@ -298,22 +300,15 @@ class TickBlock(BaseModel):
             detail=None,
             products=[
                 _product_record(product, lines)
-                for product, lines in _by_product(result)
+                for product, lines in lines_by_product(result)
             ],
         )
-
-
-def _by_product(
-    lines: Sequence[TickAccountingLine],
-) -> list[tuple[str, list[TickAccountingLine]]]:
-    """Lines grouped by product, in order (a product's lines are adjacent)."""
-    return [(p, list(group)) for p, group in groupby(lines, key=lambda x: x.product)]
 
 
 def _product_record(
     product: str, lines: list[TickAccountingLine]
 ) -> TickAccountingRecord:
-    (tier,) = [x for x in lines if x.family == SchemaFamily.TICK_TIER.value]
+    tier = tier_line(product, lines)
     return TickAccountingRecord(
         product=product,
         sessions_in_scope=tier.sessions_in_scope,
