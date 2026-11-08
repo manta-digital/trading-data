@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The first real purchase is configured** (slice 304). `TICK_UNIVERSE` now wants `definition` and `statistics` for ES and GC from 2010-06-08 to 2026-11-01, and ES `ohlcv-1m` for 2024, all with fixed ends so a later pass buys nothing more. `deploy/set-tick-spend-ceilings.sh --per-pass USD --cap-30d USD` (root) replaces the two spend ceilings in the production env file. `scripts/reconcile_tick_spend.py --since <UTC instant> --cap-usd <amount>` lists every request's estimate, manifest actual and Databento's own charge, read-only. `scripts/cutover_304_first_purchase.py <tag>` installs the release, estimates, buys, ingests and collects the evidence. Runbook 100 has a "Purchase slices" section.
+
 ## [0.26.0] - 2026-11-06
 
 ### Added

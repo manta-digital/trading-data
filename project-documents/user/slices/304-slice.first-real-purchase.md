@@ -12,7 +12,7 @@ interfaces:
 - 307
 dateCreated: 20261107
 dateUpdated: 20261107
-status: not_started
+status: complete
 turns: 54
 promptTokens: 6570763
 cachedTokens: 6369809
@@ -36,7 +36,7 @@ revision_number: 2
 
 This slice runs 220's purchase path with real money, in production, for the first time. The purchase is about $6.3. Everything bought is kept:
 
-- `statistics` and `definition` for ES and GC over the whole CME dataset, 2010-06-06 to 2026-11-01;
+- `statistics` and `definition` for ES and GC over the CME dataset from 2010-06-08 (the calendars start 2010-06-06T22:00Z; see D1) to 2026-11-01;
 - ES `ohlcv-1m` for calendar 2024, 2024-01-01 to 2025-01-01: one year of bars, enough to exercise the bar path.
 
 The purchase is a universe edit (history wants on the ES and GC entries) released to production. It runs through `sudo mt-run tick`, the production form slice 234 built: estimate, spend guard, manifest, batch download, verify, ingest. The window slice 303 bought on throwaway databases for its evaluation (2024-08-30 to 2024-12-31, $0.065) is not in production's manifest, so the pass buys it again (D2).
@@ -148,10 +148,11 @@ Both entries gain `history`. Every end is the fixed date 2026-11-01 (exclusive),
 
 | Entry | `definition` | `statistics` | `ohlcv-1m` |
 |---|---|---|---|
-| ES | 2010-06-06 – 2026-11-01 | 2010-06-06 – 2026-11-01 | 2024-01-01 – 2025-01-01 |
-| GC | 2010-06-06 – 2026-11-01 | 2010-06-06 – 2026-11-01 | none |
+| ES | 2010-06-08 – 2026-11-01 | 2010-06-08 – 2026-11-01 | 2024-01-01 – 2025-01-01 |
+| GC | 2010-06-08 – 2026-11-01 | 2010-06-08 – 2026-11-01 | none |
 
 - The PM's call (2026-11-07): statistics and definitions for both products over the full range, and one year of ES bars. Nothing here needs more bars. The year is 2024 because it overlaps the `tbbo` already held. It is a calendar year so 307's remainder is whole years.
+- **Start 2010-06-08, not the dataset start (found in Phase 6).** The CME calendars are populated from 2010-06-06T22:00Z. The planner and `status` read the calendar from a want's start day at 00:00Z (coverage from the day before), so a want starting 2010-06-06 raises `OutOfPopulatedRangeError`: 40 tick integration tests failed, and production's `status` and the cutover's estimate would have failed the same way (before any purchase). The PM chose to move the start (2026-11-07) rather than change the calendar reads. The cost: the first sessions (dated 2010-06-07) and about a day and a half of 2010 statistics and definitions are not bought. The prices in the table above were measured from 2010-06-06; the difference is a few cents at most.
 - **Fixed end.** An open end would make every later `mt-run tick` buy the newest days, which is spend nobody chose. With a fixed end the purchase is bounded, the reconciliation is exact, and a re-run plans nothing. 307 decides whether its ends are open.
 - Universe validation already holds for these values: each want starts on or after `CME_DATASET_START`, `statistics` and `ohlcv-1m` lie inside `definition`, and both entries have a tier (`tbbo`).
 - The end leaves the last statistics session or two `edge_unknown`. Their publication falls in a UTC day after 2026-11-01, as at the end of 303's window. That is expected, and 307 closes it.
@@ -302,7 +303,7 @@ Run from the checkout root. Step 1 is Phase 6. Steps 2 to 5 run in Phase 7, afte
    env -i HOME=$HOME PATH=$PATH MT_TIMESCALE_TEST_URL="$MT_TIMESCALE_TEST_URL" uv run pytest test/unit/data/tick test/unit/scripts test/unit/deploy -q
    ~/.local/bin/shellcheck deploy/set-tick-spend-ceilings.sh     # (new)
    ```
-   Expected: pass, and the universe test pins D1's ranges.
+   Expected: pass, and the universe test pins D1's ranges. Actual (Phase 6): `856 passed` for the three unit directories; shellcheck needs `-x` to follow the sourced `deploy/lib/env_value.sh` (`~/.local/bin/shellcheck -x deploy/set-tick-spend-ceilings.sh` exits 0, silent). The whole unit tier (`MT_TIMESCALE_TEST_URL` only) passed 5515; the tick integration tests pass apart from the two known `test_health_tick` failures (they need `MT_BACKUP_ROOTS`).
 
 2. **Ceilings, then the cutover.** The PM runs the one command in D4. Then:
    ```bash
@@ -320,8 +321,8 @@ Run from the checkout root. Step 1 is Phase 6. Steps 2 to 5 run in Phase 7, afte
    ```bash
    sudo mt-run data tick status --json
    sudo mt-run data tick coverage --product ES --schema ohlcv-1m --start 2024-01-01 --end 2025-01-01 --json
-   sudo mt-run data tick coverage --product ES --schema statistics --start 2010-06-07 --end 2026-11-01 --json
-   sudo mt-run data tick coverage --product GC --schema statistics --start 2010-06-07 --end 2026-11-01 --json
+   sudo mt-run data tick coverage --product ES --schema statistics --start 2010-06-08 --end 2026-11-01 --json
+   sudo mt-run data tick coverage --product GC --schema statistics --start 2010-06-08 --end 2026-11-01 --json
    sudo mt-run data tick debug units --json     # every unit not ingested has a failure reason
    ```
    Expected: ledger equals raw in every session. Non-complete sessions fall in D6's classes or are the last `edge_unknown` sessions.
