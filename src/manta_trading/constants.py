@@ -726,6 +726,10 @@ how far it trails an intermediate. Measuring against raw makes the verdict cover
 the whole two-hop chain — exactly the bound migration 048's ``COMMENT ON VIEW``
 documents. A stalled parent would otherwise leave ``minute_coverage`` looking
 fresh while ``data_status`` reported months-old coverage.
+
+The futures counterpart is not an entry here (slice 305 D1): a futures family's
+tables are not caggs. ``FAMILY_PUBLICATION_LAG`` and ``source_edge`` in
+``data/tick/family_edges.py`` give each futures family its source edge.
 """
 
 COVERAGE_REFRESH_MIN_WINDOW_BUCKETS: int = 2

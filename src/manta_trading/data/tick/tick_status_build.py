@@ -29,6 +29,7 @@ from manta_trading.data.tick.constants import (
     DatasetCondition,
     calendar_for_product,
 )
+from manta_trading.data.tick.family_edges import family_source_edge
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.roll_payload import active_line_dict
 from manta_trading.data.tick.roll_rules import STATUS_ROLL_RULES
@@ -46,19 +47,15 @@ from manta_trading.data.tick.status_reads import (
     dataset_edge,
     shape_of,
 )
-from manta_trading.data.tick.tick_status import (
-    SessionVerdict,
-    TickSessionStatus,
-    caught_up,
-)
+from manta_trading.data.tick.tick_status import TickSessionStatus
 from manta_trading.data.tick.tick_status_scope import (
     FamilyWant,
     ProductScope,
     bucket_counts,
     family_scope,
     family_wants,
-    overlaps,
     product_scope,
+    scope_caught_up,
 )
 from manta_trading.data.tick.universe import TickUniverseEntry
 
@@ -138,18 +135,9 @@ def jsonable(value: Any) -> Any:
     return value
 
 
-def _judged(scope: ProductScope) -> list[SessionVerdict]:
-    """TD9 (226): caught up is judged over the wanted range only; sessions in
-    scope because other units touch them neither help nor hurt it."""
-    wanted = scope.wanted
-    return [
-        v
-        for session, v in zip(scope.sessions, scope.verdicts, strict=True)
-        if wanted is not None and overlaps(session, wanted)
-    ]
-
-
-def _family_status(family: SchemaFamily, scope: ProductScope) -> FamilyStatus:
+def _family_status(
+    family: SchemaFamily, scope: ProductScope, source_edge: datetime | None
+) -> FamilyStatus:
     verdicts = scope.verdicts
     return FamilyStatus(
         family=family.value,
@@ -159,7 +147,7 @@ def _family_status(family: SchemaFamily, scope: ProductScope) -> FamilyStatus:
         sessions_held=sum(v.held for v in verdicts),
         buckets=bucket_counts(verdicts),
         degraded=sum(v.condition == DEGRADED for v in verdicts),
-        caught_up=caught_up(_judged(scope), wanted=scope.wanted_start is not None),
+        caught_up=scope_caught_up(scope, source_edge),
         holed_sessions=tuple(
             v.session_date
             for v in verdicts
@@ -174,6 +162,7 @@ async def _statistics_status(
     entry: TickUniverseEntry,
     edge: Edge | None,
     want: FamilyWant,
+    source_edge: datetime | None,
 ) -> StatisticsFamilyStatus:
     """The statistics section: sessions judged over their publication window."""
     scope = await family_scope(
@@ -186,7 +175,7 @@ async def _statistics_status(
         want.end,
         statistics_verdicts(calendar_url),
     )
-    base = _family_status(want.family, scope)
+    base = _family_status(want.family, scope, source_edge)
     findings = await content_findings(conn, entry, scope.sessions, scope.verdicts)
     return StatisticsFamilyStatus(
         **{f.name: getattr(base, f.name) for f in fields(base)}, findings=findings
@@ -203,9 +192,14 @@ async def _families(
     """One status per wanted family; the tier reuses the scope already read."""
     statuses: list[FamilyStatus] = []
     for want in family_wants(entry):
+        source_edge = await family_source_edge(
+            calendar_url, entry, want.family, want.end, edge
+        )
         if want.family is SchemaFamily.STATISTICS:
             statuses.append(
-                await _statistics_status(conn, calendar_url, entry, edge, want)
+                await _statistics_status(
+                    conn, calendar_url, entry, edge, want, source_edge
+                )
             )
             continue
         if want.family is SchemaFamily.TICK_TIER:
@@ -214,7 +208,7 @@ async def _families(
             scope = await family_scope(
                 conn, calendar_url, entry, edge, want.family, want.start, want.end
             )
-        statuses.append(_family_status(want.family, scope))
+        statuses.append(_family_status(want.family, scope, source_edge))
     return tuple(statuses)
 
 
@@ -230,7 +224,9 @@ async def _product_status(
     scope = await product_scope(conn, calendar_url, entry, edge)
     wanted_start, wanted_end = scope.wanted_start, scope.wanted_end
     verdicts = scope.verdicts
-    judged = _judged(scope)
+    tick_edge = await family_source_edge(
+        calendar_url, entry, SchemaFamily.TICK_TIER, entry.end, edge
+    )
     lines = await contract_lines(conn, shape_of(entry), SchemaFamily.TICK_TIER)
     spreads = [c for c in lines if c.instrument_class == SPREAD_CLASS]
     return ProductStatus(
@@ -250,7 +246,7 @@ async def _product_status(
         sessions_held=sum(v.held for v in verdicts),
         buckets=bucket_counts(verdicts),
         degraded=sum(v.condition == DEGRADED for v in verdicts),
-        caught_up=caught_up(judged, wanted=wanted_start is not None),
+        caught_up=scope_caught_up(scope, tick_edge),
         holed_sessions=tuple(
             v.session_date
             for v in verdicts

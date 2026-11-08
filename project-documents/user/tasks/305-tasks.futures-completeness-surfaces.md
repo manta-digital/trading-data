@@ -59,38 +59,39 @@ revision_number: 2
 
 ## 1. Source Edge and Edge-Bounded Judging (D1, D2)
 
-- [ ] **1.1 Create `data/tick/family_edges.py`**
-  - [ ] `FAMILY_PUBLICATION_LAG: Mapping[SchemaFamily, int]`: `TICK_TIER` 0, `BAR_1M` 0, `STATISTICS` = `STATISTICS_PUBLICATION_SESSIONS` (import 303's constant; do not restate the number).
-  - [ ] `source_edge(family, family_want_end, dataset_edge, calendar) -> datetime | None` per the D2 table: tick tier and bars use `min(want end, dataset available end)`; statistics use `min(want end, E)` where E is the close of the last session whose publication window (D through the close of the session after D) ends at or before the dataset available end. Each family uses its own want end only.
-  - [ ] Returns `None` when no dataset edge is known.
-  - [ ] Module docstring says this is the futures counterpart of `COVERAGE_SOURCE_TABLE`.
-  - [ ] Success: importable; no I/O; no file over ~300 lines.
+- [x] **1.1 Create `data/tick/family_edges.py`**
+  - [x] `FAMILY_PUBLICATION_LAG: Mapping[SchemaFamily, int]`: `TICK_TIER` 0, `BAR_1M` 0, `STATISTICS` = `STATISTICS_PUBLICATION_SESSIONS` (import 303's constant; do not restate the number).
+  - [x] `source_edge(family, family_want_end, dataset_edge, calendar) -> datetime | None` per the D2 table: tick tier and bars use `min(want end, dataset available end)`; statistics use `min(want end, E)` where E is the close of the last session whose publication window (D through the close of the session after D) ends at or before the dataset available end. Each family uses its own want end only.
+  - [x] Returns `None` when no dataset edge is known.
+  - [x] Module docstring says this is the futures counterpart of `COVERAGE_SOURCE_TABLE`.
+  - [x] Success: importable; no I/O; no file over ~300 lines.
 
-- [ ] **1.2 Point `COVERAGE_SOURCE_TABLE` at it**
-  - [ ] In `constants.py`, change only the docstring of `COVERAGE_SOURCE_TABLE` to name `FAMILY_PUBLICATION_LAG` and `source_edge` as the futures counterpart. No new entry.
-  - [ ] Success: `git diff` on `constants.py` shows a docstring-only change.
+- [x] **1.2 Point `COVERAGE_SOURCE_TABLE` at it**
+  - [x] In `constants.py`, change only the docstring of `COVERAGE_SOURCE_TABLE` to name `FAMILY_PUBLICATION_LAG` and `source_edge` as the futures counterpart. No new entry.
+  - [x] Success: `git diff` on `constants.py` shows a docstring-only change.
 
-- [ ] **1.3 Test the edges** in `test/unit/data/tick/test_family_edges.py`
-  - [ ] Pin test: `FAMILY_PUBLICATION_LAG.keys() == FAMILY_LEDGER.keys()` (D1).
-  - [ ] Lag for statistics equals `STATISTICS_PUBLICATION_SESSIONS`.
-  - [ ] Tick tier and bars: want end before the dataset edge gives the want end; after gives the dataset edge.
-  - [ ] Statistics: a dataset edge between a session's close and the close of the next session gives the previous session's close; across a weekend and a holiday (use the real calendar).
-  - [ ] Production shape: tick want ends 2024-12-31, statistics want ends 2026-11-01, dataset edge 2026-11-06. The statistics edge is in 2026; the tick edge is 2024-12-31.
-  - [ ] `None` dataset edge gives `None`.
-  - [ ] Success: all pass.
+- [x] **1.3 Test the edges** in `test/unit/data/tick/test_family_edges.py`
+  - [x] Pin test: `FAMILY_PUBLICATION_LAG.keys() == FAMILY_LEDGER.keys()` (D1).
+  - [x] Lag for statistics equals `STATISTICS_PUBLICATION_SESSIONS`.
+  - [x] Tick tier and bars: want end before the dataset edge gives the want end; after gives the dataset edge.
+  - [x] Statistics: a dataset edge between a session's close and the close of the next session gives the previous session's close; across a weekend and a holiday (use the real calendar).
+  - [x] Production shape: tick want ends 2024-12-31, statistics want ends 2026-11-01, dataset edge 2026-11-06. The statistics edge is in 2026; the tick edge is 2024-12-31.
+  - [x] `None` dataset edge gives `None`.
+  - [x] Success: all pass.
 
-- [ ] **1.4 Move `_judged` into `tick_status_scope` and bound it by the edge (D2)**
-  - [ ] `_judged` leaves `tick_status_build.py` for `tick_status_scope.py`, public name `judged`, taking the family's source edge: sessions overlapping the wanted range **and** closing at or before the edge. `tick_status_build.py` imports it; its line count does not grow.
-  - [ ] Wire it into the existing status path: both `_judged` call sites in `tick_status_build.py` (`_family_status` and `_product_status`) call `source_edge` with that family's own want end (tick tier for the product-level call) and pass the result to `judged`. Without this, 1.5's behaviour tests cannot pass.
-  - [ ] `caught_up` in `tick_status.py` keeps 225's rule unchanged.
-  - [ ] Sessions that overlap the want but close after the edge show as `pending` in the buckets and are not judged.
-  - [ ] Success: existing status tests still pass unmodified.
+- [x] **1.4 Move `_judged` into `tick_status_scope` and bound it by the edge (D2)**
+  - [x] `_judged` leaves `tick_status_build.py` for `tick_status_scope.py`, public name `judged`, taking the family's source edge: sessions overlapping the wanted range **and** closing at or before the edge. `tick_status_build.py` imports it; its line count does not grow.
+  - [x] Wire it into the existing status path: both `_judged` call sites in `tick_status_build.py` (`_family_status` and `_product_status`) call `source_edge` with that family's own want end (tick tier for the product-level call) and pass the result to `judged`. Without this, 1.5's behaviour tests cannot pass.
+  - [x] `caught_up` in `tick_status.py` keeps 225's rule unchanged.
+  - [x] Sessions that overlap the want but close after the edge show as `pending` in the buckets and are not judged.
+  - [x] Success: existing status tests still pass unmodified.
+  - Note: scope_caught_up in tick_status_scope wraps judged + caught_up; source_edge None => caught_up None. calendar read clamps to the calendar's populated end (test DB edge is 2030, calendar ends 2027).
 
-- [ ] **1.5 Test the judged set**
-  - [ ] Regression: on the existing status fixtures, tick-tier and `BAR_1M` judged sets are identical before and after (compare to the golden files `es_status`, `es_tiered_status`).
-  - [ ] New (criterion 2): a statistics session whose window closes after the dataset edge is `pending` and leaves `caught_up` true.
-  - [ ] New (criterion 2): tick want ends 2024-12-31 and statistics want ends 2026-11-01; a statistics session missing in 2025 keeps `caught_up` false.
-  - [ ] Success: all pass, including `test_statistics_status.py` unchanged.
+- [x] **1.5 Test the judged set**
+  - [x] Regression: on the existing status fixtures, tick-tier and `BAR_1M` judged sets are identical before and after (compare to the golden files `es_status`, `es_tiered_status`).
+  - [x] New (criterion 2): a statistics session whose window closes after the dataset edge is `pending` and leaves `caught_up` true.
+  - [x] New (criterion 2): tick want ends 2024-12-31 and statistics want ends 2026-11-01; a statistics session missing in 2025 keeps `caught_up` false.
+  - [x] Success: all pass, including `test_statistics_status.py` unchanged.
 
 **Commit**: `feat: add family publication lag and edge-bounded judging`
 

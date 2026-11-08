@@ -31,7 +31,11 @@ from manta_trading.data.tick.status_reads import (
     shape_of,
     shape_units,
 )
-from manta_trading.data.tick.tick_status import SessionVerdict, TickSessionStatus
+from manta_trading.data.tick.tick_status import (
+    SessionVerdict,
+    TickSessionStatus,
+    caught_up,
+)
 from manta_trading.data.tick.universe import TickUniverseEntry
 
 #: Judges a family's sessions: ``session_verdicts`` unless a family's session
@@ -163,6 +167,29 @@ async def product_scope(
         wanted_start,
         entry.end,
     )
+
+
+def judged(scope: ProductScope, source_edge: datetime | None) -> list[SessionVerdict]:
+    """TD9 (226), 305 D2: caught up is judged over the sessions that overlap the
+    family's wanted range **and** close at or before its source edge. Sessions
+    in scope because other units touch them neither help nor hurt it; a session
+    whose publication window is still open is ``pending``, not judged. No edge:
+    nothing is judged (the caller reports ``caught_up`` as unknown)."""
+    wanted = scope.wanted
+    if wanted is None or source_edge is None:
+        return []
+    return [
+        v
+        for session, v in zip(scope.sessions, scope.verdicts, strict=True)
+        if overlaps(session, wanted) and session.close_utc <= source_edge
+    ]
+
+
+def scope_caught_up(scope: ProductScope, source_edge: datetime | None) -> bool | None:
+    """225's rule over :func:`judged`; ``None`` when no range is wanted or no
+    edge is known."""
+    wanted = scope.wanted_start is not None and source_edge is not None
+    return caught_up(judged(scope, source_edge), wanted=wanted)
 
 
 def bucket_counts(verdicts: Sequence[SessionVerdict]) -> dict[str, int]:
