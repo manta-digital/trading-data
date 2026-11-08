@@ -12,7 +12,7 @@ dependencies:
 relatedSlices: []
 riskLevel: medium
 dateCreated: 20261028
-dateUpdated: 20261101
+dateUpdated: 20261108
 status: not_started
 ---
 
@@ -30,7 +30,7 @@ The shape of what Databento sells decides the design. Verified on the pricing pa
 
 ## Design Goals
 
-- **Deep history for ES and GC** — Bars from the start of the dataset (2010-06-06) and open interest and settlement over the same range, stored in the project's own database and kept.
+- **Deep history for ES and GC** — Bars from the start of the dataset (2010-06-06; bought from 2010-06-08, the first day the CME calendars cover, so the sessions dated 2010-06-07 are not held, slice 304 D1) and open interest and settlement over the same range, stored in the project's own database and kept.
 - **One bars read path that says where its bars came from** — A consumer asks for time bars and gets provider bars, and the response names the source interval they were rolled up from.
 - **Ticks serve what bars cannot** — Tick bars at any N the user or engine sets, and raw events for event-level views, with identical bars for the chart and the engine (journal 20261101 ADR).
 - **Every tier answers "what do I have, and is it complete"** — Ticks, bars and statistics each get a completeness verdict against the CME calendar, in the same surfaces operators already read.
@@ -96,7 +96,7 @@ Provisional, in rough build order. Only the purchase test spends money before a 
 - **Archive generalisation** — Schema families, per-schema projector registry, family-scoped supersession, and the plan-inclusion marker with its configuration table and guard change. Everything below builds on it.
 - **`ohlcv-1m` with definition history** — The schema, its table, `definition` back to 2010, contract identity, and completeness for the tier (load-complete and the volume checks that need only `ohlcv-1m`), built on DBN sample files.
 - **`statistics` and the open-interest roll rule** — The schema, session assignment and revision rules, completeness for the tier, the cross-tier volume check against `ohlcv-1m`, and the rule evaluated against calendar and volume for ES and GC.
-- **Purchase test** — A small real purchase through the pass, invoice reconciled, ceilings raised once by the PM. Slice 304 sized it: `statistics` and `definition` for ES and GC over the full range, and ES `ohlcv-1m` from 2017; history acquisition takes the remainder. 304 reconciles the estimate against Databento's per-job charge only; the invoice comparison waits for November's invoice (issue #69) and must be done before history acquisition.
+- **Purchase test** — A small real purchase through the pass, invoice reconciled, ceilings raised once by the PM. Slice 304 sized it: `statistics` and `definition` for ES and GC over the full range, and ES `ohlcv-1m` for calendar 2024; history acquisition (307) takes the remainder. 304 reconciles the estimate against Databento's per-job charge only; the invoice comparison waits for November's invoice (issue #69) and must be done before history acquisition.
 - **`ohlcv-1s`** — The schema and its completeness, once its purpose is stated.
 - **Futures completeness surfaces** — Tick, bar and statistics verdicts together in `health`, `accounting`, `overview` and the status coverage aggregates, and the manifest-scale measurement.
 - **Serving the new tiers** — Bars with a named source under the rule above, open interest and settlement through `/api/v1/futures/*`, with documentation.
