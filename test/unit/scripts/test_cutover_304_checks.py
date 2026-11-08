@@ -52,7 +52,8 @@ def test_preflight_names_the_ceiling_command_when_a_ceiling_is_missing(
     with pytest.raises(cutover_error) as exc:
         checks.check_env_text(text)
     assert drop in str(exc.value)
-    assert "set-tick-spend-ceilings.sh --per-pass 7 --cap-30d 16" in str(exc.value)
+    assert checks.CEILING_COMMAND in str(exc.value)
+    assert "set-tick-spend-ceilings.sh --per-pass" in checks.CEILING_COMMAND
 
 
 def _summary() -> dict[str, Any]:
@@ -199,3 +200,14 @@ def test_session_check_exit_two_stops(
     )
     with pytest.raises(cutover_error, match="exit 2"):
         checks.run_session_check([Path("/x")])
+
+
+def test_checkout_database_must_be_productions(
+    checks: ModuleType, cutover_error: type[Exception]
+) -> None:
+    prod = "MT_TICK_DB_URL=postgresql://u:p@db.example:5432/tick\n"
+    same = "MT_TICK_DB_URL=postgresql://x:y@db.example:5432/tick\n"
+    other = "MT_TICK_DB_URL=postgresql://u:p@localhost:5432/tick_dev\n"
+    assert checks.check_checkout_database(same, prod) == "tick"
+    with pytest.raises(cutover_error, match="tick_dev"):
+        checks.check_checkout_database(other, prod)

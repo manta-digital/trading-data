@@ -6,8 +6,8 @@
 #
 # Check-then-act: it refuses, writing nothing, unless both values are
 # non-negative decimals, the file exists and both keys are already in it (this
-# script replaces values; add-tick-env.sh adds keys). The values are replaced
-# in place, so the file's mode and owner are kept. Ceilings are not secrets: it
+# script replaces values; add-tick-env.sh adds keys). The file is replaced
+# atomically with its mode and owner copied over. Ceilings are not secrets: it
 # prints the old and new value of each key and no other line of the file.
 #
 # Deliberately absent from deploy/sudoers.d/manta-ops: only the Project
@@ -40,12 +40,19 @@ done
 
 old_per_pass="$(env_value "$TARGET" "$PER_PASS_KEY")"
 old_cap_30d="$(env_value "$TARGET" "$CAP_30D_KEY")"
-# Rewrite the contents (cat >), never mv a new file over it: mode and owner stay.
-updated="$(awk -v k1="$PER_PASS_KEY" -v v1="$per_pass" -v k2="$CAP_30D_KEY" -v v2="$cap_30d" '
+# Build the new file beside the old one, give it the old one's mode and owner,
+# then rename over it: an interrupted run leaves the original untouched.
+# awk sample: `MT_TICK_SPEND_CEILING_USD=5` with --per-pass 7 becomes
+# `MT_TICK_SPEND_CEILING_USD=7`; every other line passes through unchanged.
+tmp="$(mktemp "$TARGET.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+chmod --reference="$TARGET" "$tmp"
+chown --reference="$TARGET" "$tmp"
+awk -v k1="$PER_PASS_KEY" -v v1="$per_pass" -v k2="$CAP_30D_KEY" -v v2="$cap_30d" '
   index($0, k1 "=") == 1 && !s1 { print k1 "=" v1; s1 = 1; next }
   index($0, k2 "=") == 1 && !s2 { print k2 "=" v2; s2 = 1; next }
-  { print }' "$TARGET")"
-printf '%s\n' "$updated" > "$TARGET"
+  { print }' "$TARGET" > "$tmp"
+mv "$tmp" "$TARGET"
 
 echo "$PER_PASS_KEY: $old_per_pass -> $per_pass"
 echo "$CAP_30D_KEY: $old_cap_30d -> $cap_30d"

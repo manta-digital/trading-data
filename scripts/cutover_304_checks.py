@@ -17,7 +17,11 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cutover_common import CutoverError, env_value  # noqa: E402
+from cutover_common import (  # noqa: E402
+    CutoverError,
+    env_value,
+    verify_same_database,
+)
 
 from manta_trading.data.tick.constants import TickSchema, UnitState  # noqa: E402
 from manta_trading.data.tick.ingest_checks import IngestCheck  # noqa: E402
@@ -26,10 +30,16 @@ from manta_trading.data.tick.universe import TICK_UNIVERSE  # noqa: E402
 PLAN_KEY = "MT_TICK_DATABENTO_PLAN"
 PER_PASS_KEY = "MT_TICK_SPEND_CEILING_USD"
 CAP_30D_KEY = "MT_TICK_SPEND_30D_CEILING_USD"
-CEILING_COMMAND = (
-    "sudo /home/manta/source/repos/manta/trading-data/deploy/"
-    "set-tick-spend-ceilings.sh --per-pass 7 --cap-30d 16"
+CEILING_PER_PASS_USD = "7"
+CEILING_CAP_30D_USD = "16"
+CEILING_SCRIPT = (
+    Path(__file__).resolve().parents[1] / "deploy/set-tick-spend-ceilings.sh"
 )
+CEILING_COMMAND = (
+    f"sudo {CEILING_SCRIPT} --per-pass {CEILING_PER_PASS_USD}"
+    f" --cap-30d {CEILING_CAP_30D_USD}"
+)
+TICK_DB_URL_KEY = "MT_TICK_DB_URL"
 VERDICT_ALLOWED = "allowed"
 VERDICT_NOTHING = "nothing_to_buy"
 ARCHIVE_ROOT = Path("/data/tick-archive")
@@ -93,6 +103,11 @@ def check_env_text(text: str) -> Decimal:
     per_pass = _ceiling(text, PER_PASS_KEY)
     _ceiling(text, CAP_30D_KEY)
     return per_pass
+
+
+def check_checkout_database(checkout_env: str, production_env: str) -> str:
+    """The reconcile script reads the checkout's tick URL; it must be production's."""
+    return verify_same_database(checkout_env, production_env, TICK_DB_URL_KEY)
 
 
 def _decimal(summary: Mapping[str, Any], key: str) -> Decimal:

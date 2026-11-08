@@ -36,7 +36,12 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import cutover_304_evidence as evidence  # noqa: E402
-from cutover_304_checks import Estimate, check_env_text, judge_estimate  # noqa: E402
+from cutover_304_checks import (  # noqa: E402
+    Estimate,
+    check_checkout_database,
+    check_env_text,
+    judge_estimate,
+)
 from cutover_common import (  # noqa: E402
     ENV_FILE,
     NOTES_DIR,
@@ -71,6 +76,10 @@ class PassStopped(CutoverError):
 
 def read_env_text() -> str:
     return out(["cat", str(ENV_FILE)], sudo=True)
+
+
+def read_checkout_env_text() -> str:
+    return Path(".env").read_text()
 
 
 def record_start_and_baselines() -> tuple[str, dict[str, Any]]:
@@ -108,7 +117,10 @@ def fetch_estimate() -> dict[str, Any]:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         raise CutoverError(f"estimate exited {result.returncode}: {detail}")
-    summary: dict[str, Any] = json.loads(result.stdout)
+    try:
+        summary: dict[str, Any] = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise CutoverError(f"estimate printed no JSON: {exc}") from exc
     return summary
 
 
@@ -150,12 +162,18 @@ def main(argv: list[str]) -> int:
     except (CutoverError, subprocess.CalledProcessError, OSError) as exc:
         say(f"FAILED: {exc}")
         return 1
+    except (KeyError, ValueError) as exc:
+        # A production command's payload changed shape: a stop, in the record.
+        say(f"FAILED: unexpected payload ({type(exc).__name__}: {exc})")
+        return 1
 
 
 def _steps(ref: str) -> int:
     say(f"1/6 preflight — {ref}")
     commit = preflight(ref)
-    per_pass: Decimal = check_env_text(read_env_text())
+    production_env = read_env_text()
+    per_pass: Decimal = check_env_text(production_env)
+    check_checkout_database(read_checkout_env_text(), production_env)
     start, baseline = record_start_and_baselines()
     say(f"2/6 install {ref}")
     install_release(ref, commit)

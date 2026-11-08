@@ -241,6 +241,22 @@ def verify_migrate_target(
     return maintenance[2]
 
 
+def verify_same_database(checkout_env: str, production_env: str, key: str) -> str:
+    """Refuse unless ``key`` names the same database in the checkout's ``.env``
+    and in production's env file (304 code review: a read-only script that
+    reads the checkout's URL must not produce evidence from another database).
+    Returns the database name."""
+    checkout = _url_identity(env_value(checkout_env, key))
+    production = _url_identity(env_value(production_env, key))
+    if checkout != production:
+        raise CutoverError(
+            f"the checkout .env {key} targets "
+            f"{checkout[0]}:{checkout[1]}/{checkout[2]} but production uses "
+            f"{production[0]}:{production[1]}/{production[2]}"
+        )
+    return checkout[2]
+
+
 def migrate(
     track: str, migration_id: str, keys: tuple[str, str] = PRIMARY_URL_KEYS
 ) -> None:
@@ -409,7 +425,7 @@ def fire_unit(unit: str, mt_run_args: list[str]) -> tuple[str, str]:
     return cursor, started
 
 
-def read_unit_journal(cursor: str, unit: str) -> "Firing":
+def read_unit_journal(cursor: str, unit: str) -> Firing:
     """``read_journal`` for an arbitrary unit (slice 921)."""
     return _read_journal_for(cursor, unit)
 

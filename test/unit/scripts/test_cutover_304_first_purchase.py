@@ -115,6 +115,8 @@ def _drive(
     calls: list[str] = []
     monkeypatch.setattr(fp, "preflight", lambda ref: "c" * 40)
     monkeypatch.setattr(fp, "read_env_text", lambda: ENV)
+    monkeypatch.setattr(fp, "check_checkout_database", lambda checkout, prod: "tick")
+    monkeypatch.setattr(fp, "read_checkout_env_text", lambda: "")
     monkeypatch.setattr(
         fp,
         "record_start_and_baselines",

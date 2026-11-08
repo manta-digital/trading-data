@@ -38,11 +38,12 @@ from decimal import Decimal
 from typing import Any
 
 import psycopg
+from pydantic import ValidationError
 
 from manta_trading.config import Settings
 from manta_trading.data.tick.constants import BatchJobState
 from manta_trading.data.tick.provider import BatchJob
-from manta_trading.data.tick.store_context import database_url
+from manta_trading.data.tick.store_context import TickPreflightError, database_url
 from manta_trading.providers.errors import ProviderError
 
 DESCRIPTION = "Reconcile tick spend: estimate, manifest and Databento's charge."
@@ -210,7 +211,13 @@ async def _run(args: argparse.Namespace, settings: Settings) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    return asyncio.run(_run(args, Settings()))
+    try:
+        return asyncio.run(_run(args, Settings()))
+    except (TickPreflightError, psycopg.Error, ValidationError) as exc:
+        # Process boundary: the database could not be reached or configured, so
+        # nothing was reconciled. A stop (2), never a judgement failure (1).
+        print(f"STOPPED: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_STOPPED
 
 
 if __name__ == "__main__":

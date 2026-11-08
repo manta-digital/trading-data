@@ -60,7 +60,10 @@ def mt_json(args: Sequence[str], accepted: Iterable[int] = (EXIT_OK,)) -> Any:
             f"mt-run {command} exited {result.returncode}:"
             f" {(result.stderr or '').strip()}"
         )
-    return json.loads(result.stdout)
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise CutoverError(f"mt-run {command} printed no JSON: {exc}") from exc
 
 
 def health_exit_code() -> int:
@@ -154,6 +157,8 @@ def _reconcile(start: str, cap: Decimal, evidence: Evidence) -> None:
     result = subprocess.run(cmd, check=False, text=True, capture_output=True)
     log_text(f"$ reconcile_tick_spend (exit {result.returncode})\n{result.stdout}")
     print(result.stdout)
+    if result.returncode:
+        log_text(f"reconcile_tick_spend stderr:\n{result.stderr}")
     if result.returncode == RECONCILE_STOPPED:
         raise CutoverError(f"reconcile_tick_spend stopped: {result.stderr.strip()}")
     if result.returncode == RECONCILE_FAILED:
