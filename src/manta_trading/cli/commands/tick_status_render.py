@@ -18,21 +18,19 @@ from rich.markup import escape
 from manta_trading.cli.commands.tick_active_render import active_line_text
 from manta_trading.cli.output import make_table, print_result
 from manta_trading.data.tick.constants import TickSchema
+from manta_trading.data.tick.family_report import (
+    LOAD_COMPLETE_ONLY,
+    FamilyStatus,
+    StatisticsFamilyStatus,
+)
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.statistics_constants import StatType
 from manta_trading.data.tick.statistics_reads import VOLUME_FINDINGS
 from manta_trading.data.tick.tick_coverage import TickCoverage
 from manta_trading.data.tick.tick_status import TickSessionStatus
-from manta_trading.data.tick.tick_status_build import (
-    FamilyStatus,
-    ProductStatus,
-    StatisticsFamilyStatus,
-    TickStatus,
-)
+from manta_trading.data.tick.tick_status_build import ProductStatus, TickStatus
 
 COMPLETE_NOTE = "complete = every unit ingested; raw-count proof: mt data tick coverage"
-#: Heads a non-tick family's section: it reports units loaded, not tick truth.
-LOAD_COMPLETE_ONLY = "load-complete only"
 _BUCKET_ROWS = (
     (
         TickSessionStatus.COMPLETE,

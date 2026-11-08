@@ -25,6 +25,7 @@ from tick_support.universe import UNTIERED
 
 from manta_trading.data.base.session_index import Session
 from manta_trading.data.tick.constants import SPREAD_CLASS, TickSchema
+from manta_trading.data.tick.family_report import StatisticsFamilyStatus
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.statistics_constants import StatType
 from manta_trading.data.tick.statistics_status import (
@@ -34,10 +35,7 @@ from manta_trading.data.tick.statistics_status import (
 )
 from manta_trading.data.tick.status_reads import calendar_sessions
 from manta_trading.data.tick.tick_status import TickSessionStatus
-from manta_trading.data.tick.tick_status_build import (
-    StatisticsFamilyStatus,
-    build_status,
-)
+from manta_trading.data.tick.tick_status_build import build_status
 from manta_trading.data.tick.universe import HistoryWant
 
 SESSION = date(2024, 12, 3)

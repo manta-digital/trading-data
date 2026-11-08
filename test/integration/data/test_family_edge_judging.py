@@ -20,9 +20,10 @@ from tick_support.universe import UNTIERED
 
 from manta_trading.data.tick.constants import TickSchema
 from manta_trading.data.tick.family_edges import family_source_edge
+from manta_trading.data.tick.family_report import FamilyStatus
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.status_reads import Edge
-from manta_trading.data.tick.tick_status_build import FamilyStatus, build_status
+from manta_trading.data.tick.tick_status_build import build_status
 from manta_trading.data.tick.universe import HistoryWant
 
 NOW = datetime(2026, 11, 7, 12, tzinfo=UTC)

@@ -30,11 +30,9 @@ from tick_support.tick_bar_helpers import seed_bar_units
 from tick_support.tier_units import TBBO_DAY, TRADES_DAY, seed_tier_unit
 from tick_support.universe import UNTIERED
 
-from manta_trading.cli.commands.tick_status_render import (
-    LOAD_COMPLETE_ONLY,
-    _product_lines,
-)
+from manta_trading.cli.commands.tick_status_render import _product_lines
 from manta_trading.data.tick.constants import DatasetCondition, TickSchema, UnitState
+from manta_trading.data.tick.family_report import LOAD_COMPLETE_ONLY
 from manta_trading.data.tick.roll_types import Unresolved
 from manta_trading.data.tick.tick_coverage import build_coverage
 from manta_trading.data.tick.tick_status_build import build_status

@@ -18,7 +18,7 @@ in ``families`` as load-complete only.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from typing import Any
 
@@ -30,30 +30,21 @@ from manta_trading.data.tick.constants import (
     calendar_for_product,
 )
 from manta_trading.data.tick.family_edges import family_source_edge
+from manta_trading.data.tick.family_report import FamilyStatus, family_reports
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.roll_payload import active_line_dict
 from manta_trading.data.tick.roll_rules import STATUS_ROLL_RULES
 from manta_trading.data.tick.roll_types import ActiveLine
-from manta_trading.data.tick.schema_families import FAMILY_SCHEMAS, SchemaFamily
-from manta_trading.data.tick.statistics_status import (
-    ContentFinding,
-    content_findings,
-    statistics_verdicts,
-)
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.status_reads import (
     ContractLine,
-    Edge,
     contract_lines,
     dataset_edge,
     shape_of,
 )
 from manta_trading.data.tick.tick_status import TickSessionStatus
 from manta_trading.data.tick.tick_status_scope import (
-    FamilyWant,
-    ProductScope,
     bucket_counts,
-    family_scope,
-    family_wants,
     product_scope,
     scope_caught_up,
 )
@@ -61,30 +52,6 @@ from manta_trading.data.tick.universe import TickUniverseEntry
 
 COMPLETE_BASIS = "units"
 DEGRADED = DatasetCondition.DEGRADED.value
-
-
-@dataclass(frozen=True)
-class FamilyStatus:
-    """One wanted family's verdicts: the same buckets, over its own range."""
-
-    family: str
-    schemas: tuple[str, ...]
-    wanted_start: date | None
-    wanted_end: datetime | None
-    sessions_held: int
-    buckets: dict[str, int]
-    degraded: int
-    caught_up: bool | None
-    holed_sessions: tuple[date, ...]
-
-
-@dataclass(frozen=True)
-class StatisticsFamilyStatus(FamilyStatus):
-    """The statistics family: its load verdicts plus the content findings of the
-    load-complete sessions (303 D7). A subclass, so other families' reports
-    carry no ``findings`` key."""
-
-    findings: tuple[ContentFinding, ...]
 
 
 @dataclass(frozen=True)
@@ -135,83 +102,6 @@ def jsonable(value: Any) -> Any:
     return value
 
 
-def _family_status(
-    family: SchemaFamily, scope: ProductScope, source_edge: datetime | None
-) -> FamilyStatus:
-    verdicts = scope.verdicts
-    return FamilyStatus(
-        family=family.value,
-        schemas=tuple(schema.value for schema in FAMILY_SCHEMAS[family]),
-        wanted_start=scope.wanted_start,
-        wanted_end=scope.wanted_end,
-        sessions_held=sum(v.held for v in verdicts),
-        buckets=bucket_counts(verdicts),
-        degraded=sum(v.condition == DEGRADED for v in verdicts),
-        caught_up=scope_caught_up(scope, source_edge),
-        holed_sessions=tuple(
-            v.session_date
-            for v in verdicts
-            if v.status is TickSessionStatus.PROVIDER_HOLE
-        ),
-    )
-
-
-async def _statistics_status(
-    conn: Conn,
-    calendar_url: str,
-    entry: TickUniverseEntry,
-    edge: Edge | None,
-    want: FamilyWant,
-    source_edge: datetime | None,
-) -> StatisticsFamilyStatus:
-    """The statistics section: sessions judged over their publication window."""
-    scope = await family_scope(
-        conn,
-        calendar_url,
-        entry,
-        edge,
-        want.family,
-        want.start,
-        want.end,
-        statistics_verdicts(calendar_url),
-    )
-    base = _family_status(want.family, scope, source_edge)
-    findings = await content_findings(conn, entry, scope.sessions, scope.verdicts)
-    return StatisticsFamilyStatus(
-        **{f.name: getattr(base, f.name) for f in fields(base)}, findings=findings
-    )
-
-
-async def _families(
-    conn: Conn,
-    calendar_url: str,
-    entry: TickUniverseEntry,
-    edge: Edge | None,
-    tier_scope: ProductScope,
-) -> tuple[FamilyStatus, ...]:
-    """One status per wanted family; the tier reuses the scope already read."""
-    statuses: list[FamilyStatus] = []
-    for want in family_wants(entry):
-        source_edge = await family_source_edge(
-            calendar_url, entry, want.family, want.end, edge
-        )
-        if want.family is SchemaFamily.STATISTICS:
-            statuses.append(
-                await _statistics_status(
-                    conn, calendar_url, entry, edge, want, source_edge
-                )
-            )
-            continue
-        if want.family is SchemaFamily.TICK_TIER:
-            scope = tier_scope
-        else:
-            scope = await family_scope(
-                conn, calendar_url, entry, edge, want.family, want.start, want.end
-            )
-        statuses.append(_family_status(want.family, scope, source_edge))
-    return tuple(statuses)
-
-
 async def _product_status(
     conn: Conn,
     urls: tuple[str, str],
@@ -258,7 +148,9 @@ async def _product_status(
         spreads_hidden=0 if all_instruments else len(spreads),
         # After status's own reads, on the roll path's own connections (TD9).
         rolls=await latest_active(tick_url, calendar_url, entry, STATUS_ROLL_RULES),
-        families=await _families(conn, calendar_url, entry, edge, scope),
+        families=await family_reports(
+            conn, calendar_url, entry, edge, cross_tier=True, tier_scope=scope
+        ),
     )
 
 

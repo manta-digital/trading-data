@@ -99,34 +99,35 @@ revision_number: 2
 
 ## 2. One Per-Family Report (D3)
 
-- [ ] **2.1 Create `data/tick/family_report.py` and move `FamilyStatus` into it**
-  - [ ] Move `FamilyStatus` and `StatisticsFamilyStatus` from `tick_status_build.py`; re-import there so existing callers keep working.
-  - [ ] Create `data/tick/cross_tier_result.py` holding only `CrossTierResult`: frozen dataclass with `check` (name), `family` (the volume family judged), and counts by `VolumeClass` (`agree`, `under`, `over`, `no_trades`; use 303's values, not literals). `family_report.py` and `cross_tier_checks.py` both import it from here, which avoids an import cycle. (This module is not in the design's component list; it is the one addition, made for that reason.)
-  - [ ] Add four fields to `FamilyStatus`: `source_edge`, `records` (the family's `ledger_totals` sum over the family's wanted range), `cross_tier: tuple[CrossTierResult, ...]` (empty until task 3), and `load_complete_only: bool`.
-  - [ ] `load_complete_only` is True when the family is in `VOLUME_FAMILIES` and the entry wants no statistics (D4). Define the label text `load-complete only` once as a constant beside the field; status, accounting, health and the API all render from the field.
-  - [ ] Success: module compiles; `tick_status_build.py` is shorter than before.
+- [x] **2.1 Create `data/tick/family_report.py` and move `FamilyStatus` into it**
+  - [x] Move `FamilyStatus` and `StatisticsFamilyStatus` from `tick_status_build.py`; re-import there so existing callers keep working.
+  - [x] Create `data/tick/cross_tier_result.py` holding only `CrossTierResult`: frozen dataclass with `check` (name), `family` (the volume family judged), and counts by `VolumeClass` (`agree`, `under`, `over`, `no_trades`; use 303's values, not literals). `family_report.py` and `cross_tier_checks.py` both import it from here, which avoids an import cycle. (This module is not in the design's component list; it is the one addition, made for that reason.)
+  - [x] Add four fields to `FamilyStatus`: `source_edge`, `records` (the family's `ledger_totals` sum over the family's wanted range), `cross_tier: tuple[CrossTierResult, ...]` (empty until task 3), and `load_complete_only: bool`.
+  - [x] `load_complete_only` is True when the family is in `VOLUME_FAMILIES` and the entry wants no statistics (D4). Define the label text `load-complete only` once as a constant beside the field; status, accounting, health and the API all render from the field.
+  - [x] Success: module compiles; `tick_status_build.py` is shorter than before.
 
-- [ ] **2.2 Extract `family_reports(conn, calendar_url, entry, edge, *, cross_tier: bool)`**
-  - [ ] Move the body of `tick_status_build._families` (and `_family_status`, `_statistics_status`) here. For each wanted family: `family_scope`, then `source_edge` (task 1), then `judged`, `caught_up`, and for statistics `content_findings` over the load-complete sessions; then `ledger_totals` for `records`, and `load_complete_only`.
-  - [ ] Define `ReadProgress` here: a small mutable recorder holding the current product, family and step (`dataset edge`, `scope`, `content`, `traded_vs_cleared`, `records`). `family_reports` takes a keyword `progress: ReadProgress | None = None` and writes product, family and step to it before each of its steps; it catches nothing.
-  - [ ] `status` calls `family_reports` with `cross_tier=True` for now (nothing consumes it until task 3).
-  - [ ] Contract lines and roll lines stay in `status` only (D3).
-  - [ ] Success: `tick status` text and JSON output unchanged except the new `FamilyStatus` fields (`source_edge`, `records`, `cross_tier`, `load_complete_only`) in its JSON.
+- [x] **2.2 Extract `family_reports(conn, calendar_url, entry, edge, *, cross_tier: bool)`**
+  - [x] Move the body of `tick_status_build._families` (and `_family_status`, `_statistics_status`) here. For each wanted family: `family_scope`, then `source_edge` (task 1), then `judged`, `caught_up`, and for statistics `content_findings` over the load-complete sessions; then `ledger_totals` for `records`, and `load_complete_only`.
+  - [x] Define `ReadProgress` here: a small mutable recorder holding the current product, family and step (`dataset edge`, `scope`, `content`, `traded_vs_cleared`, `records`). `family_reports` takes a keyword `progress: ReadProgress | None = None` and writes product, family and step to it before each of its steps; it catches nothing.
+  - [x] `status` calls `family_reports` with `cross_tier=True` for now (nothing consumes it until task 3).
+  - [x] Contract lines and roll lines stay in `status` only (D3).
+  - [x] Success: `tick status` text and JSON output unchanged except the new `FamilyStatus` fields (`source_edge`, `records`, `cross_tier`, `load_complete_only`) in its JSON.
+  - Note: `records` sums ledger_totals over all current units of the family (date.min..date.max), as 230's accounting did for the tick tier, so records match the sessions in scope (which include sessions units touch outside the wanted range). Deviates from the 'wanted range' wording in 2.1.
 
-- [ ] **2.3 Test the report**
-  - [ ] Existing status unit and integration tests pass with no expectation change other than those four new keys.
-  - [ ] New: `test_family_report.py` seeds one product wanting the tick tier, `BAR_1M` and statistics; the report has three entries in `family_wants` order, each with its own `source_edge`, `records` equal to the ledger totals, `cross_tier` empty, and `load_complete_only` True for the volume families only when statistics is not wanted.
-  - [ ] Success: all pass; `test_tick_status.py` golden files regenerated only for those four keys, and the diff is reviewed.
+- [x] **2.3 Test the report**
+  - [x] Existing status unit and integration tests pass with no expectation change other than those four new keys.
+  - [x] New: `test_family_report.py` seeds one product wanting the tick tier, `BAR_1M` and statistics; the report has three entries in `family_wants` order, each with its own `source_edge`, `records` equal to the ledger totals, `cross_tier` empty, and `load_complete_only` True for the volume families only when statistics is not wanted.
+  - [x] Success: all pass; `test_tick_status.py` golden files regenerated only for those four keys, and the diff is reviewed.
 
-- [ ] **2.4 Add `futures_completeness(conn, url, universe, progress, *, cross_tier)`**
-  - [ ] It is the only function that reads the database for the surfaces. It writes the `dataset edge` step to `progress`, reads `dataset_edge` once, then calls `family_reports(..., progress=progress)` per product, and returns `dict[str, tuple[FamilyStatus, ...]]` keyed by product. It catches nothing (D5 "Failure and concurrency").
-  - [ ] Add one helper beside `ReadProgress`: `unavailable_with_progress(progress, unavailable_text) -> str`, returning `<product> <family>: <step>: <text>` (for example `GC statistics: traded_vs_cleared: canceling statement due to statement timeout`). Accounting (4.2), health (5.3) and the API block (7.2) all call it; none builds that string itself.
-  - [ ] Success: callable with a stub connection.
+- [x] **2.4 Add `futures_completeness(conn, url, universe, progress, *, cross_tier)`**
+  - [x] It is the only function that reads the database for the surfaces. It writes the `dataset edge` step to `progress`, reads `dataset_edge` once, then calls `family_reports(..., progress=progress)` per product, and returns `dict[str, tuple[FamilyStatus, ...]]` keyed by product. It catches nothing (D5 "Failure and concurrency").
+  - [x] Add one helper beside `ReadProgress`: `unavailable_with_progress(progress, unavailable_text) -> str`, returning `<product> <family>: <step>: <text>` (for example `GC statistics: traded_vs_cleared: canceling statement due to statement timeout`). Accounting (4.2), health (5.3) and the API block (7.2) all call it; none builds that string itself.
+  - [x] Success: callable with a stub connection.
 
-- [ ] **2.5 Test `futures_completeness`**
-  - [ ] Two products in one call return reports for both; `dataset_edge` is read once (count statements).
-  - [ ] A stub that raises on a named step propagates the error unchanged, and `progress` names that product, family and step; `unavailable_with_progress` returns the example string above.
-  - [ ] Success: all pass.
+- [x] **2.5 Test `futures_completeness`**
+  - [x] Two products in one call return reports for both; `dataset_edge` is read once (count statements).
+  - [x] A stub that raises on a named step propagates the error unchanged, and `progress` names that product, family and step; `unavailable_with_progress` returns the example string above.
+  - [x] Success: all pass.
 
 **Commit**: `refactor: extract family_reports and add futures_completeness`
 
