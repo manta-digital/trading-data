@@ -200,30 +200,31 @@ revision_number: 2
 
 ## 5. Health (D5)
 
-- [ ] **5.1 Add the row builder to `cli/commands/health_tick.py`**
-  - [ ] Pure function `family_check(product, report) -> HealthCheck`, name `futures {product} {schema}` (display text only; logic keys on `SchemaFamily`).
-  - [ ] State by the D5 table, first match wins: `FAIL` (counted) when any judged session is `failed` or `retry_exhausted`, or any `over` verdict; `INFO` (informational) when `caught_up` is None (detail `no dataset edge; completeness not judged`), or not caught up, or content findings, or `no_trades`; otherwise `OK` (counted).
-  - [ ] Detail is one line: complete over judged sessions, the source edge, caught up or not, and each non-zero bucket or finding count by name; `load-complete only` where it applies.
-  - [ ] Success: callable with no I/O.
+- [x] **5.1 Add the row builder to `cli/commands/health_tick.py`**
+  - [x] Pure function `family_check(product, report) -> HealthCheck`, name `futures {product} {schema}` (display text only; logic keys on `SchemaFamily`).
+  - [x] State by the D5 table, first match wins: `FAIL` (counted) when any judged session is `failed` or `retry_exhausted`, or any `over` verdict; `INFO` (informational) when `caught_up` is None (detail `no dataset edge; completeness not judged`), or not caught up, or content findings, or `no_trades`; otherwise `OK` (counted).
+  - [x] Detail is one line: complete over judged sessions, the source edge, caught up or not, and each non-zero bucket or finding count by name; `load-complete only` where it applies.
+  - [x] Success: callable with no I/O.
 
-- [ ] **5.2 Test the row builder**
-  - [ ] One case per severity row: failed unit, retry_exhausted, `over` → `FAIL` counted; missing edge, not caught up with no defect, content findings, `no_trades` → `INFO` informational; caught up and clean → `OK`.
-  - [ ] Precedence: a failed unit plus a missing session is `FAIL`. Detail text for the two examples in D5.
-  - [ ] Success: all pass.
+- [x] **5.2 Test the row builder**
+  - [x] One case per severity row: failed unit, retry_exhausted, `over` → `FAIL` counted; missing edge, not caught up with no defect, content findings, `no_trades` → `INFO` informational; caught up and clean → `OK`.
+  - [x] Precedence: a failed unit plus a missing session is `FAIL`. Detail text for the two examples in D5.
+  - [x] Success: all pass.
 
-- [ ] **5.3 Wire `gather_tick` (D5 "Failure and concurrency")**
-  - [ ] After `tick retention`, and only when the tick database answered, make **one** `read_line` call to `futures_completeness(cross_tier=True)` and emit one row per product and wanted family.
-  - [ ] A failure inside the call emits one counted `FAIL` row named `futures completeness`, whose detail comes from `unavailable_with_progress` (2.4), and no per-family rows.
-  - [ ] When the database does not answer, only the `tick database` row prints (unchanged). The `tick database` row stays informational (234 TD6).
-  - [ ] Success: `gather_tick` returns the new rows in `futures {product} {schema}` order.
+- [x] **5.3 Wire `gather_tick` (D5 "Failure and concurrency")**
+  - [x] After `tick retention`, and only when the tick database answered, make **one** `read_line` call to `futures_completeness(cross_tier=True)` and emit one row per product and wanted family.
+  - [x] A failure inside the call emits one counted `FAIL` row named `futures completeness`, whose detail comes from `unavailable_with_progress` (2.4), and no per-family rows.
+  - [x] When the database does not answer, only the `tick database` row prints (unchanged). The `tick database` row stays informational (234 TD6).
+  - [x] Success: `gather_tick` returns the new rows in `futures {product} {schema}` order.
 
-- [ ] **5.4 Test the wiring** in `test/integration/data/test_health_tick.py`
-  - [ ] Seeded `failed` unit makes the row `FAIL` and `mt data health` exits 1 (criterion 4).
-  - [ ] A seeded `over` volume verdict makes the row `FAIL`, exit 1.
-  - [ ] One not-caught-up family is `INFO` and the exit stays 0 (the other severities are covered by 5.2).
-  - [ ] An injected statement timeout gives exactly one counted `FAIL` row `futures completeness` naming product, family and step, and no per-family rows.
-  - [ ] A product without a statistics want shows the `load-complete only` label (criterion 5).
-  - [ ] Success: all pass; existing `tick database` and `tick retention` tests unchanged.
+- [x] **5.4 Test the wiring** in `test/integration/data/test_health_tick.py`
+  - [x] Seeded `failed` unit makes the row `FAIL` and `mt data health` exits 1 (criterion 4).
+  - [x] A seeded `over` volume verdict makes the row `FAIL`, exit 1.
+  - [x] One not-caught-up family is `INFO` and the exit stays 0 (the other severities are covered by 5.2).
+  - [x] An injected statement timeout gives exactly one counted `FAIL` row `futures completeness` naming product, family and step, and no per-family rows.
+  - [x] A product without a statistics want shows the `load-complete only` label (criterion 5).
+  - [x] Success: all pass; existing `tick database` and `tick retention` tests unchanged.
+  - Note: harness changes. In `test/integration/data/test_health_tick.py`, `_invoke` takes an optional `calendar_url`, because the futures rows read the calendar from the primary URL and the default stubbed URL makes that read fail; `_invoke` patches `gather_backup` to `[]`, because the backup rows read the host's `MT_BACKUP_ROOTS` environment, which made two existing tests fail on this host on `main` as well; `test_holed_and_reopened_units_never_fail_retention` passes the real calendar URL, with its assertions unchanged. In `test/unit/cli/commands/test_health_tick.py`, the `read_line` stub answers the retention read first and `{}` for the futures read.
 
 **Commit**: `feat: add futures family rows to mt data health`
 

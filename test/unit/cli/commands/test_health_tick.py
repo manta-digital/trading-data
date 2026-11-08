@@ -48,6 +48,9 @@ def _settings() -> MagicMock:
 
 
 def _invoke(tick: Any, *args: str, connect: Any = None) -> Any:
+    # The first composed read is the retention read (``tick``); the futures
+    # completeness read after it answers no products (305: its own tests).
+    answers = iter([tick])
     with (
         patch("manta_trading.cli.app.Settings", return_value=_settings()),
         patch("manta_trading.cli.app.setup_logging"),
@@ -57,7 +60,10 @@ def _invoke(tick: Any, *args: str, connect: Any = None) -> Any:
             connect if connect is not None else MagicMock(),
         ),
         patch("manta_trading.cli.commands.health.gather", return_value=PRIMARY),
-        patch("manta_trading.cli.tick_composed.read_line", return_value=tick),
+        patch(
+            "manta_trading.cli.tick_composed.read_line",
+            side_effect=lambda *_a, **_k: next(answers, {}),
+        ),
     ):
         return runner.invoke(app, ["data", "health", *args])
 
