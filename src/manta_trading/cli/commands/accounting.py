@@ -15,6 +15,11 @@ import psycopg
 import typer
 
 from manta_trading.cli.commands._pass_run import pass_run_recorder
+from manta_trading.cli.commands.accounting_futures import (
+    TickResult,
+    tick_payload,
+    tick_text,
+)
 from manta_trading.cli.commands.health import EXIT_UNAVAILABLE
 from manta_trading.cli.output import print_error, print_result
 from manta_trading.data.acquisition.pass_runs import PassKind, PassRunOutcome
@@ -24,19 +29,17 @@ from manta_trading.data.gaps.minute_accounting import (
     summary_line,
 )
 from manta_trading.data.kalshi.constants import DB_CONNECT_TIMEOUT_SECONDS
-from manta_trading.data.tick.line_state import (
-    TickLineState,
-    TickUnavailable,
-    unavailable_text,
+from manta_trading.data.tick.family_report import (
+    ReadProgress,
+    futures_completeness,
+    unavailable_at,
 )
+from manta_trading.data.tick.line_state import TickUnavailable
+from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.tick_accounting import TickAccountingLine
-from manta_trading.data.tick.tick_status import TickSessionStatus
 
 if TYPE_CHECKING:
     from manta_trading.config import Settings
-
-TICK_SECTION_TITLE = "futures tick universe:"
-
 
 EXIT_ACCOUNTING_OK = 0
 """The accounting pass's success exit code.
@@ -102,67 +105,42 @@ def data_accounting(
     _print(rows, _tick_lines(settings), json_output)
 
 
-def _print(rows: list[Any], tick: _TickResult, json_output: bool) -> None:
+def _print(rows: list[Any], tick: TickResult, json_output: bool) -> None:
     if json_output:
         print_result(
             {
                 "rows": [asdict(r) for r in rows],
                 "summary": summary_line(rows),
-                "tick": _tick_payload(tick),
+                "tick": tick_payload(tick),
             },
             json_mode=True,
         )
         return
     typer.echo(render_minute_accounting(rows))
     typer.echo(summary_line(rows))
-    typer.echo(_tick_text(tick))
+    typer.echo(tick_text(tick))
 
 
-_TickResult = list[TickAccountingLine] | TickUnavailable
-
-
-def _tick_lines(settings: Settings) -> _TickResult:
+def _tick_lines(settings: Settings) -> TickResult:
     from manta_trading.cli.tick_composed import read_line
     from manta_trading.data.tick.tick_accounting import accounting_lines
     from manta_trading.data.tick.tick_calendar import calendar_url
     from manta_trading.data.tick.universe import TICK_UNIVERSE
 
-    # The calendar URL is resolved inside the guarded read, so even its
-    # refusal becomes the line rather than a failed command.
-    return read_line(
-        settings,
-        lambda conn: accounting_lines(conn, calendar_url(settings), TICK_UNIVERSE),
-    )
+    progress = ReadProgress()
 
+    async def read(conn: Conn) -> list[TickAccountingLine]:
+        # The calendar URL is resolved inside the guarded read, so even its
+        # refusal becomes the line rather than a failed command.
+        reports = await futures_completeness(
+            conn, calendar_url(settings), TICK_UNIVERSE, progress, cross_tier=True
+        )
+        return accounting_lines(reports)
 
-def _tick_payload(tick: _TickResult) -> dict[str, Any]:
-    if isinstance(tick, TickUnavailable):
-        return {"state": tick.state.value, "detail": tick.detail, "products": []}
-    return {
-        "state": TickLineState.OK.value,
-        "detail": None,
-        "products": [asdict(line) for line in tick],
-    }
-
-
-def _tick_line_text(line: TickAccountingLine) -> str:
-    if line.sessions_in_scope == 0:
-        return f"  {line.product}  no sessions in scope"
-    share = 100 * line.sessions_complete / line.sessions_in_scope
-    rest = "; ".join(
-        f"{count} {status.replace('_', ' ')}"
-        for status, count in line.buckets.items()
-        if count and status != TickSessionStatus.COMPLETE.value
-    )
+    result = read_line(settings, read)
+    # A failure partway names the product, family and step it stopped at.
     return (
-        f"  {line.product}  {line.sessions_complete}/{line.sessions_in_scope}"
-        f" sessions complete ({share:.1f}%)"
-        + (f"; {rest}" if rest else "")
-        + f"  · {line.records:,} records"
+        unavailable_at(progress, result)
+        if isinstance(result, TickUnavailable)
+        else result
     )
-
-
-def _tick_text(tick: _TickResult) -> str:
-    if isinstance(tick, TickUnavailable):
-        return f"{TICK_SECTION_TITLE}  {unavailable_text(tick)}"
-    return "\n".join([TICK_SECTION_TITLE, *(_tick_line_text(line) for line in tick)])

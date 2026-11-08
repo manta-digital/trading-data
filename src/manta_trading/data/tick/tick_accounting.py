@@ -1,55 +1,62 @@
-"""The futures tick line in ``mt data accounting`` (slice 230, TD7, FR12).
+"""The futures lines in ``mt data accounting`` and ``/api/v1/status``.
 
-One :class:`TickAccountingLine` per universe product. The session figures are
-``status``'s own buckets, from the same function (``product_scope``), so the
-two cannot disagree: the sessions in scope are the wanted range plus every
-session a current tier unit touches, as ``status`` counts them. Records are
-the ledger sum over current units. No CLI import: 231's ``/api/v1/status``
+Slice 230 TD7, FR12; slice 305 D6. One :class:`TickAccountingLine` per product
+and family, converted from ``futures_completeness``'s reports. This module reads
+nothing: ``family_report.futures_completeness`` is the only reader, so the
+buckets here are ``status``'s own (the 230 rule, now for every family). Records
+are the ledger sum over the family's current units. No CLI import: 231's API
 reuses it.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import datetime
 
-from manta_trading.data.tick.constants import CME_DATASET
-from manta_trading.data.tick.manifest_reads import Conn
-from manta_trading.data.tick.schema_families import SchemaFamily
-from manta_trading.data.tick.status_reads import dataset_edge, ledger_totals, shape_of
+from manta_trading.data.tick.cross_tier_result import CrossTierResult
+from manta_trading.data.tick.family_report import FamilyStatus
 from manta_trading.data.tick.tick_status import TickSessionStatus
-from manta_trading.data.tick.tick_status_scope import bucket_counts, product_scope
-from manta_trading.data.tick.universe import TickUniverseEntry
 
 
 @dataclass(frozen=True)
 class TickAccountingLine:
     product: str
+    family: str
+    #: The schema the product wants the family as; None for an unwanted tick tier.
+    schema: str | None
     sessions_in_scope: int
     sessions_complete: int
     buckets: dict[str, int]
     records: int
+    caught_up: bool | None
+    source_edge: datetime | None
+    load_complete_only: bool
+    cross_tier: tuple[CrossTierResult, ...]
 
 
-async def accounting_lines(
-    conn: Conn, calendar_url: str, universe: Sequence[TickUniverseEntry]
+def _line(product: str, report: FamilyStatus) -> TickAccountingLine:
+    return TickAccountingLine(
+        product=product,
+        family=report.family,
+        schema=report.schema,
+        sessions_in_scope=sum(report.buckets.values()),
+        sessions_complete=report.buckets[TickSessionStatus.COMPLETE.value],
+        buckets=report.buckets,
+        records=report.records,
+        caught_up=report.caught_up,
+        source_edge=report.source_edge,
+        load_complete_only=report.load_complete_only,
+        cross_tier=report.cross_tier,
+    )
+
+
+def accounting_lines(
+    reports_by_product: Mapping[str, Sequence[FamilyStatus]],
 ) -> list[TickAccountingLine]:
-    edge = await dataset_edge(conn, CME_DATASET)
-    lines = []
-    for entry in universe:
-        scope = await product_scope(conn, calendar_url, entry, edge)
-        buckets = bucket_counts(scope.verdicts)
-        totals = await ledger_totals(
-            conn, shape_of(entry), SchemaFamily.TICK_TIER, date.min, date.max
-        )
-        lines.append(
-            TickAccountingLine(
-                product=entry.product,
-                sessions_in_scope=len(scope.verdicts),
-                sessions_complete=buckets[TickSessionStatus.COMPLETE.value],
-                buckets=buckets,
-                records=sum(totals.values()),
-            )
-        )
-    return lines
+    """A pure conversion: one line per product and family, in report order."""
+    return [
+        _line(product, report)
+        for product, reports in reports_by_product.items()
+        for report in reports
+    ]

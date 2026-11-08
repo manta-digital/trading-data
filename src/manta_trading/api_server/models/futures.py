@@ -21,6 +21,7 @@ from manta_trading.data.tick.get_plan import ContractTarget, GetPlan
 from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
 from manta_trading.data.tick.roll_payload import basis_text
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_accounting import TickAccountingLine
 from manta_trading.data.tick.tick_format import cell_value
 from manta_trading.data.tick.tick_reads import BAR_COLUMNS, TICK_COLUMNS, Row
@@ -270,5 +271,6 @@ class TickBlock(BaseModel):
                     records=line.records,
                 )
                 for line in result
+                if line.family == SchemaFamily.TICK_TIER.value
             ],
         )

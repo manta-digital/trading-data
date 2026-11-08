@@ -141,7 +141,16 @@ def test_the_status_tick_block_equals_the_cli_accounting(
     block = seeded.get(STATUS).json()["tick"]
     cli = _cli_json(monkeypatch, (migrated_tick_db, session_migrated_db), "accounting")
 
-    assert block == cli["tick"]
+    # The CLI adds ``families`` per product (305 D6); the API gains its own
+    # ``families`` in task 7, so only the shared tick-tier fields are compared.
+    cli_tick = {
+        **cli["tick"],
+        "products": [
+            {k: v for k, v in p.items() if k != "families"}
+            for p in cli["tick"]["products"]
+        ],
+    }
+    assert block == cli_tick
     assert block["state"] == "ok" and block["products"][0]["product"] == "ES"
 
 

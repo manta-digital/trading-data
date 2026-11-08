@@ -29,6 +29,12 @@ from manta_trading.data.maintenance.status_queries import (
     fetch_all_health_counts_with_freshness,
     fetch_status_rows_with_freshness,
 )
+from manta_trading.data.tick.family_report import (
+    ReadProgress,
+    futures_completeness,
+    unavailable_at,
+)
+from manta_trading.data.tick.line_state import TickUnavailable
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.tick_accounting import (
     TickAccountingLine,
@@ -169,7 +175,16 @@ async def _tick_block(app: FastAPI) -> TickBlock:
     """``mt data accounting``'s tick figures, from the same function (TD7)."""
     calendar_url = app.state.calendar_url
 
-    async def read(conn: Conn) -> list[TickAccountingLine]:
-        return await accounting_lines(conn, calendar_url, TICK_UNIVERSE)
+    progress = ReadProgress()
 
-    return TickBlock.from_result(await read_tick(app, read))
+    async def read(conn: Conn) -> list[TickAccountingLine]:
+        reports = await futures_completeness(
+            conn, calendar_url, TICK_UNIVERSE, progress, cross_tier=False
+        )
+        return accounting_lines(reports)
+
+    result = await read_tick(app, read)
+    # A failure partway names the product, family and step it stopped at.
+    if isinstance(result, TickUnavailable):
+        result = unavailable_at(progress, result)
+    return TickBlock.from_result(result)

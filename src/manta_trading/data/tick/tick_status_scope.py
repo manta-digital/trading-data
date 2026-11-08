@@ -48,10 +48,13 @@ VerdictReader = Callable[
 
 @dataclass(frozen=True)
 class FamilyWant:
-    """A family an entry wants, over its own range (end exclusive, None = edge)."""
+    """A family an entry wants, over its own range (end exclusive, None = edge).
+
+    ``start`` is None only for a family nothing wants but a surface still reports
+    (the tick tier of an untiered product: only what units touch)."""
 
     family: SchemaFamily
-    start: date
+    start: date | None
     end: date | None
 
 

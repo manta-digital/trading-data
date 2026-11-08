@@ -170,28 +170,29 @@ revision_number: 2
 
 ## 4. Accounting (D6)
 
-- [ ] **4.1 Make `accounting_lines` one line per product and family**
-  - [ ] `TickAccountingLine` gains `family` and `schema`, plus `caught_up`, `source_edge`, `load_complete_only` and `cross_tier`.
-  - [ ] `accounting_lines(reports_by_product) -> list[TickAccountingLine]` becomes a pure conversion of `futures_completeness`'s result. It takes no connection and reads nothing; `futures_completeness` is the only reader. Update both callers here: the accounting command (4.2) and `api_server/tick_access.read_tick` (which calls `futures_completeness(cross_tier=False)` inside its single call). Its API output stays as 231 shaped it until 7.1 adds `families`.
-  - [ ] Records are the family's ledger total; sessions in scope and buckets come from the family's verdicts.
-  - [ ] Update the module docstring: the 230 rule now covers every family.
-  - [ ] Success: `tick_accounting.py` has no direct `family_scope` or `product_scope` call.
+- [x] **4.1 Make `accounting_lines` one line per product and family**
+  - [x] `TickAccountingLine` gains `family` and `schema`, plus `caught_up`, `source_edge`, `load_complete_only` and `cross_tier`.
+  - [x] `accounting_lines(reports_by_product) -> list[TickAccountingLine]` becomes a pure conversion of `futures_completeness`'s result. It takes no connection and reads nothing; `futures_completeness` is the only reader. Update both callers here: the accounting command (4.2) and `api_server/tick_access.read_tick` (which calls `futures_completeness(cross_tier=False)` inside its single call). Its API output stays as 231 shaped it until 7.1 adds `families`.
+  - [x] Records are the family's ledger total; sessions in scope and buckets come from the family's verdicts.
+  - [x] Update the module docstring: the 230 rule now covers every family.
+  - [x] Success: `tick_accounting.py` has no direct `family_scope` or `product_scope` call.
+  - Note: the API caller is `api_server/routes/status.py` (`_tick_block`), not `tick_access.read_tick`; `read_tick` does not call `futures_completeness`. `TickBlock.from_result` keeps only the tick-tier lines, so the API output stays in the 231 shape. Supporting additions: `FamilyStatus.schema` (display schema, None for an unwanted tick tier); `futures_completeness` always includes the tick tier (`family_reports` runs with `include_tier=True`, and `FamilyWant.start` may be None), so a product wanting nothing keeps its tick-tier line; `unavailable_at(progress, unavailable)` in `family_report.py` wraps `unavailable_with_progress` for callers.
 
-- [ ] **4.2 Update `cli/commands/accounting.py`**
-  - [ ] Retitle the section `futures universe:` (constant `TICK_SECTION_TITLE`), print lines grouped by product, one per family, with sessions, records, caught up, source edge, cross-tier counts, and `load-complete only` where it applies. List `INACTIVE_CROSS_TIER_CHECKS` once at the end of the section.
-  - [ ] JSON keeps `tick.products` with one entry per product; each entry's existing top-level fields stay the tick tier's and a `families` list carries every family, tick tier included.
-  - [ ] The call is one `futures_completeness(cross_tier=True)` inside one `read_line`, then `accounting_lines` on its result; on `TickUnavailable` the unavailable line replaces the section, as today. Use `unavailable_with_progress` (2.4) for a partial failure.
-  - [ ] Exit code and recorded minute detail unchanged (230 TD7).
-  - [ ] Success: `uv run mt data accounting --json` parses and has `families`.
+- [x] **4.2 Update `cli/commands/accounting.py`**
+  - [x] Retitle the section `futures universe:` (constant `TICK_SECTION_TITLE`), print lines grouped by product, one per family, with sessions, records, caught up, source edge, cross-tier counts, and `load-complete only` where it applies. List `INACTIVE_CROSS_TIER_CHECKS` once at the end of the section.
+  - [x] JSON keeps `tick.products` with one entry per product; each entry's existing top-level fields stay the tick tier's and a `families` list carries every family, tick tier included.
+  - [x] The call is one `futures_completeness(cross_tier=True)` inside one `read_line`, then `accounting_lines` on its result; on `TickUnavailable` the unavailable line replaces the section, as today. Use `unavailable_with_progress` (2.4) for a partial failure.
+  - [x] Exit code and recorded minute detail unchanged (230 TD7).
+  - [x] Success: `uv run mt data accounting --json` parses and has `families`.
 
-- [ ] **4.3 Test accounting**
-  - [ ] Update `test/integration/data/test_tick_accounting.py`: one line per product and wanted family; sessions equal `status`'s for the same family; `records` equal ledger totals.
-  - [ ] Text: section title `futures universe:`; JSON: existing top-level fields identical to before, plus `families`.
-  - [ ] Failure: an injected statement timeout prints the unavailable line naming product, family and step; exit code unchanged.
-  - [ ] Text lists `ohlcv_1s_minute_sum` as not active with its reason (criterion 7), and a family with `load_complete_only` prints the label (criterion 5).
-  - [ ] `read_tick` after the 4.1 caller change: the existing API status tests (`test/integration/api_server`, status block) pass unchanged, so the API output is still the 231 shape.
-  - [ ] Minute accounting tests (`test_minute_accounting.py`) pass unchanged.
-  - [ ] Success: all pass.
+- [x] **4.3 Test accounting**
+  - [x] Update `test/integration/data/test_tick_accounting.py`: one line per product and wanted family; sessions equal `status`'s for the same family; `records` equal ledger totals.
+  - [x] Text: section title `futures universe:`; JSON: existing top-level fields identical to before, plus `families`.
+  - [x] Failure: an injected statement timeout prints the unavailable line naming product, family and step; exit code unchanged.
+  - [x] Text lists `ohlcv_1s_minute_sum` as not active with its reason (criterion 7), and a family with `load_complete_only` prints the label (criterion 5).
+  - [x] `read_tick` after the 4.1 caller change: the existing API status tests (`test/integration/api_server`, status block) pass unchanged, so the API output is still the 231 shape.
+  - [x] Minute accounting tests (`test_minute_accounting.py`) pass unchanged.
+  - [x] Success: all pass.
 
 **Commit**: `feat: report every futures family in mt data accounting`
 

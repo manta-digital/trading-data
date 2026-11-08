@@ -31,8 +31,10 @@ from manta_trading.data.tick.constants import CME_DATASET, TickSchema
 from manta_trading.data.tick.family_report import (
     LOAD_COMPLETE_ONLY,
     FamilyStatus,
+    ReadProgress,
     StatisticsFamilyStatus,
     family_reports,
+    futures_completeness,
 )
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.status_reads import dataset_edge
@@ -199,3 +201,22 @@ async def test_status_prints_the_counts_the_inactive_check_and_the_label(
     (bare,) = alone.products
     assert LOAD_COMPLETE_ONLY in "\n".join(_product_lines(bare))
     assert [f.load_complete_only for f in bare.families] == [True, True]
+
+
+async def test_a_product_that_wants_nothing_still_reports_its_tick_tier(
+    migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    """Accounting's line per product (230): only what units touch, no range."""
+    _seed(migrated_tick_db)
+    async with connect(migrated_tick_db) as conn:
+        found = await futures_completeness(
+            conn, session_migrated_db, [ES], ReadProgress(), cross_tier=True
+        )
+    (tier,) = found[ES.product]
+    assert (tier.family, tier.schema) == (SchemaFamily.TICK_TIER.value, None)
+    assert (tier.wanted_start, tier.caught_up, tier.load_complete_only) == (
+        None,
+        None,
+        False,
+    )
+    assert tier.records == 7  # the units it holds are still counted

@@ -27,6 +27,7 @@ from manta_trading.data.tick.constants import CME_DATASET, DatasetCondition
 from manta_trading.data.tick.cross_tier_checks import traded_vs_cleared
 from manta_trading.data.tick.cross_tier_result import CrossTierResult
 from manta_trading.data.tick.family_edges import family_source_edge
+from manta_trading.data.tick.line_state import TickUnavailable
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.schema_families import (
     FAMILY_SCHEMAS,
@@ -87,6 +88,17 @@ class ReadProgress:
         self.product, self.family, self.step = product, family, step
 
 
+def unavailable_at(
+    progress: ReadProgress, unavailable: TickUnavailable
+) -> TickUnavailable:
+    """``unavailable`` with its detail naming where the read stopped; unchanged
+    when no step ran (the failure was the connection's, before any read)."""
+    if progress.step is None:
+        return unavailable
+    detail = unavailable_with_progress(progress, unavailable.detail)
+    return TickUnavailable(unavailable.state, detail)
+
+
 def unavailable_with_progress(progress: ReadProgress, unavailable_text: str) -> str:
     """``<product> <family>: <step>: <text>``; accounting, health and the API
     all word a partial failure through this."""
@@ -101,6 +113,9 @@ class FamilyStatus:
 
     family: str
     schemas: tuple[str, ...]
+    #: The schema the entry wants this family as (``tbbo``, ``ohlcv-1m``, ...);
+    #: None for a tick tier nothing wants. Display only; logic keys on ``family``.
+    schema: str | None
     wanted_start: date | None
     wanted_end: datetime | None
     sessions_held: int
@@ -137,6 +152,15 @@ def _mark(
         progress.at(step, product, family)
 
 
+def _wanted_schema(entry: TickUniverseEntry, family: SchemaFamily) -> str | None:
+    """The one schema ``entry`` wants ``family`` as: its tier for the tick tier,
+    the family's only schema for the others."""
+    if family is SchemaFamily.TICK_TIER:
+        return None if entry.tier is None else entry.tier.value
+    (schema,) = FAMILY_SCHEMAS[family]
+    return schema.value
+
+
 async def _family_report(
     conn: Conn,
     calendar_url: str,
@@ -168,6 +192,7 @@ async def _family_report(
     base = FamilyStatus(
         family=family.value,
         schemas=tuple(schema.value for schema in FAMILY_SCHEMAS[family]),
+        schema=_wanted_schema(entry, family),
         wanted_start=scope.wanted_start,
         wanted_end=scope.wanted_end,
         sessions_held=sum(v.held for v in verdicts),
@@ -182,7 +207,11 @@ async def _family_report(
         source_edge=source,
         records=sum(totals.values()),
         cross_tier=(),
-        load_complete_only=family in VOLUME_FAMILIES and not wants_statistics,
+        load_complete_only=(
+            want.start is not None
+            and family in VOLUME_FAMILIES
+            and not wants_statistics
+        ),
     )
     if not statistics:
         return base, scope
@@ -206,15 +235,20 @@ async def family_reports(
     cross_tier: bool,
     progress: ReadProgress | None = None,
     tier_scope: ProductScope | None = None,
+    include_tier: bool = False,
 ) -> tuple[FamilyStatus, ...]:
     """One report per wanted family, in ``family_wants`` order.
 
     ``tier_scope`` is a tick-tier scope the caller already read (``status``
-    does), reused rather than read again. With ``cross_tier`` the volume
-    families carry their ``traded_vs_cleared`` result (D4). Writes the product,
-    family and step to ``progress`` before each step and catches nothing.
+    does), reused rather than read again. ``include_tier`` adds the tick tier
+    of a product that does not want it (no range, only what units touch). With
+    ``cross_tier`` the volume families carry their ``traded_vs_cleared`` result
+    (D4). Writes the product, family and step to ``progress`` before each step
+    and catches nothing.
     """
     wants = family_wants(entry)
+    if include_tier and not any(w.family is SchemaFamily.TICK_TIER for w in wants):
+        wants = [FamilyWant(SchemaFamily.TICK_TIER, None, None), *wants]
     wants_statistics = any(w.family is SchemaFamily.STATISTICS for w in wants)
     reports: list[FamilyStatus] = []
     scopes: dict[SchemaFamily, ProductScope] = {}
@@ -260,6 +294,7 @@ async def futures_completeness(
             edge,
             cross_tier=cross_tier,
             progress=progress,
+            include_tier=True,
         )
         for entry in universe
     }
