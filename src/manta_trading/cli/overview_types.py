@@ -15,7 +15,7 @@ the overview is what will be printed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 from manta_trading.api.credit_report import CREDITS_NO_KEY as _CREDITS_NO_KEY
 from manta_trading.api.credit_report import (
@@ -56,11 +56,14 @@ class SourceFreshness:
 
     ``unavailable`` is set when the source could not be read and says why
     (230: the tick line's state text); ``newest`` is then ``None``.
+    ``session_date`` is the newest *session* for a source that is kept by
+    session, not by instant (305 D7); ``newest`` is then ``None``.
     """
 
     name: str
     newest: datetime | None
     unavailable: str | None = None
+    session_date: date | None = None
 
 
 @dataclass

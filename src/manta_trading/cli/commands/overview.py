@@ -24,6 +24,7 @@ from psycopg import sql
 
 from manta_trading.api.credit_report import read_credits
 from manta_trading.api.eodhd_account import fetch_credit_usage
+from manta_trading.cli.commands.overview_futures import read_futures_sources
 from manta_trading.constants import (
     DAILY_OHLCV_TABLE,
     KALSHI_CANDLES_TABLE,
@@ -243,6 +244,7 @@ def gather(
     facts.credits_error = report.error
     # CLI-only (230 TD7): gather_db_facts, and so /api/v1/overview, is unchanged.
     facts.sources.append(read_tick_source(settings))
+    facts.sources.extend(read_futures_sources(settings))
     return facts
 
 

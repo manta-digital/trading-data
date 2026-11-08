@@ -205,6 +205,8 @@ def render_source_lines(
     for source in sources:
         if source.unavailable is not None:
             newest = source.unavailable  # printed as given, never re-spelled
+        elif source.session_date is not None:
+            newest = f"{source.session_date} (session)"
         elif source.newest is None:
             newest = "none"
         else:
@@ -341,6 +343,12 @@ def overview_payload(overview: Overview) -> dict:
                 ),
                 "unavailable": source.unavailable,
             }
+            # ``session_date`` only for the source kept by session (305 D7).
+            | (
+                {"session_date": source.session_date.isoformat()}
+                if source.session_date is not None
+                else {}
+            )
             for source in overview.sources
         ],
         "health": {

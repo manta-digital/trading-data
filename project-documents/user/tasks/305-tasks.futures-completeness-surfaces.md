@@ -232,20 +232,21 @@ revision_number: 2
 
 ## 6. Overview (D7)
 
-- [ ] **6.1 Add `newest_bar_ns` and `newest_statistics_session` to `data/tick/status_reads.py`**
-  - [ ] `newest_bar_ns`: newest `last_event_ns` in `tick_bar_ledger` over current units. `newest_statistics_session`: newest `session_date` in `tick_statistics_ledger` over current units. Mirror `newest_event_ns`; one statement each; None when empty.
-  - [ ] Success: both are importable; `status_reads.py` stays near 300 lines (it is 277 now; extract if it would pass ~320).
+- [x] **6.1 Add `newest_bar_ns` and `newest_statistics_session` to `data/tick/status_reads.py`**
+  - [x] `newest_bar_ns`: newest `last_event_ns` in `tick_bar_ledger` over current units. `newest_statistics_session`: newest `session_date` in `tick_statistics_ledger` over current units. Mirror `newest_event_ns`; one statement each; None when empty.
+  - [x] Success: both are importable; `status_reads.py` stays near 300 lines (it is 277 now; extract if it would pass ~320).
 
-- [ ] **6.2 Add the freshness lines to `cli/commands/overview.py`**
-  - [ ] Constants beside `TICK_SOURCE_NAME`: `futures ohlcv-1m` and `futures statistics`.
-  - [ ] Each line is one read on the composed connection; the statistics line shows the session date, not a timestamp. A family no product wants prints no line. A tick outage is still a line, never a failed overview (230 TD8).
-  - [ ] `overview.py` is already 414 lines: put the new gatherers in a new module (for example `overview_futures.py`) and keep `overview.py` growth to the call sites.
-  - [ ] Success: overview prints `futures ticks`, then the new lines.
+- [x] **6.2 Add the freshness lines to `cli/commands/overview.py`**
+  - [x] Constants beside `TICK_SOURCE_NAME`: `futures ohlcv-1m` and `futures statistics`.
+  - [x] Each line is one read on the composed connection; the statistics line shows the session date, not a timestamp. A family no product wants prints no line. A tick outage is still a line, never a failed overview (230 TD8).
+  - [x] `overview.py` is already 414 lines: put the new gatherers in a new module (for example `overview_futures.py`) and keep `overview.py` growth to the call sites.
+  - [x] Success: overview prints `futures ticks`, then the new lines.
+  - Note: the 18-char source name `futures statistics` overflows the 16-char source column (`_SOURCE_WIDTH=16`) by two characters. The width is unchanged because existing tests assert it. `SourceFreshness` gained an optional `session_date`; the renderer prints it as `<date> (session)`, and the overview JSON adds a `session_date` key only for a source that has one.
 
-- [ ] **6.3 Test overview** in `test/integration/test_overview_gather.py`
-  - [ ] Both lines appear when a product wants the family; neither appears when no product wants it; the statistics line shows a session date.
-  - [ ] Tick outage: each line shows the unavailable text, and the overview still returns (criterion 9).
-  - [ ] Success: all pass; existing overview tests unchanged.
+- [x] **6.3 Test overview** in `test/integration/test_overview_gather.py`
+  - [x] Both lines appear when a product wants the family; neither appears when no product wants it; the statistics line shows a session date.
+  - [x] Tick outage: each line shows the unavailable text, and the overview still returns (criterion 9).
+  - [x] Success: all pass; existing overview tests unchanged.
 
 **Commit**: `feat: add per-family freshness lines to mt data overview`
 

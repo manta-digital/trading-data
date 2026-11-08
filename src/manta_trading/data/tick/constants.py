@@ -429,6 +429,9 @@ TICK_COMPOSED_STATEMENT_TIMEOUT_SECONDS = 10
 #: The overview's tick source name, shared by ``mt data overview`` and
 #: ``/api/v1/overview`` (moved from ``cli/commands/overview.py``).
 TICK_SOURCE_NAME = "futures ticks"
+#: The overview's other futures families' source names (slice 305 D7).
+BAR_SOURCE_NAME = "futures ohlcv-1m"
+STATISTICS_SOURCE_NAME = "futures statistics"
 #: Connections the API's tick pool keeps open while idle.
 TICK_API_POOL_MIN = 1
 #: Ceiling on the API's tick pool: also caps requests in the roll path at once,

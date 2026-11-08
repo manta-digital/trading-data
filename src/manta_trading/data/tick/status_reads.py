@@ -160,15 +160,38 @@ async def ledger_volumes(
     return await _ledger_sums(conn, shape, family, first, last, "volume")
 
 
-async def newest_event_ns(conn: Conn) -> int | None:
-    """The newest stored tick, from the ledger over current units (230 TD7):
-    ``max(last_event_ns)``, never a scan of ``tick_trade``. ``None`` if empty."""
+async def _newest(conn: Conn, table_sql: str, column: str) -> Any:
+    """``max(column)`` of ``table_sql`` over current units (one statement); a
+    code constant, never a value."""
     cursor = await conn.execute(
-        "SELECT max(l.last_event_ns) FROM tick_ingest_ledger l"
+        f"SELECT max(l.{column}) FROM {table_sql} l"
         f" JOIN tick_archive_unit u USING (unit_id) WHERE {COVERAGE_PREDICATE}"
     )
     row = await cursor.fetchone()
-    return None if row is None or row[0] is None else int(row[0])
+    return None if row is None else row[0]
+
+
+async def newest_event_ns(conn: Conn) -> int | None:
+    """The newest stored tick, from the ledger over current units (230 TD7):
+    ``max(last_event_ns)``, never a scan of ``tick_trade``. ``None`` if empty."""
+    newest = await _newest(conn, FAMILY_LEDGER[SchemaFamily.TICK_TIER], "last_event_ns")
+    return None if newest is None else int(newest)
+
+
+async def newest_bar_ns(conn: Conn) -> int | None:
+    """The newest stored ``ohlcv-1m`` bar, from its ledger over current units
+    (305 D7). ``None`` if empty."""
+    newest = await _newest(conn, FAMILY_LEDGER[SchemaFamily.BAR_1M], "last_event_ns")
+    return None if newest is None else int(newest)
+
+
+async def newest_statistics_session(conn: Conn) -> date | None:
+    """The newest session with stored statistics, from its ledger over current
+    units (305 D7). ``None`` if empty."""
+    newest: date | None = await _newest(
+        conn, FAMILY_LEDGER[SchemaFamily.STATISTICS], "session_date"
+    )
+    return newest
 
 
 async def conditions(

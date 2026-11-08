@@ -17,11 +17,15 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock
 
 import psycopg
 import pytest
+from tick_support.cli import clear_tick_env
+from tick_support.rows import insert_bar_ledger_row, insert_statistics_ledger_row
+from tick_support.statistics_seed import seed_unit
 
 from manta_trading.api.eodhd_account import CreditUsage
 from manta_trading.cli.commands.overview import (
@@ -29,13 +33,21 @@ from manta_trading.cli.commands.overview import (
     build_overview,
     gather,
 )
+from manta_trading.cli.commands.overview_futures import read_futures_sources
+from manta_trading.cli.rendering.overview import render_source_lines
+from manta_trading.config import Settings
 from manta_trading.data.acquisition.pass_runs import (
     PassKind,
     PassRun,
     PassRunOutcome,
     PassRunRepository,
 )
+from manta_trading.data.tick import universe as universe_module  # noqa: E402
+from manta_trading.data.tick.constants import TickSchema  # noqa: E402
+from manta_trading.data.tick.roll_types import utc_from_ns  # noqa: E402
+from manta_trading.data.tick.universe import TICK_UNIVERSE  # noqa: E402
 
+BAR_NS = 1_733_184_000_000_000_000  # 2024-12-03 00:00 UTC
 _HOST = "manta-test"
 _NOW = datetime(2026, 9, 12, 16, 10, tzinfo=UTC)
 
@@ -154,6 +166,8 @@ class TestGatherReadsSources:
             "kalshi candles",
             "kalshi trades",
             "futures ticks",  # 230: gathered on the CLI side only
+            "futures ohlcv-1m",  # 305: the production universe wants bars
+            "futures statistics",  # ... and statistics
         ]
 
     def test_an_empty_table_reports_no_newest_row(
@@ -254,7 +268,8 @@ class TestAPrePassRunsDatabase:
         transaction would fail every later read and lose the whole screen."""
         conn.execute("DROP TABLE pass_runs CASCADE")
         facts = gather(conn, _settings(api_key=None), now=_NOW, hostname=_HOST)
-        assert len(facts.sources) == 5  # four database sources + 230's tick line
+        # four database sources + the tick line + 305's two family lines
+        assert len(facts.sources) == 7
 
     def test_it_warns_once_not_once_per_read(
         self, conn: psycopg.Connection, caplog
@@ -269,3 +284,71 @@ class TestAPrePassRunsDatabase:
         ]
         assert len(warnings) == 1
         assert "migrate apply" in warnings[0].message
+
+
+class TestFuturesFamilyLines:
+    """305 D7: the newest bar and statistics session beside ``futures ticks``."""
+
+    DAY = date(2024, 12, 3)
+
+    @pytest.fixture
+    def tick_settings(
+        self, migrated_tick_db: str, monkeypatch: pytest.MonkeyPatch
+    ) -> Settings:
+        clear_tick_env(monkeypatch)
+        return Settings(_env_file=None, tick_db_url=migrated_tick_db)  # type: ignore[call-arg]
+
+    def _seed(self, tick_url: str) -> None:
+        with psycopg.connect(tick_url, autocommit=True) as tick:
+            bars = seed_unit(tick, TickSchema.OHLCV_1M, self.DAY)
+            stats = seed_unit(tick, TickSchema.STATISTICS, self.DAY)
+            insert_bar_ledger_row(tick, bars, last_event_ns=BAR_NS)
+            insert_statistics_ledger_row(tick, stats, session_date=self.DAY)
+
+    def _universe(self, monkeypatch: pytest.MonkeyPatch, *, wanted: bool) -> None:
+        entry = TICK_UNIVERSE[0] if wanted else replace(TICK_UNIVERSE[0], history=())
+        monkeypatch.setattr(universe_module, "TICK_UNIVERSE", (entry,))
+
+    def test_both_lines_appear_when_a_product_wants_the_families(
+        self,
+        tick_settings: Settings,
+        migrated_tick_db: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._seed(migrated_tick_db)
+        self._universe(monkeypatch, wanted=True)
+        bars, statistics = read_futures_sources(tick_settings)
+        assert (bars.name, bars.newest) == ("futures ohlcv-1m", utc_from_ns(BAR_NS))
+        assert (statistics.name, statistics.newest) == ("futures statistics", None)
+        assert statistics.session_date == self.DAY
+        shown = render_source_lines([statistics], _NOW)[0]
+        assert shown.endswith("2024-12-03 (session)")  # a date, not a timestamp
+
+    def test_neither_line_appears_when_no_product_wants_the_families(
+        self,
+        tick_settings: Settings,
+        migrated_tick_db: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._seed(migrated_tick_db)
+        self._universe(monkeypatch, wanted=False)
+        assert read_futures_sources(tick_settings) == []
+
+    def test_empty_ledgers_report_no_newest_row(
+        self, tick_settings: Settings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._universe(monkeypatch, wanted=True)
+        bars, statistics = read_futures_sources(tick_settings)
+        assert (bars.newest, bars.unavailable) == (None, None)
+        assert (statistics.session_date, statistics.unavailable) == (None, None)
+
+    def test_a_tick_outage_is_each_lines_text_and_the_overview_still_returns(
+        self, conn: psycopg.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        clear_tick_env(monkeypatch)
+        self._universe(monkeypatch, wanted=True)
+        facts = gather(conn, _settings(api_key=None), now=_NOW, hostname=_HOST)
+        by_name = {source.name: source for source in facts.sources}
+        for name in ("futures ohlcv-1m", "futures statistics"):
+            assert by_name[name].unavailable == "not configured (MT_TICK_DB_URL unset)"
+        assert build_overview(facts, pid_alive=lambda _pid: True).sources

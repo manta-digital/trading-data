@@ -615,6 +615,8 @@ class TestTheGatherSplit:
             "read_tick_source",
             lambda _settings: SourceFreshness(mod.TICK_SOURCE_NAME, None, "stub"),
         )
+        # 305's per-family lines read the tick database too.
+        monkeypatch.setattr(mod, "read_futures_sources", lambda _settings: [])
 
     def test_it_populates_the_db_fields(self, monkeypatch) -> None:
         from manta_trading.cli.commands.overview import gather_db_facts

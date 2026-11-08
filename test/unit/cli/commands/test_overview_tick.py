@@ -7,7 +7,7 @@ only, and the API's ``SourceRecord`` mapping never carrying it (FR13).
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -113,9 +113,19 @@ def test_gather_appends_the_tick_line_and_gather_db_facts_does_not(
     monkeypatch.setattr(mod, "PassRunRepository", _Repo)
     monkeypatch.setattr(mod, "read_source_freshness", lambda _conn: [MINUTE])
     monkeypatch.setattr(mod, "read_tick_source", lambda _settings: tick)
+    monkeypatch.setattr(mod, "read_futures_sources", lambda _settings: [])  # 305
 
     db_only = mod.gather_db_facts(object(), _Settings(), now=NOW, hostname="h")  # type: ignore[arg-type]
     full = mod.gather(object(), _Settings(), now=NOW, hostname="h")  # type: ignore[arg-type]
 
     assert db_only.sources == [MINUTE]
     assert full.sources == [MINUTE, tick]
+
+
+def test_json_carries_the_session_date_only_for_the_source_kept_by_session() -> None:
+    statistics = SourceFreshness("futures statistics", None, None, date(2026, 11, 4))
+
+    sources = overview_payload(_overview(MINUTE, statistics))["sources"]
+
+    assert "session_date" not in sources[0]
+    assert sources[1]["session_date"] == "2026-11-04"
