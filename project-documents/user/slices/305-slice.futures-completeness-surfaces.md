@@ -10,7 +10,7 @@ interfaces:
 - 307
 dateCreated: 20261108
 dateUpdated: 20261108
-status: not_started
+status: complete
 turns: 34
 promptTokens: 3283443
 cachedTokens: 3119788
@@ -354,53 +354,74 @@ The figures above show the shape only. The existing top-level fields are the tic
 
 ### Verification Walkthrough
 
-Draft; refined after implementation.
+Run on 2026-11-08 against the slice branch, with the dev checkout's `.env` for steps 3 to 6 (it points at the production-shaped tick database, which has not yet had 304's purchase; the release is not installed on the production host, so the `sudo mt-run` forms are the same commands to run after the release).
 
-1. **Unit and integration tests** (test file names are set at task breakdown):
+1. **Unit and integration tests:**
 
    ```bash
    cd ~/source/repos/manta/trading-data
    export MT_TIMESCALE_TEST_URL=...   # from .env, quotes stripped
-   uv run pytest test/unit/data/tick -q
-   uv run pytest test/integration -q -k "tick and (health or accounting or status or overview)"
+   uv run pytest test/unit -q
+   uv run pytest test/integration/data/test_family_edge_judging.py test/integration/data/test_family_report.py \
+       test/integration/data/test_family_surface_agreement.py test/integration/data/test_tick_accounting.py \
+       test/integration/data/test_health_tick.py test/integration/test_overview_gather.py \
+       test/integration/api_server/test_composed_lines.py test/integration/data/test_tick_statistics_real.py -q
    ```
 
-   Expect all pass, including the four-surface agreement test (criterion 3) and the health severity table (criterion 4).
+   Expect every test to pass. Run the tiers separately (one invocation over both tiers collides on module names). `test_family_surface_agreement.py` is criterion 3, `test_health_tick.py` criterion 4, `test_tick_statistics_real.py::test_the_report_cross_tier_counts_equal_what_coverage_reports` criterion 6.
 
 2. **The measurement:**
 
    ```bash
-   MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_305_manifest_scale_nfr.py -s
+   MT_RUN_LOAD_TESTS=1 uv run pytest test/load/test_305_manifest_scale_nfr.py -s -rx
    ```
 
-   Expect the seeded unit count printed (about 30,000), each median under its bound, and the throwaway database dropped. Copy the figures into `user/notes/305-manifest-scale-measurement.md`.
+   Expect `4 passed, 2 xfailed` in about three minutes: the seed prints `manifest-scale seed: 30729 units in 1192 requests, ~19.5 M statistics rows`; `select_units`, `build_status` and the preflight plus steady pass are within their bounds; the cross-tier read (about 7.5 s against 5 s) and the API block (about 3.9 s against 0.25 s) are the two strict `xfail`s for issue #74. The throwaway database is dropped afterwards. The figures are in `user/notes/305-manifest-scale-measurement.md`.
 
-3. **Health on production**, after the release is installed:
+3. **Health:**
 
    ```bash
-   sudo mt-run data health
+   uv run mt data health      # production: sudo mt-run data health
    ```
 
-   Expect, below `tick database` and `tick retention`, rows such as `futures ES tbbo`, `futures ES ohlcv-1m`, `futures ES statistics`, `futures GC tbbo`, `futures GC statistics`. If 304's purchase has not run, the history rows are `INFO ... not caught up: N missing` and the verdict line is unchanged. After the purchase, they are `OK` or `INFO` with named findings, and a `FAIL` names the failed units or `over` verdicts.
+   Expect, below `tick database` and `tick retention`, one row per product and wanted family, for example:
+
+   ```
+   OK   futures ES tbbo        61/64 complete to 2025-01-01; caught up; other sessions in scope: 2 missing, 1 edge unknown
+   INFO futures ES statistics  0/4,227 complete to 2026-10-13; not caught up: 88 missing, 4139 edge unknown
+   INFO futures ES ohlcv-1m    0/259 complete to 2025-01-01; not caught up: 87 missing, 172 edge unknown
+   OK   futures GC tbbo        41/41 complete to 2025-01-01; caught up
+   INFO futures GC statistics  0/4,222 complete to 2026-10-13; not caught up: ...
+   ```
+
+   Until 304's purchase runs, the history rows are `INFO` and the verdict line is unchanged by them. (In the dev checkout the `backup` row fails because `MT_BACKUP_ROOTS` is not set there; that is the dev environment, not this slice.) After the purchase they are `OK` or `INFO` with named findings, and a `FAIL` names failed units or `over` verdicts.
 
 4. **Accounting and overview:**
 
    ```bash
-   sudo mt-run data accounting | sed -n '/futures universe:/,$p'
-   sudo mt-run data overview
+   uv run mt data accounting | sed -n '/futures universe:/,$p'
+   uv run mt data overview | grep -E 'futures|SOURCES'
    ```
 
-   Expect one accounting line per product and family with sessions, records and caught up, and overview lines `futures ticks`, `futures ohlcv-1m`, `futures statistics`.
+   Expect, per product, the tick tier then each wanted family on its own line (sessions complete, records, `caught up yes|no|n/a to <edge date>`), a `traded_vs_cleared (<family>): agree N   under N   over N   no_trades N` line under each volume family, and a last line `cross-tier ohlcv_1s_minute_sum: not active: needs the ohlcv-1s family`. Overview prints `futures ticks`, `futures ohlcv-1m` and `futures statistics` (the last as `<session date> (session)`, or `none` before the purchase).
 
-5. **The API:**
+5. **The API** (with `mt-serve` running against the same tick database):
 
    ```bash
    curl -s localhost:8137/api/v1/status | jq '.tick.products[] | {product, families: [.families[] | {schema, caught_up, source_edge, sessions_complete, sessions_in_scope}]}'
    ```
 
-   Expect the same figures as step 4 for each product and family.
+   Expect the same figures as steps 3 and 4 for each product and family, with no cross-tier keys. `caught_up: null` means no dataset edge is known, never "assume yes".
 
-6. **Agreement by hand:** `sudo mt-run data tick status --product GC --json | jq '.products[0].families'` shows the same buckets and `caught_up` as the GC lines in steps 3 to 5.
+6. **Agreement by hand:**
+
+   ```bash
+   uv run mt data tick status --product GC --json | jq '.products[0].families[] | {family, caught_up, source_edge, buckets}'
+   ```
+
+   Expect the same buckets, `caught_up` and `source_edge` as the GC lines in steps 3 to 5, and a top-level `cross_tier_not_active` object naming `ohlcv_1s_minute_sum`.
+
+Caveats found while verifying: a family's sessions that other units touch outside the wanted range appear in the row's bucket counts but are not judged, which is why a caught-up row can still name missing sessions (`other sessions in scope`); and the load tier's thresholds describe the production host, so on other hardware a breach is not automatically a regression (see `test/load/conftest.py`).
 
 ## Risk Assessment
 
