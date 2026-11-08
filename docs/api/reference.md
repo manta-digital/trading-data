@@ -723,11 +723,26 @@ work, not an absent symbol. Truncated: two verdicts returned, one shown.*
 | `tick.products[].sessions_complete` | integer | no | Of those, complete. |
 | `tick.products[].buckets` | object | no | Sessions per status (§6.1's session statuses). |
 | `tick.products[].records` | integer | no | Ticks held under current data. |
+| `tick.products[].families[]` | array | no | One entry per family the product wants (the tick tier, `ohlcv-1m` bars, `statistics`); empty when it wants none. The product-level fields above are the tick tier's. |
+| `tick.products[].families[].family` | string | no | `tick_tier`, `bar_1m` or `statistics`. |
+| `tick.products[].families[].schema` | string | no | The schema the product wants the family as (`tbbo`, `ohlcv-1m`, `statistics`). |
+| `tick.products[].families[].sessions_in_scope` | integer | no | Sessions judged for this family. |
+| `tick.products[].families[].sessions_complete` | integer | no | Of those, complete. |
+| `tick.products[].families[].buckets` | object | no | Sessions per status, as above. |
+| `tick.products[].families[].records` | integer | no | Records held for this family under current data. |
+| `tick.products[].families[].caught_up` | boolean | yes | Every session judged up to `source_edge` is complete, or a hole the provider declared. **`null` means no dataset edge is known or no range is wanted. It is never "assume yes".** |
+| `tick.products[].families[].source_edge` | string | yes | UTC instant: the last moment the provider can have published this family (statistics lag a session behind the rest). `null` when no dataset edge is known. |
+| `tick.products[].families[].load_complete_only` | boolean | no | `true` when nothing checks this family's traded volume against CME's cleared volume, so it is judged on units loaded only. |
+
+The cross-tier counts (`traded_vs_cleared`) are not served here; `mt data
+accounting`, `mt data health` and `mt data tick status` carry them.
 
 ```json
 "tick": {"state":"ok","detail":null,"products":[{"product":"ES","sessions_in_scope":64,"sessions_complete":61,
   "buckets":{"retry_exhausted":0,"failed":0,"provider_hole":0,"in_flight":0,"awaiting_ingest":0,"missing":2,"pending":0,"edge_unknown":1,"complete":61},
-  "records":27691412}]}
+  "records":27691412,"families":[{"family":"tick_tier","schema":"tbbo","sessions_in_scope":64,"sessions_complete":61,
+  "buckets":{"complete":61,"missing":2,"edge_unknown":1},"records":27691412,"caught_up":false,
+  "source_edge":"2025-01-01T00:00:00Z","load_complete_only":false}]}]}
 ```
 
 *Captured 2026-10-13 against the dev tick database.* A tick outage is the

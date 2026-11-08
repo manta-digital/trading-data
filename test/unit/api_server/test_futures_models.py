@@ -18,6 +18,8 @@ from manta_trading.api_server.models.futures import (
     FuturesBarRecord,
     FuturesBarsResponse,
     FuturesTicksResponse,
+    TickAccountingRecord,
+    TickBlock,
     TickRecord,
 )
 from manta_trading.api_server.models.futures_catalog import (
@@ -33,6 +35,7 @@ from manta_trading.data.tick.get_plan import (
     Incomplete,
     ProductTarget,
 )
+from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
 from manta_trading.data.tick.roll_payload import (
     _segment_dict,
     active_line_dict,
@@ -50,6 +53,7 @@ from manta_trading.data.tick.roll_types import (
     Unresolved,
 )
 from manta_trading.data.tick.schema_families import SchemaFamily
+from manta_trading.data.tick.tick_accounting import TickAccountingLine
 from manta_trading.data.tick.tick_reads import BAR_COLUMNS, TICK_COLUMNS
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
@@ -219,3 +223,77 @@ def test_a_contract_segment_has_no_basis_and_a_ranked_one_names_its_family() -> 
     plan = replace(_plan(), display=(named,))
     body = _json(FuturesTicksResponse.from_plan(plan, [], (None, None)))
     assert [s["basis"] for s in body["segments"]] == [None]
+
+
+# -- the status tick block's families (slice 305 D8) -----------------------------
+
+_BUCKETS = {"complete": 4, "missing": 1}
+_EDGE = datetime(2026, 11, 6, 22, tzinfo=UTC)
+
+
+def _line(family: str, schema: str | None, **overrides: Any) -> TickAccountingLine:
+    fields: dict[str, Any] = {
+        "product": "ES",
+        "family": family,
+        "schema": schema,
+        "sessions_in_scope": 5,
+        "sessions_complete": 4,
+        "buckets": _BUCKETS,
+        "records": 9,
+        "caught_up": False,
+        "source_edge": _EDGE,
+        "load_complete_only": False,
+        "cross_tier": (),
+    }
+    return TickAccountingLine(**(fields | overrides))
+
+
+def test_a_product_record_has_the_tick_tier_figures_and_its_wanted_families() -> None:
+    block = TickBlock.from_result(
+        [
+            _line("tick_tier", "tbbo"),
+            _line("statistics", "statistics", caught_up=None, source_edge=None),
+        ]
+    )
+    (product,) = block.products
+    assert (product.sessions_complete, product.records) == (4, 9)
+    tier, statistics = product.families
+    assert (tier.family, tier.schema_name, tier.source_edge) == (
+        "tick_tier",
+        "tbbo",
+        _EDGE,
+    )
+    assert statistics.caught_up is None and statistics.source_edge is None
+
+
+def test_a_tick_tier_nothing_wants_is_a_product_but_not_a_family() -> None:
+    block = TickBlock.from_result([_line("tick_tier", None, sessions_in_scope=0)])
+    (product,) = block.products
+    assert product.families == []
+
+
+def test_the_json_names_the_schema_key_and_carries_no_cross_tier() -> None:
+    block = TickBlock.from_result([_line("tick_tier", "tbbo")])
+    body = json.loads(block.model_dump_json(by_alias=True))
+    (family,) = body["products"][0]["families"]
+    assert family["schema"] == "tbbo" and "schema_name" not in family
+    assert "cross_tier" not in family
+    assert family["source_edge"] == "2026-11-06T22:00:00Z"
+
+
+def test_the_231_record_without_families_still_validates() -> None:
+    record = TickAccountingRecord.model_validate(
+        {
+            "product": "ES",
+            "sessions_in_scope": 1,
+            "sessions_complete": 1,
+            "buckets": {"complete": 1},
+            "records": 2,
+        }
+    )
+    assert record.families == []
+
+
+def test_an_unavailable_tick_tier_has_no_products() -> None:
+    block = TickBlock.from_result(TickUnavailable(TickLineState.UNREACHABLE, "down"))
+    assert (block.state, block.products) == (TickLineState.UNREACHABLE, [])

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, datetime
+from itertools import groupby
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -234,15 +235,48 @@ class FuturesBarsResponse(BaseModel):
         )
 
 
+class FamilyAccountingRecord(BaseModel):
+    """One wanted family of a product in ``/api/v1/status``'s ``tick`` block
+    (305 D8): the figures of ``mt data accounting --json``'s ``families``,
+    without the cross-tier counts (those stay in the CLI, health and status)."""
+
+    family: str
+    schema_name: str = Field(alias="schema")
+    sessions_in_scope: int
+    sessions_complete: int
+    buckets: dict[str, int]
+    records: int
+    caught_up: bool | None = Field(
+        description=(
+            "Every session judged up to ``source_edge`` is complete, or a hole the"
+            " provider declared. ``null`` means no dataset edge is known or no"
+            " range is wanted: never read it as caught up."
+        )
+    )
+    source_edge: datetime | None = Field(
+        description="The last instant the provider can have published this family."
+    )
+    load_complete_only: bool = Field(
+        description=(
+            "True when nothing checks this family's traded volume against CME's"
+            " cleared volume: it is judged on units loaded only."
+        )
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class TickAccountingRecord(BaseModel):
     """One product's tick accounting in ``/api/v1/status``'s ``tick`` block:
-    the keys of ``mt data accounting --json``'s ``tick.products``."""
+    the keys of ``mt data accounting --json``'s ``tick.products``. The top-level
+    figures are the tick tier's (231); ``families`` lists every wanted family."""
 
     product: str
     sessions_in_scope: int
     sessions_complete: int
     buckets: dict[str, int]
     records: int
+    families: list[FamilyAccountingRecord] = Field(default_factory=list)
 
 
 class TickBlock(BaseModel):
@@ -263,14 +297,46 @@ class TickBlock(BaseModel):
             state=TickLineState.OK,
             detail=None,
             products=[
-                TickAccountingRecord(
-                    product=line.product,
-                    sessions_in_scope=line.sessions_in_scope,
-                    sessions_complete=line.sessions_complete,
-                    buckets=line.buckets,
-                    records=line.records,
-                )
-                for line in result
-                if line.family == SchemaFamily.TICK_TIER.value
+                _product_record(product, lines)
+                for product, lines in _by_product(result)
             ],
         )
+
+
+def _by_product(
+    lines: Sequence[TickAccountingLine],
+) -> list[tuple[str, list[TickAccountingLine]]]:
+    """Lines grouped by product, in order (a product's lines are adjacent)."""
+    return [(p, list(group)) for p, group in groupby(lines, key=lambda x: x.product)]
+
+
+def _product_record(
+    product: str, lines: list[TickAccountingLine]
+) -> TickAccountingRecord:
+    (tier,) = [x for x in lines if x.family == SchemaFamily.TICK_TIER.value]
+    return TickAccountingRecord(
+        product=product,
+        sessions_in_scope=tier.sessions_in_scope,
+        sessions_complete=tier.sessions_complete,
+        buckets=tier.buckets,
+        records=tier.records,
+        families=[
+            FamilyAccountingRecord.model_validate(_family_fields(line))
+            for line in lines
+            if line.schema is not None  # a tick tier nothing wants is no family
+        ],
+    )
+
+
+def _family_fields(line: TickAccountingLine) -> dict[str, Any]:
+    return {
+        "family": line.family,
+        "schema": line.schema,
+        "sessions_in_scope": line.sessions_in_scope,
+        "sessions_complete": line.sessions_complete,
+        "buckets": line.buckets,
+        "records": line.records,
+        "caught_up": line.caught_up,
+        "source_edge": line.source_edge,
+        "load_complete_only": line.load_complete_only,
+    }

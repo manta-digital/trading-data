@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Generator, Iterator
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -23,8 +24,11 @@ from tick_support.roll_seed import ESZ4, seed_september_roll
 from typer.testing import CliRunner
 
 from manta_trading.api_server.deps import get_db
+from manta_trading.api_server.routes import status as status_route
 from manta_trading.cli.app import app as cli_app
+from manta_trading.data.tick import family_report
 from manta_trading.data.tick.ingest_records import utc_ns
+from manta_trading.data.tick.universe import TICK_UNIVERSE
 from manta_trading.market.schema.migrations import TRACKS
 
 HEALTH, STATUS, OVERVIEW = "/api/v1/health", "/api/v1/status", "/api/v1/overview"
@@ -131,6 +135,29 @@ def test_a_primary_failure_still_reports_db_error(tick_client: TestClient) -> No
 # -- status (7.4) --------------------------------------------------------------
 
 
+def _without_families(tick: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **tick,
+        "products": [
+            {k: v for k, v in p.items() if k != "families"} for p in tick["products"]
+        ],
+    }
+
+
+def _cli_family(family: dict[str, Any]) -> dict[str, Any]:
+    """A CLI family entry as the API serves it: no product, no cross-tier."""
+    return {k: v for k, v in family.items() if k not in ("product", "cross_tier")}
+
+
+def _api_family(family: dict[str, Any]) -> dict[str, Any]:
+    """The family with its ``source_edge`` as an instant (the two JSON spellings
+    of one UTC time differ: ``Z`` and ``+00:00``)."""
+    edge = family["source_edge"]
+    return family | {
+        "source_edge": None if edge is None else datetime.fromisoformat(edge)
+    }
+
+
 def test_the_status_tick_block_equals_the_cli_accounting(
     seeded: TestClient,
     migrated_tick_db: str,
@@ -141,17 +168,71 @@ def test_the_status_tick_block_equals_the_cli_accounting(
     block = seeded.get(STATUS).json()["tick"]
     cli = _cli_json(monkeypatch, (migrated_tick_db, session_migrated_db), "accounting")
 
-    # The CLI adds ``families`` per product (305 D6); the API gains its own
-    # ``families`` in task 7, so only the shared tick-tier fields are compared.
-    cli_tick = {
-        **cli["tick"],
-        "products": [
-            {k: v for k, v in p.items() if k != "families"}
-            for p in cli["tick"]["products"]
-        ],
-    }
-    assert block == cli_tick
+    # Existing top-level fields are identical; ``families`` carries the same
+    # figures minus the CLI-only product and cross-tier keys (305 D8).
+    assert _without_families(block) == _without_families(cli["tick"])
+    for api_product, cli_product in zip(
+        block["products"], cli["tick"]["products"], strict=True
+    ):
+        assert [_api_family(f) for f in api_product["families"]] == [
+            _api_family(_cli_family(f))
+            for f in cli_product["families"]
+            if f["schema"] is not None
+        ]
     assert block["state"] == "ok" and block["products"][0]["product"] == "ES"
+
+
+def test_families_are_served_per_wanted_family_without_cross_tier_keys(
+    seeded: TestClient,
+) -> None:
+    (es,) = [
+        p for p in seeded.get(STATUS).json()["tick"]["products"] if p["product"] == "ES"
+    ]
+    assert [f["family"] for f in es["families"]] == [
+        "tick_tier",
+        "statistics",
+        "bar_1m",
+    ]
+    tier = es["families"][0]
+    assert tier["schema"] == "tbbo"
+    assert set(tier) == {
+        "family",
+        "schema",
+        "sessions_in_scope",
+        "sessions_complete",
+        "buckets",
+        "records",
+        "caught_up",
+        "source_edge",
+        "load_complete_only",
+    }
+    assert tier["records"] == es["records"]
+
+
+def test_a_volume_family_with_no_statistics_want_is_load_complete_only(
+    seeded: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bare = replace(TICK_UNIVERSE[0], history=())
+    monkeypatch.setattr(status_route, "TICK_UNIVERSE", (bare,))
+    (es,) = seeded.get(STATUS).json()["tick"]["products"]
+    (family,) = es["families"]
+    assert family["load_complete_only"] is True
+
+
+def test_a_statement_failing_partway_names_the_step_and_serves_no_products(
+    seeded: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def timed_out(*args: Any, **kwargs: Any) -> Any:
+        raise psycopg.errors.QueryCanceled(
+            "canceling statement due to statement timeout"
+        )
+
+    monkeypatch.setattr(family_report, "ledger_totals", timed_out)
+    response = seeded.get(STATUS)
+    block = response.json()["tick"]
+    assert response.status_code == 200
+    assert (block["state"], block["products"]) == ("unreachable", [])
+    assert block["detail"].startswith("ES tick_tier: records: ")
 
 
 def test_the_equities_filters_leave_the_block_alone(seeded: TestClient) -> None:

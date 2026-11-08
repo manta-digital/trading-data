@@ -1224,6 +1224,81 @@
         "title": "EventRecord",
         "type": "object"
       },
+      "FamilyAccountingRecord": {
+        "description": "One wanted family of a product in ``/api/v1/status``'s ``tick`` block\n(305 D8): the figures of ``mt data accounting --json``'s ``families``,\nwithout the cross-tier counts (those stay in the CLI, health and status).",
+        "properties": {
+          "buckets": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Buckets",
+            "type": "object"
+          },
+          "caught_up": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every session judged up to ``source_edge`` is complete, or a hole the provider declared. ``null`` means no dataset edge is known or no range is wanted: never read it as caught up.",
+            "title": "Caught Up"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "load_complete_only": {
+            "description": "True when nothing checks this family's traded volume against CME's cleared volume: it is judged on units loaded only.",
+            "title": "Load Complete Only",
+            "type": "boolean"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          },
+          "schema": {
+            "title": "Schema",
+            "type": "string"
+          },
+          "sessions_complete": {
+            "title": "Sessions Complete",
+            "type": "integer"
+          },
+          "sessions_in_scope": {
+            "title": "Sessions In Scope",
+            "type": "integer"
+          },
+          "source_edge": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The last instant the provider can have published this family.",
+            "title": "Source Edge"
+          }
+        },
+        "required": [
+          "family",
+          "schema",
+          "sessions_in_scope",
+          "sessions_complete",
+          "buckets",
+          "records",
+          "caught_up",
+          "source_edge",
+          "load_complete_only"
+        ],
+        "title": "FamilyAccountingRecord",
+        "type": "object"
+      },
       "FuturesBarRecord": {
         "description": "One session-bounded bar (``/futures/.../bars``): ``BAR_COLUMNS`` in\norder. ``time`` is the bucket start; ``1d`` is the whole session.",
         "properties": {
@@ -3557,7 +3632,7 @@
         "type": "object"
       },
       "TickAccountingRecord": {
-        "description": "One product's tick accounting in ``/api/v1/status``'s ``tick`` block:\nthe keys of ``mt data accounting --json``'s ``tick.products``.",
+        "description": "One product's tick accounting in ``/api/v1/status``'s ``tick`` block:\nthe keys of ``mt data accounting --json``'s ``tick.products``. The top-level\nfigures are the tick tier's (231); ``families`` lists every wanted family.",
         "properties": {
           "buckets": {
             "additionalProperties": {
@@ -3565,6 +3640,13 @@
             },
             "title": "Buckets",
             "type": "object"
+          },
+          "families": {
+            "items": {
+              "$ref": "#/components/schemas/FamilyAccountingRecord"
+            },
+            "title": "Families",
+            "type": "array"
           },
           "product": {
             "title": "Product",
@@ -4021,7 +4103,7 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, gap status, the Kalshi prediction-market catalog and time series, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.25.0"
+    "version": "0.26.0"
   },
   "openapi": "3.1.0",
   "paths": {

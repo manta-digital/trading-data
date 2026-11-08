@@ -254,23 +254,24 @@ revision_number: 2
 
 ## 7. `/api/v1/status` Block (D8)
 
-- [ ] **7.1 Add `FamilyAccountingRecord` and `TickAccountingRecord.families`** in `api_server/models/futures.py`
-  - [ ] `FamilyAccountingRecord`: `family`, `schema`, `sessions_in_scope`, `sessions_complete`, `buckets`, `records`, `caught_up` (nullable), `source_edge` (nullable datetime), `load_complete_only`. Field docs say `caught_up: null` means no edge or no wanted range, never "assume yes".
-  - [ ] No cross-tier fields.
-  - [ ] Success: existing fields keep name, type and meaning.
+- [x] **7.1 Add `FamilyAccountingRecord` and `TickAccountingRecord.families`** in `api_server/models/futures.py`
+  - [x] `FamilyAccountingRecord`: `family`, `schema`, `sessions_in_scope`, `sessions_complete`, `buckets`, `records`, `caught_up` (nullable), `source_edge` (nullable datetime), `load_complete_only`. Field docs say `caught_up: null` means no edge or no wanted range, never "assume yes".
+  - [x] No cross-tier fields.
+  - [x] Success: existing fields keep name, type and meaning.
+  - Note: the JSON key is `schema`, but the Python attribute is `schema_name` with alias `schema`, because a field named `schema` shadows pydantic's `BaseModel.schema`.
 
-- [ ] **7.2 Serve it from `tick_access.read_tick`**
-  - [ ] Call `futures_completeness(cross_tier=False)` (wired in 4.1) and map each line's family fields into `FamilyAccountingRecord`. On error, return the existing non-`ok` state with the `unavailable_with_progress` detail and no products (231).
-  - [ ] Success: `GET /api/v1/status` returns `families` per product.
+- [x] **7.2 Serve it from `api_server/routes/status.py` `_tick_block`**
+  - [x] Call `futures_completeness(cross_tier=False)` (wired in 4.1) and map each line's family fields into `FamilyAccountingRecord`. On error, return the existing non-`ok` state with the `unavailable_with_progress` detail and no products (231).
+  - [x] Success: `GET /api/v1/status` returns `families` per product.
 
-- [ ] **7.3 Test the API block**
-  - [ ] Unit: model round-trip; the existing `TickAccountingRecord` JSON for a product without families still validates.
-  - [ ] Integration: `families` present per wanted family, no cross-tier keys, existing fields identical to the 231 shape; `load_complete_only` is true for a volume family of a product with no statistics want (criterion 5); an unreadable tick tier returns the non-`ok` state and empty products.
-  - [ ] Success: all pass (criterion 10).
+- [x] **7.3 Test the API block**
+  - [x] Unit: model round-trip; the existing `TickAccountingRecord` JSON for a product without families still validates.
+  - [x] Integration: `families` present per wanted family, no cross-tier keys, existing fields identical to the 231 shape; `load_complete_only` is true for a volume family of a product with no statistics want (criterion 5); an unreadable tick tier returns the non-`ok` state and empty products.
+  - [x] Success: all pass (criterion 10).
 
-- [ ] **7.4 Document the block**
-  - [ ] Update `docs/api/reference.md` and `docs/api/agents.md` with `families` and the `caught_up: null` meaning, and regenerate `docs/api/openapi.json` with the project's existing export command (look it up in the 231/190 task files or `README.md`; do not hand-edit).
-  - [ ] Success: `git diff` on `openapi.json` shows only the new model and field; the existing openapi drift test passes.
+- [x] **7.4 Document the block**
+  - [x] Update `docs/api/reference.md` and `docs/api/agents.md` with `families` and the `caught_up: null` meaning, and regenerate `docs/api/openapi.json` with the project's existing export command (look it up in the 231/190 task files or `README.md`; do not hand-edit).
+  - [x] Success: `git diff` on `openapi.json` shows only the new model and field; the existing openapi drift test passes.
 
 **Commit**: `feat: serve per-family completeness in /api/v1/status`
 

@@ -526,6 +526,7 @@ provider. Treat it as expensive and cache what it tells you.
 | `/api/v1/bars/{symbol}` | `is_stale` | The continuous aggregate for this grain is behind its source; bars may be incomplete. Always `false` for `1m` and `1d` — they are raw, so no aggregate exists that could lag. |
 | `/api/v1/health` | `coverage` | Coarse whole-system verdict. Not about your symbol. |
 | `/api/v1/status` | `coverage.verdicts[]` | Per-view freshness with `lag_seconds`. **`null` is not `0.0`** — it means the lag could not be measured. |
+| `/api/v1/status` | `tick.products[].families[].caught_up` | Whether a futures family holds every session the provider has published (`source_edge`) for the range the product wants. **`null` is not `true`** — no dataset edge is known or no range is wanted. `load_complete_only: true` means its volume is not cross-checked against CME's cleared volume. |
 | `/api/v1/kalshi/…/candlesticks` | `complete_through` | Requested and stored through this instant. |
 | `/api/v1/kalshi/…/trades` | `tape_complete_through` | Created time of the newest stored trade; `null` means the phase never ran. |
 | `/api/v1/overview` | `sources[].newest` | Newest row in each source table — the most direct freshness signal in the API. |
