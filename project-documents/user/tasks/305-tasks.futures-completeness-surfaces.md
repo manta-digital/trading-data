@@ -15,7 +15,7 @@ projectState: Slice design committed and reviewed (CONCERNS). `tick status` and 
   tier. `_families` and `_judged` live in `tick_status_build.py` (288 lines).
 dateCreated: 20261108
 dateUpdated: 20261108
-status: not_started
+status: in_progress
 turns: 21
 promptTokens: 1562390
 cachedTokens: 1463310
@@ -279,11 +279,11 @@ revision_number: 2
 
 ## 8. Four-Surface Agreement (criterion 3)
 
-- [ ] **8.1 Agreement test** `test/integration/data/test_family_surface_agreement.py`
-  - [ ] Seed one database with two products and all three families, including a missing session, a provider-hole day and an open statistics window.
-  - [ ] Build `build_status`, the health rows, `accounting_lines` and the API block from it. For status, accounting and the API, assert identical buckets, `caught_up` and `source_edge` per product and family.
-  - [ ] Health rows carry no bucket map: parse each row's detail (the D5 format: complete/judged counts, source edge date, caught-up wording, non-zero buckets by name) with a small helper in the test, and assert the same values.
-  - [ ] Success: passes; fails if any surface judges a different session set.
+- [x] **8.1 Agreement test** `test/integration/data/test_family_surface_agreement.py`
+  - [x] Seed one database with two products and all three families, including a missing session, a provider-hole day and an open statistics window.
+  - [x] Build `build_status`, the health rows, `accounting_lines` and the API block from it. For status, accounting and the API, assert identical buckets, `caught_up` and `source_edge` per product and family.
+  - [x] Health rows carry no bucket map: parse each row's detail (the D5 format: complete/judged counts, source edge date, caught-up wording, non-zero buckets by name) with a small helper in the test, and assert the same values.
+  - [x] Success: passes; fails if any surface judges a different session set.
 
 **Commit**: `test: add four-surface futures completeness agreement`
 
