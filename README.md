@@ -763,6 +763,23 @@ the calendar's populated sessions: run `mt data extend`); `3` coverage
 found a mismatch (it names the contract and both counts); `4` the tick or
 production (calendar) database is unreachable.
 
+`mt data tick get <size>` serves the provider's `ohlcv-1m` bars (rolled up per
+session for the coarser sizes), never bars built from ticks, and names its
+`source`; a range with ticks and no provider bars prints no rows, lists the
+sessions as incomplete and exits `3`. `mt data tick parity` compares the minutes
+built from ticks with the provider's minutes for the sessions complete in both
+tiers, and marks the minute stamped at each session close:
+
+```sh
+mt data tick get 1h --product ES --start 2024-12-03 --end 2024-12-04 --json
+mt data tick parity --product ES --start 2024-12-03 --end 2024-12-04 --json
+```
+
+`parity` takes `--contract` or `--product [--rule]`, `--start`, `--end`
+(session dates, `--end` EXCLUSIVE) and `--json`. Exit codes: `0` every compared
+minute agrees; `3` a finished comparison with a minute that does not; `1` a bad
+rule, date, product or contract; `4` the database failed (no report is printed).
+
 ## Data Serving API
 
 ```sh

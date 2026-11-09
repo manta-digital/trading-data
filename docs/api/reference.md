@@ -1461,8 +1461,8 @@ keeps `/api/v1/overview` pure database and safe to poll.
 ## 6. Endpoints: futures
 
 Futures tick data: the configured products, their contract definitions and roll
-schedules, and ticks or session-bounded bars by contract or by product under a
-roll rule. Served from the tick database (`MT_TICK_DB_URL`), not the equity
+schedules, ticks, and bars by contract or by product under a roll rule. Bars
+are the provider's one-minute bars, rolled up per session; ticks never make bars. Served from the tick database (`MT_TICK_DB_URL`), not the equity
 store. When that database is not configured, unreachable, or missing a
 migration, every route here answers `503` (§6.1) and the rest of the API is
 unaffected.
@@ -1484,8 +1484,38 @@ session, or the day after the last one. `end` at or before `start` is a `422`.
 between them, which is how a client reads a session larger than the row
 ceiling. To page, pass the previous request's `until` as the next `from`; pages
 neither overlap nor skip. `from` must be before `until` (`422` otherwise). Bars
-take no instant bounds: a bar starts at its bucket or the session open, so
+take no instant bounds: a bar starts at its session-anchored bucket, so
 clipping would move the first bar's stamp. Bound a bars request by sessions.
+
+**Bars come from the provider's one-minute bars, and from nothing else.** Every
+size is built from Databento `ohlcv-1m` bars: `1m` as stored, `5m` `15m` `1h`
+`4h` and `1d` rolled up from them (open of the first, high, low, close of the
+last, summed volume). Ticks are never read for bars, even where a session has
+ticks and no provider bars. Every bars response names this in `source`
+(`"ohlcv-1m"`), so a backtest can tell which tier built what it received.
+
+- **Buckets are anchored at the session open.** `1m`, `5m`, `15m` and `1h` fall
+  on the same instants as a UTC grid, because the CME open is on the hour. `4h`
+  starts at the open and every four hours after it: 17:00, 21:00, 01:00, 05:00,
+  09:00 and 13:00 Chicago time, whichever side of daylight saving the session
+  is on. The last `4h` bar is short: it runs from 13:00 to the close, and an
+  early close cuts it there. `1d` is the whole session, stamped with its open.
+  Empty buckets are omitted, and a bar never crosses a session.
+- **No provider bars, no bars.** A session with ticks and no provider bars
+  returns no rows and is listed in `incomplete` with its provider-bar status
+  (`missing`, `awaiting_ingest`, …). It is never filled from ticks.
+- **`incomplete` carries the load verdict only.** A session whose provider bars
+  are loaded completely but fail the cross-tier volume check (traded against
+  CME's cleared volume) is served and not listed. That finding belongs to
+  `mt data tick coverage`.
+- **A one-minute stub bar closes a regular session at `5m`, `15m` and `1h`.** A
+  provider bar can be stamped exactly at the session close, and the close is
+  inside the session. When the session length is a multiple of the bar width (a
+  regular 23-hour session), that bar lands alone in a bucket stamped at the
+  close. It is a real bar, not a data fault. Whether the closed-interval rule is
+  right is issue #70, measured by `mt data tick parity`.
+- **Statistics are not served** (open interest, settlement, cleared volume).
+  Operators read them with `mt data tick coverage --schema statistics`.
 
 **Roll rules** name the contract a product read uses for each session:
 `{method}.{rank}[+{offset}s]`, case-insensitive. The default is `v.0`, the
@@ -1642,7 +1672,8 @@ The contract the rule names for each session in `[start, end)`: as runs
 (`segments`), per session (`answers`), and the sessions it could not answer
 (`unresolved`). The same body as `mt data tick active --product … --start …
 --end … --json`'s schedule. With nothing held and a date omitted, every array
-is empty.
+is empty. The default range comes from the tick ledger, so for a range held
+only as provider bars, pass `start` and `end`.
 
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
@@ -1678,7 +1709,7 @@ One contract's ticks, in key order (`ts_event`, then `sequence`).
 
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
-| `start`, `end` | date | no | the contract's held sessions | Session dates; `end` **exclusive**. |
+| `start`, `end` | date | no | the contract's sessions held as provider bars | Session dates; `end` **exclusive**. |
 | `from` | date-time | no | — | First instant, inclusive. |
 | `until` | date-time | no | — | Instant bound, **exclusive**. |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
@@ -1737,9 +1768,10 @@ over the row ceiling; `503`.
              format:json|msgpack
      errors: 422, 503, 504 -->
 
-One contract's bars, built from its ticks. A bar never crosses a session: the
-first bar of a session starts at the session open, and `1d` is the whole
-session, stamped with its open. Empty buckets are omitted.
+One contract's provider bars (§6.1): `1m` as stored, coarser sizes rolled up per
+session from them, buckets anchored at the session open. Empty buckets are
+omitted, and `1d` is the whole session, stamped with its open. A session with no
+provider bars returns no rows and is listed in `incomplete`.
 
 Futures bar sizes are `1m` `5m` `15m` `1h` `4h` `1d`.
 <!-- from: manta_trading.api_server.routes.futures_params.TickBarGranularity -->
@@ -1751,16 +1783,27 @@ Futures bar sizes are `1m` `5m` `15m` `1h` `4h` `1d`.
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
 
 The body is the ticks envelope (§6.5) without `from`/`until`, plus
-`granularity`, with `bars[]` in place of `ticks[]`:
+`granularity` and `source` (the provider schema the bars were built from, today
+always `"ohlcv-1m"`), with `bars[]` in place of `ticks[]`:
 
 | Field | Type | Null? | Meaning |
 |---|---|---|---|
-| `bars[].time` | string | no | Bucket start (or the session open), nine fraction digits. |
+| `bars[].time` | string | no | Bucket start (session-anchored), nine fraction digits. |
 | `bars[].session_date`, `raw_symbol`, `instrument_id` | | no | Which session and contract. |
 | `bars[].open`, `high`, `low`, `close` | string | yes | Exact decimal text. |
 | `bars[].volume` | integer | no | Contracts traded. |
 
 **Errors**: as §6.5, plus `422` for a size outside the list.
+
+```json
+{"target":{"kind":"contract","product":null,"contract":"ESZ4","instrument_id":0,"rule":null,"is_default":null},
+ "granularity":"4h","source":"ohlcv-1m","start":"2024-12-03","end":"2024-12-04","definitions_as_of":null,
+ "segments":[{"first_session":"2024-12-03","last_session":"2024-12-03","raw_symbol":"ESZ4","instrument_id":0,"basis":null}],
+ "unresolved":[],"incomplete":[],"count":6,
+ "bars":[{"time":"2024-12-02T23:00:00.000000000Z","session_date":"2024-12-03","raw_symbol":"ESZ4","instrument_id":0,"open":"…","high":"…","low":"…","close":"…","volume":0},…]}
+```
+
+*Shape only: values are elided with `…` and zeros.*
 
 ### 6.7 `GET /api/v1/futures/products/{product}/ticks`
 
@@ -1787,22 +1830,21 @@ over 1,300 sessions; `503`, including when the calendar database is down.
 
 A product's bars under a roll rule: §6.6's parameters and body, plus `rule`.
 Each bar comes from one contract; a roll shows in `segments` and in each bar's
-`raw_symbol`.
+`raw_symbol`. `segments[].basis` is the tier the *roll* was decided from; the
+bars themselves always come from the provider's one-minute bars (`source`).
 
-```sh
-curl 'http://127.0.0.1:8137/api/v1/futures/products/ES/bars?granularity=1d&start=2024-09-16&end=2024-09-21'
-```
+For `GET /api/v1/futures/products/ES/bars?granularity=1d&start=2024-09-16&end=2024-09-21`:
 
 ```json
 {"target":{"kind":"product","product":"ES","contract":null,"instrument_id":null,"rule":"v.0","is_default":true},
- "granularity":"1d","start":"2024-09-16","end":"2024-09-21","definitions_as_of":"2024-12-31",
+ "granularity":"1d","source":"ohlcv-1m","start":"2024-09-16","end":"2024-09-21","definitions_as_of":"2024-12-31",
  "segments":[{"first_session":"2024-09-16","last_session":"2024-09-17","raw_symbol":"ESU4","instrument_id":118,"basis":"tick_tier"},
              {"first_session":"2024-09-18","last_session":"2024-09-20","raw_symbol":"ESZ4","instrument_id":183748,"basis":"tick_tier"}],
  "unresolved":[],"incomplete":[],"count":5,
- "bars":[{"time":"2024-09-15T22:00:00.000000000Z","session_date":"2024-09-16","raw_symbol":"ESU4","instrument_id":118,"open":"5622.75","high":"5641.5","low":"5609.25","close":"5633.75","volume":461273},…]}
+ "bars":[{"time":"2024-09-15T22:00:00.000000000Z","session_date":"2024-09-16","raw_symbol":"ESU4","instrument_id":118,"open":"…","high":"…","low":"…","close":"…","volume":0},…]}
 ```
 
-*Captured 2026-10-13 against the dev tick database. Four of five bars elided.*
+*Shape only: values are elided with `…` and zeros; four of five bars elided.*
 
 At `1m`, a session yields about 1,380 bars, so one request covers about 54
 sessions before the row ceiling.

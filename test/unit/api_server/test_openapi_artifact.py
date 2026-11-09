@@ -33,9 +33,7 @@ def _load_dump_script() -> Any:
     what keeps the test honest: if the script's serialization changes, this
     test sees the change rather than a copy of it.
     """
-    script_path = (
-        Path(__file__).resolve().parents[3] / "scripts" / "dump_openapi.py"
-    )
+    script_path = Path(__file__).resolve().parents[3] / "scripts" / "dump_openapi.py"
     spec = importlib.util.spec_from_file_location("dump_openapi", script_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"could not load {script_path}")
@@ -62,8 +60,7 @@ def test_committed_artifact_matches_the_app_ignoring_version() -> None:
     committed = json.loads(ARTIFACT_PATH.read_text(encoding="utf-8"))
     generated = json.loads(generate())
     assert _without_version(committed) == _without_version(generated), (
-        "docs/api/openapi.json is stale; "
-        "run: uv run python scripts/dump_openapi.py"
+        "docs/api/openapi.json is stale; run: uv run python scripts/dump_openapi.py"
     )
 
 
@@ -155,6 +152,26 @@ def test_published_paths_declare_both_media_types(path: str) -> None:
             f"{path} does not declare {media_type} on its 200 in "
             f"{ARTIFACT_PATH}; it declares {sorted(content)}"
         )
+
+
+BARS_PATHS = (
+    "/api/v1/futures/contracts/{symbol}/bars",
+    "/api/v1/futures/products/{product}/bars",
+)
+
+
+def test_futures_bars_publish_their_source() -> None:
+    """306 D2: ``source`` is a required string of the bars response, and both bars
+    routes' ``200`` (in both encodings) reference that schema."""
+    artifact = _committed_artifact()
+    schema = artifact["components"]["schemas"]["FuturesBarsResponse"]
+    assert schema["properties"]["source"]["type"] == "string"
+    assert "source" in schema["required"]
+    for path in BARS_PATHS:
+        content = artifact["paths"][path]["get"]["responses"]["200"]["content"]
+        for media_type in PUBLISHED_MEDIA_TYPES:
+            ref = content[media_type]["schema"]["$ref"]
+            assert ref == "#/components/schemas/FuturesBarsResponse", (path, media_type)
 
 
 def _described_fields(model: type[BaseModel]) -> dict[str, str]:

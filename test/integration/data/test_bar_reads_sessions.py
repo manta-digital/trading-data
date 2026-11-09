@@ -106,3 +106,30 @@ async def test_the_last_4h_bucket_of_an_early_close_holds_nothing_after_the_clos
 def _bars_in(window: TickWindow) -> int:
     """How many seeded bars fall in the window (every 15 minutes, closed)."""
     return (window.close_ns - window.open_ns) // (15 * NS_PER_MINUTE) + 1
+
+
+async def test_a_bucket_never_crosses_the_daily_break(
+    migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    """Ported from the read-time 4h test: two adjacent sessions, each read apart.
+    The next session's first bar starts at its own open, and no bar of one holds
+    a minute of the other."""
+    first = session_window(session_migrated_db, date(2024, 11, 4), INSTRUMENT)
+    second = session_window(session_migrated_db, date(2024, 11, 5), INSTRUMENT)
+    assert first.close_ns < second.open_ns  # the break between them
+    for window in (first, second):
+        _seed_session(migrated_tick_db, window)
+
+    served = {}
+    for name, window in (("first", first), ("second", second)):
+        served[name] = bar_dicts(
+            await read_rows(
+                migrated_tick_db, read_provider_bars, window, Granularity.H4
+            )
+        )
+
+    assert served["first"][0]["time"] == first.open_ns
+    assert served["second"][0]["time"] == second.open_ns
+    assert served["first"][-1]["time"] < first.close_ns
+    per_session = (first.close_ns - first.open_ns) // (30 * 60 * 10**9) + 1
+    assert sum(b["volume"] for b in served["first"]) == per_session

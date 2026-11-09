@@ -353,9 +353,15 @@ a roll rule. Rows are `ticks[]` with string prices and nanosecond string times.
 ### "Give me futures bars."
 
 `GET /api/v1/futures/contracts/{symbol}/bars?granularity=` or
-`GET /api/v1/futures/products/{product}/bars?granularity=&rule=`. Bars are
-built from ticks at read time and never cross a session; `1d` is the whole
-session.
+`GET /api/v1/futures/products/{product}/bars?granularity=&rule=`. Bars are the
+provider's one-minute bars (`source: "ohlcv-1m"` in the response), rolled up per
+session for `5m` `15m` `1h` `4h` `1d`; ticks never make bars. Buckets start at
+the session open (`4h` at 17:00, 21:00, 01:00, 05:00, 09:00, 13:00 Chicago time;
+the last is short), a bar never crosses a session, and `1d` is the whole
+session. **No provider bars, no bars:** a session that has ticks and no provider
+bars returns no rows and appears in `incomplete`. On a regular session `5m`,
+`15m` and `1h` end with a one-minute bar stamped at the close; it is real data,
+not a fault.
 
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/bars
      params: granularity:TickBarGranularity, start:date, end:date,
@@ -373,8 +379,8 @@ futures symbols, and its `end` is inclusive.
 **Before trusting a product read, check three arrays:** `segments` (which
 contract served which sessions, and from which tier's data the roll was decided,
 `basis`), `unresolved` (sessions with no rows at all),
-and `incomplete` (sessions whose rows may be partial). All three come with HTTP
-`200`.
+and `incomplete` (sessions whose rows may be partial; for bars, sessions whose
+provider bars are not completely loaded). All three come with HTTP `200`.
 
 ## 3. Choosing a window
 

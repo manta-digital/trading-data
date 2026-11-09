@@ -216,8 +216,8 @@ revision_number: 2
   - [x] In `tick_reads.py`, delete `_BARS`, `_INTRADAY_BUCKET`, `_SESSION_BUCKET`, `read_bars` and the imports only they used (`Granularity`, `GRANULARITY_BAR_MINUTES`, `_NS_PER_MINUTE` if nothing else uses it). Update the module docstring: it no longer mentions bars. Keep `read_ticks`, `TICK_COLUMNS`, `BAR_COLUMNS`, `TickWindow` and the helpers `bar_reads`/`bar_parity` import.
   - [x] Success: the module imports cleanly and mypy passes.
 
-- [ ] **6.2 Move or delete the old tick-bar tests**
-  - [ ] `test/integration/data/test_tick_reads.py`: remove the `read_bars` tests (lines ~99–149); the equivalent bucketing and window cases are covered by `test_bar_reads.py` (2.3) and the tick-minute SQL by `test_tick_parity.py` (5.7). If any case there has no counterpart (for example the two-instrument isolation test or the empty window), port it to the matching new file first. Update the module docstring.
+- [x] **6.2 Move or delete the old tick-bar tests**
+  - [x] `test/integration/data/test_tick_reads.py`: remove the `read_bars` tests (lines ~99–149); the equivalent bucketing and window cases are covered by `test_bar_reads.py` (2.3) and the tick-minute SQL by the new `test_bar_parity_sql.py` (ties by key, integer volume, empty minutes, instrument isolation and the empty window were ported there; `test_tick_parity.py` (5.7) covers the command). Cases with no counterpart were ported first. Update the module docstring.
   - [x] `test/integration/data/test_tick_coverage_bars.py` and `test_tick_status_build.py` matched the earlier grep for `_BARS`; check each match. If it is only an unrelated name, leave the file alone.
   - [x] Success: `test_tick_reads.py` covers `read_ticks` only and passes.
 
@@ -238,24 +238,24 @@ revision_number: 2
 
 ## 7. Docs, OpenAPI, CHANGELOG (D4–D7, criteria 12, 13)
 
-- [ ] **7.1 `docs/api/reference.md`**
-  - [ ] §6.1 (conventions) states: the bar-source rule (provider `ohlcv-1m` only, ticks never serve bars); `source` on every bars response; session-anchored buckets (4h at 17:00, 21:00, 01:00, 05:00, 09:00, 13:00 CT, short last bar, early-close cut); "no provider bars, no bars" (session listed in `incomplete` with its `BAR_1M` status); `incomplete` carries the load verdict only, and a load-complete session that fails the cross-tier volume check is served and not listed (it belongs to `mt data tick coverage`); the close-stamped one-minute stub bucket at 5m/15m/1h on a regular session, tied to issue #70; statistics are not served.
-  - [ ] Rewrite §6.6 and §6.8 for the new behaviour and `source`, with a response example in the design's shape (values elided). Fix the §6.1 line that says `mt data tick get` exits 3 when sessions are incomplete if that text now misdescribes bars. Check the §6.4 note that `/schedule`'s default range still comes from the tick ledger and a bar-only range must be given explicitly (D3).
-  - [ ] Success: the sections read consistently with the design; no mention of bars built from ticks remains (grep `built from ticks`, `tick bars`).
+- [x] **7.1 `docs/api/reference.md`**
+  - [x] §6.1 (conventions) states: the bar-source rule (provider `ohlcv-1m` only, ticks never serve bars); `source` on every bars response; session-anchored buckets (4h at 17:00, 21:00, 01:00, 05:00, 09:00, 13:00 CT, short last bar, early-close cut); "no provider bars, no bars" (session listed in `incomplete` with its `BAR_1M` status); `incomplete` carries the load verdict only, and a load-complete session that fails the cross-tier volume check is served and not listed (it belongs to `mt data tick coverage`); the close-stamped one-minute stub bucket at 5m/15m/1h on a regular session, tied to issue #70; statistics are not served.
+  - [x] Rewrite §6.6 and §6.8 for the new behaviour and `source`, with a response example in the design's shape (values elided). Fix the §6.1 line that says `mt data tick get` exits 3 when sessions are incomplete if that text now misdescribes bars. Check the §6.4 note that `/schedule`'s default range still comes from the tick ledger and a bar-only range must be given explicitly (D3).
+  - [x] Success: the sections read consistently with the design; no mention of bars built from ticks remains (grep `built from ticks`, `tick bars`).
 
-- [ ] **7.2 `docs/api/agents.md`**
-  - [ ] Rewrite "Give me futures bars" for provider bars, with `source`, the session anchoring and "no provider bars, no bars". Keep the `<!-- endpoint: -->` markers for the two bars routes in the format `scripts/check_api_docs.py` expects (read an existing marker block first).
-  - [ ] Success: `uv run python scripts/check_api_docs.py` passes.
+- [x] **7.2 `docs/api/agents.md`**
+  - [x] Rewrite "Give me futures bars" for provider bars, with `source`, the session anchoring and "no provider bars, no bars". Keep the `<!-- endpoint: -->` markers for the two bars routes in the format `scripts/check_api_docs.py` expects (read an existing marker block first).
+  - [x] Success: `uv run python scripts/check_api_docs.py` passes.
 
-- [ ] **7.3 Regenerate OpenAPI**
-  - [ ] Run `scripts/dump_openapi.py` to regenerate `docs/api/openapi.json`. Confirm in the diff that only `FuturesBarsResponse` gains `source` and nothing else changes (the `TickBarGranularity` component is unchanged).
-  - [ ] Add an assertion to `test_openapi_artifact.py` that `FuturesBarsResponse` has `source` and that the 200 response of both bars routes references it (both are published today).
-  - [ ] Success: `test_openapi_artifact.py`, `test_api_docs.py`, `test/integration/test_api_docs_examples.py` and `scripts/check_api_docs.py` pass.
+- [x] **7.3 Regenerate OpenAPI**
+  - [x] Run `scripts/dump_openapi.py` to regenerate `docs/api/openapi.json`. Confirm in the diff that only `FuturesBarsResponse` gains `source` (plus the descriptions of that model and of the contract bars route, reworded) and that the `TickBarGranularity` component is unchanged. Regenerated with the section 3 and 4 commit, so the artifact test stays green there.
+  - [x] Add an assertion to `test_openapi_artifact.py` that `FuturesBarsResponse` has `source` and that the 200 response of both bars routes references it (both are published today).
+  - [x] Success: `test_openapi_artifact.py`, `test_api_docs.py`, `test/integration/test_api_docs_examples.py` (its one failure, the Kalshi search example's missing capture date, is on main too) and `scripts/check_api_docs.py` pass.
 
-- [ ] **7.4 CHANGELOG, README and runbook lines**
-  - [ ] Add an Unreleased entry to `CHANGELOG.md` listing: bars now come from provider `ohlcv-1m` only; `source` on bars responses and `get` JSON; 4h buckets anchored at the session open (closes #47); no bars where no provider bars are held; the close-stamped one-minute stub bucket; the new `mt data tick parity` command; statistics not served (issue #73).
-  - [ ] Update the operator `get` and `parity` lines wherever the runbook or README documents `mt data tick get`/`coverage` (grep `mt data tick get` in `README.md` and `deploy/`; the earlier grep found `README.md` around line 755). Add one `parity` line with its options and exit codes.
-  - [ ] Verify D6 is recorded: confirm issue #73's body states the statistics routes are deferred from 306 (read-only `gh issue view 73`); the design already holds the decision. Do not edit the issue unless the body lacks the route drafts.
-  - [ ] Success: `check_api_docs.py` passes. The CHANGELOG entry names every behaviour change in success criterion 13.
+- [x] **7.4 CHANGELOG, README and runbook lines**
+  - [x] Add an Unreleased entry to `CHANGELOG.md` listing: bars now come from provider `ohlcv-1m` only; `source` on bars responses and `get` JSON; 4h buckets anchored at the session open (closes #47); no bars where no provider bars are held; the close-stamped one-minute stub bucket; the new `mt data tick parity` command; statistics not served (issue #73).
+  - [x] Update the operator `get` and `parity` lines wherever the runbook or README documents `mt data tick get`/`coverage` (grep `mt data tick get` in `README.md` and `deploy/`; the earlier grep found `README.md` around line 755). Add one `parity` line with its options and exit codes.
+  - [x] Verify D6 is recorded: confirm issue #73's body states the statistics routes are deferred from 306 (read-only `gh issue view 73`); the design already holds the decision. Do not edit the issue unless the body lacks the route drafts.
+  - [x] Success: `check_api_docs.py` passes. The CHANGELOG entry names every behaviour change in success criterion 13.
 
 **Commit**: `docs: document provider bar serving, source, and mt data tick parity`
