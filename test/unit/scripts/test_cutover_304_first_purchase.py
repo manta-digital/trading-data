@@ -54,7 +54,12 @@ NOTHING = {
     "verdict": "nothing_to_buy",
     "reasons": [],
 }
-BASELINE = {"health_exit": 0, "definitions": {"ES": 10, "GC": 5}}
+FAMILIES = (("tick_tier", "tbbo"), ("bar_1m", "ohlcv-1m"), ("statistics", "statistics"))
+BASELINE = {
+    "health_exit": 0,
+    "definitions": {"ES": 10, "GC": 5},
+    "records": {f"{p}/{family}": 0 for p in ("ES", "GC") for family, _ in FAMILIES},
+}
 
 
 @pytest.fixture
@@ -100,6 +105,7 @@ def test_a_rerun_keeps_the_first_start_and_baselines(
 
     monkeypatch.setattr(ev, "health_exit_code", health)
     monkeypatch.setattr(ev, "definition_counts", definitions)
+    monkeypatch.setattr(ev, "record_totals", lambda: {"ES/bar_1m": 1})
     first = fp.record_start_and_baselines("304")
     second = fp.record_start_and_baselines("304")
     assert first == second
@@ -237,6 +243,7 @@ def test_slice_307_names_its_own_state_files_and_log(
 ) -> None:
     monkeypatch.setattr(ev, "health_exit_code", lambda: 0)
     monkeypatch.setattr(ev, "definition_counts", lambda: {"ES": 1})
+    monkeypatch.setattr(ev, "record_totals", lambda: {"ES/bar_1m": 1})
     start, _ = fp.record_start_and_baselines("307")
     assert (notes / "307-cutover-start.txt").read_text().strip() == start
     assert (notes / "307-cutover-baseline.json").exists()
@@ -266,6 +273,7 @@ def _session(
         "ledger": ledger,
         "raw": raw,
         "check": check,
+        "unit_ids": [],
     }
 
 
@@ -297,22 +305,61 @@ def test_the_definition_delta_is_against_the_baseline(ev: ModuleType) -> None:
     }
 
 
+UNIT = {
+    "unit_id": 0,
+    "request_id": 1,
+    "state": "ingested",
+    "fetch_status": "UNKNOWN",
+    "failure_reason": None,
+}
+
+
+def _accounting(*, caught_up: bool = True, over: int = 0) -> dict[str, Any]:
+    """The real ``mt data accounting --json`` shape for ES and GC."""
+    af = importlib.import_module("manta_trading.cli.commands.accounting_futures")
+    ta = importlib.import_module("manta_trading.data.tick.tick_accounting")
+    ct = importlib.import_module("manta_trading.data.tick.cross_tier_result")
+    sf = importlib.import_module("manta_trading.data.tick.schema_families")
+    complete = 10 if caught_up else 8
+    volume = (
+        ct.CrossTierResult("traded_vs_cleared", sf.SchemaFamily.BAR_1M, 9, 0, over, 0),
+    )
+    products = []
+    for product in ("ES", "GC"):
+        lines = [
+            ta.TickAccountingLine(
+                product, family, schema, 10, complete, {"complete": complete}, 0,
+                caught_up, None, False, volume if family == "bar_1m" else (),
+            )
+            for family, schema in FAMILIES
+        ]  # fmt: skip
+        products.append(af._product_payload(product, lines))
+    return {"rows": [], "tick": {"products": products}}
+
+
 def _fake_mt_run(
     ev: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     units: list[dict[str, Any]],
     *,
     fail: str | None = None,
-    sessions: list[dict[str, Any]] | None = None,
+    sessions: list[dict[str, Any]] | dict[str, list[dict[str, Any]]] | None = None,
+    accounting: dict[str, Any] | None = None,
+    requests: list[dict[str, Any]] | None = None,
 ) -> None:
     def fake(args: list[str]) -> subprocess.CompletedProcess[str]:
         joined = " ".join(args)
         if fail and fail in joined:
             return subprocess.CompletedProcess(args, 4, "", "storage down")
-        if "coverage" in joined:
-            body: Any = _coverage(*(sessions or []))
+        if "accounting" in joined:
+            body: Any = accounting or _accounting()
+        elif "coverage" in joined:
+            chosen = sessions or []
+            if isinstance(chosen, dict):
+                chosen = next((v for k, v in chosen.items() if k in joined), [])
+            body = _coverage(*chosen)
         elif "debug requests" in joined:
-            body = {"rows": []}
+            body = {"rows": requests or []}
         elif "units" in joined:
             body = {"rows": units}
         elif "overview" in joined:
@@ -368,7 +415,7 @@ def test_a_unit_with_no_reason_that_is_not_ingested_fails(
     ev: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _settled(ev, monkeypatch)
-    units = [{"unit_id": 7, "state": "submitted", "failure_reason": None}]
+    units = [{**UNIT, "unit_id": 7, "state": "submitted"}]
     _fake_mt_run(ev, monkeypatch, units)
     found = ev.collect("2026-11-08T00:00:00+00:00", D(7), BASELINE)
     assert found.unfinal_units == [7]
@@ -380,8 +427,9 @@ def test_failed_units_with_reasons_and_coverage_findings_pass(
 ) -> None:
     _settled(ev, monkeypatch)
     units = [
-        {"unit_id": 1, "state": "ingested", "failure_reason": None},
+        {**UNIT, "unit_id": 1, "state": "ingested"},
         {
+            **UNIT,
             "unit_id": 2,
             "state": "verified",
             "failure_reason": "stat_reference: instrument_id 1: not a session",
@@ -610,3 +658,116 @@ def test_closed_issue_and_sufficient_edge_let_the_cutover_go_on(
     calls = _gated(fp, ev, monkeypatch)
     assert fp._steps("v0.28.0", "307", 69) == 0
     assert calls[0] == "install"
+
+
+# -- slice 307 4.8: the D6 evidence items and the exit rule -----------------------
+
+START = "2026-11-08T00:00:00+00:00"
+ES_STATS = {
+    "statistics": [
+        _session("2026-11-27", "complete", 4, 4, "ok"),
+        _session("2026-11-30", "missing", 0, 0, "ok"),
+    ]
+}
+
+
+def _run(
+    ev: ModuleType, monkeypatch: pytest.MonkeyPatch, **kwargs: Any
+) -> tuple[Any, list[str]]:
+    _settled(ev, monkeypatch)
+    units = kwargs.pop("units", [{**UNIT, "unit_id": 1}])
+    _fake_mt_run(ev, monkeypatch, units, **kwargs)
+    found = ev.collect(START, D(7), BASELINE)
+    return found, ev.final_failures(found, BASELINE, NOTHING)
+
+
+def test_an_unaccounted_for_session_fails_the_exit_rule(
+    ev: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions = {
+        "statistics": [
+            _session("2026-11-27", "pending", 0, 0, "ok"),
+            _session("2026-11-30", "complete", 4, 4, "ok"),
+        ]
+    }
+    _, failures = _run(
+        ev, monkeypatch, sessions=sessions, accounting=_accounting(caught_up=False)
+    )
+    assert any("2026-11-27 pending is not accounted for" in f for f in failures)
+
+
+def test_a_named_publication_after_want_end_session_does_not_fail(
+    ev: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    found, failures = _run(
+        ev, monkeypatch, sessions=ES_STATS, accounting=_accounting(caught_up=False)
+    )
+    assert failures == []
+    assert found.failures == []
+
+
+def test_a_failed_retryable_request_fails_the_exit_rule(
+    ev: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    units = [{**UNIT, "unit_id": 2, "fetch_status": "FAILED_RETRYABLE"}]
+    _, failures = _run(ev, monkeypatch, units=units)
+    assert any("request 1 is still failed-retryable" in f for f in failures)
+
+
+def test_a_retry_exhausted_request_is_listed_and_its_units_are_final(
+    ev: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    request = {
+        "request_id": 1,
+        "schema": "ohlcv-1m",
+        "symbols": ["ES.FUT"],
+        "range_start": "2026-11-01",
+        "range_end": "2026-12-01",
+        "provider_job_id": None,
+        "requested_at": START,
+    }
+    units = [
+        {
+            **UNIT,
+            "unit_id": 3,
+            "state": "requested",
+            "fetch_status": "RETRY_EXHAUSTED",
+            "failure_reason": None,
+        }
+    ]
+    found, failures = _run(ev, monkeypatch, units=units, requests=[request])
+    assert found.unfinal_units == []
+    assert failures == []
+    printed = capsys.readouterr().out
+    assert "acquisition failed" in printed
+    assert "(the manifest holds no error text)" in printed
+
+
+def test_an_over_session_fails_the_exit_rule(
+    ev: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, failures = _run(ev, monkeypatch, accounting=_accounting(over=2))
+    assert any("2 sessions over in traded_vs_cleared" in f for f in failures)
+
+
+def test_a_clean_run_has_no_failures_and_narrates_the_family_rows(
+    ev: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    found, failures = _run(ev, monkeypatch)
+    assert failures == []
+    out = capsys.readouterr().out
+    assert "ES ohlcv-1m: sessions 10/10" in out
+    assert "ledger records (before, after, delta)" in out
+
+
+def test_a_baseline_with_no_record_totals_is_a_stop(
+    ev: ModuleType, cutover_error: type[Exception], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_mt_run(ev, monkeypatch, [])
+    old = {k: v for k, v in BASELINE.items() if k != "records"}
+    with pytest.raises(cutover_error, match="predates 307"):
+        ev.collect(START, D(7), old)

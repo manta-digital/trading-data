@@ -112,6 +112,7 @@ def record_start_and_baselines(slice_id: str) -> tuple[str, dict[str, Any]]:
     baseline = {
         "health_exit": evidence.health_exit_code(),
         "definitions": evidence.definition_counts(),
+        "records": evidence.record_totals(),
     }
     log_text(f"baselines: {baseline}")
     start = datetime.now(UTC).isoformat(timespec="seconds")

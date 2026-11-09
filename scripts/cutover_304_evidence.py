@@ -21,6 +21,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import purchase_accounting as accounting  # noqa: E402
+import purchase_verdicts as verdicts  # noqa: E402
 from cutover_304_checks import (  # noqa: E402
     VERDICT_NOTHING,
     FindingClass,
@@ -91,6 +93,12 @@ def coverage_reads() -> list[tuple[str, str, str, str]]:
 
 def health_exit_code() -> int:
     return mt_run(["data", "health"]).returncode
+
+
+def record_totals() -> dict[str, int]:
+    """Ledger records per product and family, from ``mt data accounting``."""
+    rows = accounting.accounting_rows(mt_json(["data", "accounting"]))
+    return accounting.record_totals(rows)
 
 
 def definition_counts() -> dict[str, int]:
@@ -192,7 +200,45 @@ def _unit_is_final(row: Mapping[str, Any]) -> bool:
     """Ingested, failed with a reason, or in a named D6 class (awaiting definitions)."""
     if row["state"] == INGESTED or row["failure_reason"]:
         return True
+    if verdicts.unit_is_retry_exhausted(row):
+        return True  # D5: a retry-exhausted unit holds its day
     return classify_unit(row) is FindingClass.AWAITING_DEFINITIONS
+
+
+def _family_evidence(
+    evidence: Evidence,
+    rows: Sequence[accounting.FamilyRow],
+    units: Sequence[Mapping[str, Any]],
+    exhausted: Sequence[verdicts.ExhaustedRequest],
+) -> None:
+    """Coverage over each wanted family's whole range: ledger, the not-caught-up
+    sessions (D6 item 3) and the ``over`` sessions (item 4)."""
+    named: dict[str, list[str]] = {}
+    for product, schema, first, last in coverage_reads():
+        args = ["data", "tick", "coverage", "--product", product, "--schema", schema]
+        doc = mt_json([*args, "--start", first, "--end", last], (EXIT_OK, EXIT_PARTIAL))
+        evidence.failures += ledger_failures(doc, schema)
+        log_text(
+            f"{product} {schema} sessions not complete:"
+            f" {dict(unfinished_sessions(doc))}"
+        )
+        caught_up = accounting.row_for(rows, product, schema).caught_up
+        report = verdicts.not_caught_up_report(
+            (product, schema, caught_up), doc, units, exhausted
+        )
+        for line in report.lines:
+            say(line)
+        evidence.failures += report.failures
+        for entry in doc["products"]:
+            named.setdefault(product, []).extend(accounting.over_sessions(entry))
+    evidence.failures += accounting.over_failures(rows, named)
+
+
+def _baseline_records(baseline: Mapping[str, Any]) -> Mapping[str, int]:
+    if "records" not in baseline:
+        raise CutoverError("the baseline holds no record totals; it predates 307")
+    records: Mapping[str, int] = baseline["records"]
+    return records
 
 
 def collect(start: str, cap: Decimal, baseline: Mapping[str, Any]) -> Evidence:
@@ -200,26 +246,29 @@ def collect(start: str, cap: Decimal, baseline: Mapping[str, Any]) -> Evidence:
     evidence = Evidence()
     say("reconciliation")
     _reconcile(start, cap, evidence)
-    say("status and coverage")
-    verdict_exits = (EXIT_OK, EXIT_PARTIAL)
-    mt_json(["data", "tick", "status"], verdict_exits)
-    for product, schema, first, last in coverage_reads():
-        args = ["data", "tick", "coverage", "--product", product, "--schema", schema]
-        doc = mt_json([*args, "--start", first, "--end", last], verdict_exits)
-        evidence.failures += ledger_failures(doc, schema)
-        log_text(
-            f"{product} {schema} sessions not complete:"
-            f" {dict(unfinished_sessions(doc))}"
-        )
-    say("manifest counts, definitions, durations")
+    say("status, accounting and coverage")
+    mt_json(["data", "tick", "status"], (EXIT_OK, EXIT_PARTIAL))
     requests = mt_json(["data", "tick", "debug", "requests"])["rows"]
     units = mt_json(["data", "tick", "debug", "units"])["rows"]
+    exhausted = verdicts.retry_exhausted_requests(requests, units)
+    rows = accounting.accounting_rows(mt_json(["data", "accounting"]))
+    for line in accounting.narration(rows):
+        say(line)
+    _family_evidence(evidence, rows, units, exhausted)
+    evidence.failures += verdicts.retryable_failures(units)
+    for request in exhausted:
+        say(request.text())
+    say("manifest counts, definitions, durations")
     after = definition_counts()
     say(f"requests {len(requests)}, units {len(units)}")
     say(
         "tick_definition (before, after, delta):"
         f" {definition_delta(baseline['definitions'], after)}"
     )
+    delta = accounting.totals_delta(
+        _baseline_records(baseline), accounting.record_totals(rows)
+    )
+    say(f"ledger records (before, after, delta): {delta}")
     for line in pass_durations(mt_json(["data", "overview"])):
         say(line)
     evidence.unfinished = classify_unfinished(units)

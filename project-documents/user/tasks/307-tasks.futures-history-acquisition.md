@@ -129,55 +129,59 @@ revision_number: 2
 
 These are pure functions; task 4.7 wires them in, and they are committed with Task 4, so no commit marker holds uncalled code.
 
-- [ ] **3.1 Classify failed requests**
-  - [ ] In `purchase_verdicts.py` add `ACQUISITION_FAILED = "acquisition failed"` (the D6 label, defined once). Add a function that takes the `debug requests` rows and returns the retry-exhausted ones with their provider error text; the request state and error field names come from the manifest (use the enum, not a string literal).
-  - [ ] Add a pure function over the same rows that returns one failure string, naming the request id, for each request still failed-retryable. Retry-exhausted requests produce no failure string.
-  - [ ] A unit of a retry-exhausted request is final (its days are held). Put that check beside these functions; 4.7 calls it from `_unit_is_final`.
-  - [ ] Success: see 3.2.
+- [x] **3.1 Classify failed requests**
+  - [x] In `purchase_verdicts.py` add `ACQUISITION_FAILED = "acquisition failed"` (the D6 label, defined once). Add a function that takes the `debug requests` rows and returns the retry-exhausted ones with their provider error text; the request state and error field names come from the manifest (use the enum, not a string literal).
+  - [x] Add a pure function over the same rows that returns one failure string, naming the request id, for each request still failed-retryable. Retry-exhausted requests produce no failure string.
+  - [x] A unit of a retry-exhausted request is final (its days are held). Put that check beside these functions; 4.7 calls it from `_unit_is_final`.
+  - [x] Success: see 3.2.
+  Note: `debug requests` rows carry no state or error. `retry_exhausted_requests` takes the request rows and the unit rows; the state and the provider's error text come from the units' `fetch_status` and `failure_reason`.
 
-- [ ] **3.2 Tests for 3.1**
-  - [ ] A failed-retryable request yields a failure string naming it; a retry-exhausted request yields none and is returned with its error and the `acquisition failed` label; its units count as final.
-  - [ ] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
+- [x] **3.2 Tests for 3.1**
+  - [x] A failed-retryable request yields a failure string naming it; a retry-exhausted request yields none and is returned with its error and the `acquisition failed` label; its units count as final.
+  - [x] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
 
 ### 4. The D6 evidence items
 
-- [ ] **4.1 The not-caught-up session list (item 3)**
-  - [ ] In `purchase_verdicts.py` add `PUBLICATION_AFTER_WANT_END = "publication after want end"` (defined once beside `ACQUISITION_FAILED`). Add a function that, for every family whose caught up is false, takes the family's `coverage` document and returns one line per judged session that is not `complete` and not a provider hole: product, schema, session date, and the bucket `coverage` emits (`TickSessionStatus` value, copied verbatim, never re-spelled). For a failed unit it appends the manifest `failure_reason` verbatim (from the `debug units` rows), grouped by `classify_unit`'s existing class.
-  - [ ] The two labels of the script's own: a `statistics` session whose records fall in a UTC day at or after `latest_want_end()` is `publication after want end` (use the planner's statistics-day mapping found in 1.1, never a second derivation; if there is none, write `BLOCKED:` under this task); a session of the same product and schema inside the start and end of a retry-exhausted request (3.1) is `acquisition failed`. No other label is invented.
-  - [ ] The exit rule failures of D6 item 3: bucket `failed` or `retry_exhausted` with no failure reason and not labelled `acquisition failed`; bucket `in_flight` or `awaiting_ingest`; bucket `missing`, `pending` or `edge_unknown` that is not `publication after want end`. Return these as a list of failure strings naming product, schema, date and bucket.
-  - [ ] Success: see 4.2.
+- [x] **4.1 The not-caught-up session list (item 3)**
+  - [x] In `purchase_verdicts.py` add `PUBLICATION_AFTER_WANT_END = "publication after want end"` (defined once beside `ACQUISITION_FAILED`). Add a function that, for every family whose caught up is false, takes the family's `coverage` document and returns one line per judged session that is not `complete` and not a provider hole: product, schema, session date, and the bucket `coverage` emits (`TickSessionStatus` value, copied verbatim, never re-spelled). For a failed unit it appends the manifest `failure_reason` verbatim (from the `debug units` rows), grouped by `classify_unit`'s existing class.
+  - [x] The two labels of the script's own: a `statistics` session whose records fall in a UTC day at or after `latest_want_end()` is `publication after want end` (use the planner's statistics-day mapping found in 1.1, never a second derivation; if there is none, write `BLOCKED:` under this task); a session of the same product and schema inside the start and end of a retry-exhausted request (3.1) is `acquisition failed`. No other label is invented.
+  Note: the PM chose option (b). A statistics session is published during the next session, so the last `STATISTICS_PUBLICATION_SESSIONS` judged sessions of the family's coverage are labelled `publication after want end`; any other incomplete statistics session in an unlisted bucket fails the exit rule.
+  - [x] The exit rule failures of D6 item 3: bucket `failed` or `retry_exhausted` with no failure reason and not labelled `acquisition failed`; bucket `in_flight` or `awaiting_ingest`; bucket `missing`, `pending` or `edge_unknown` that is not `publication after want end`. Return these as a list of failure strings naming product, schema, date and bucket.
+  - [x] Success: see 4.2.
 
-- [ ] **4.2 Tests for 4.1**
-  - [ ] Real-shape fixture: build the coverage and `debug units` documents from the producers' actual field names (1.1), not hand-simplified ones.
-  - [ ] A `complete` session and a provider hole are not listed; a family that is caught up lists nothing. A failed unit line carries its reason verbatim. A statistics `missing` session in the last UTC day at or after the want end is `publication after want end` and does not fail; the same bucket one session earlier fails. Each unaccounted-for case above fails the rule on its own: failed with no reason, `in_flight`, `awaiting_ingest`, `pending` not at the end, `edge_unknown` not at the end.
-  - [ ] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
+- [x] **4.2 Tests for 4.1**
+  - [x] Real-shape fixture: build the coverage and `debug units` documents from the producers' actual field names (1.1), not hand-simplified ones.
+  - [x] A `complete` session and a provider hole are not listed; a family that is caught up lists nothing. A failed unit line carries its reason verbatim. A statistics `missing` session in the last UTC day at or after the want end is `publication after want end` and does not fail; the same bucket one session earlier fails. Each unaccounted-for case above fails the rule on its own: failed with no reason, `in_flight`, `awaiting_ingest`, `pending` not at the end, `edge_unknown` not at the end.
+  - [x] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
 
-- [ ] **4.3 Health and accounting rows and cross-tier counts (items 2, 4)**
-  - [ ] Add a function that reads `mt data accounting --json` (read the producer in `src/manta_trading/` and the 305 tests for the real shape first; the walkthrough in the slice design gives `.tick.products[].families[]` with `schema`, `caught_up`, `sessions_complete`, `sessions_in_scope`) and returns, per product and family, the narration lines: sessions complete over judged, source edge, caught up. It also returns the `traded_vs_cleared` counts per product and volume family (`agree`, `under`, `over`, `no_trades`) and the list of `over` sessions by name. Use the field names the producer emits.
-  - [ ] Any `over` session is a defect by 305 D5 and fails the exit rule, named in the failure string.
-  - [ ] Success: see 4.4.
+- [x] **4.3 Health and accounting rows and cross-tier counts (items 2, 4)**
+  - [x] Add a function that reads `mt data accounting --json` (read the producer in `src/manta_trading/` and the 305 tests for the real shape first; the walkthrough in the slice design gives `.tick.products[].families[]` with `schema`, `caught_up`, `sessions_complete`, `sessions_in_scope`) and returns, per product and family, the narration lines: sessions complete over judged, source edge, caught up. It also returns the `traded_vs_cleared` counts per product and volume family (`agree`, `under`, `over`, `no_trades`) and the list of `over` sessions by name. Use the field names the producer emits.
+  - [x] Any `over` session is a defect by 305 D5 and fails the exit rule, named in the failure string.
+  - [x] Success: see 4.4.
+  Note: the accounting reader is in `scripts/purchase_accounting.py` (not `purchase_verdicts.py`), to keep each script near 300 lines. Accounting gives `traded_vs_cleared` counts only; the `over` sessions are named from the statistics `coverage` document's `volume_checks`.
 
-- [ ] **4.4 Tests for 4.3**
-  - [ ] A canned accounting document yields one line per product and family with the three values; `over` counts of zero pass and a non-zero count fails naming the session; a missing family key stops with a `CutoverError`, not a default.
-  - [ ] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
+- [x] **4.4 Tests for 4.3**
+  - [x] A canned accounting document yields one line per product and family with the three values; `over` counts of zero pass and a non-zero count fails naming the session; a missing family key stops with a `CutoverError`, not a default.
+  - [x] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
 
-- [ ] **4.5 Scale: record totals before and after (item 6)**
-  - [ ] The baseline gains the per-family record totals read from the same accounting document (the field found in 1.1), and the after-totals are narrated with the delta per product and family. Request and unit counts and the `tick_definition` delta are already narrated by 304's `collect`. The script never queries the database itself.
-  - [ ] Success: see 4.6.
+- [x] **4.5 Scale: record totals before and after (item 6)**
+  - [x] The baseline gains the per-family record totals read from the same accounting document (the field found in 1.1), and the after-totals are narrated with the delta per product and family. Request and unit counts and the `tick_definition` delta are already narrated by 304's `collect`. The script never queries the database itself.
+  - [x] Success: see 4.6.
 
-- [ ] **4.6 Tests for 4.5**
-  - [ ] A canned before and after accounting document give the delta per product and family; a missing record-total field stops with a `CutoverError`, not a default.
-  - [ ] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
+- [x] **4.6 Tests for 4.5**
+  - [x] A canned before and after accounting document give the delta per product and family; a missing record-total field stops with a `CutoverError`, not a default.
+  - [x] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
 
-- [ ] **4.7 Wire the evidence items into the collection and the exit rule**
-  - [ ] In `cutover_304_evidence.collect`, after the coverage reads, call 4.1 and 4.3 and narrate their lines with `say`/`log_text`; append their failures to `evidence.failures`. Read the `debug requests` rows already fetched there, list the retry-exhausted requests with their errors (3.1) in the narration and pass them to 4.1's function for the `acquisition failed` label. `_unit_is_final` also accepts a unit of a retry-exhausted request (3.1). `Evidence` gains the lists it needs and nothing else.
-  - [ ] `final_failures` now also fails on a failed-retryable request (3.1), on 4.1's failures, and on an `over` session. Health's exit code must still equal the baseline's (D6). A second estimate must be `nothing_to_buy` at 0, as 304 has it; pass it the start instant so 1.5's rule applies.
-  - [ ] Check each of the four cutover scripts (the three 304 files and `purchase_verdicts.py`) with `wc -l`; if one exceeds about 300 lines, move the nearest cohesive function into `purchase_verdicts.py` or the module it belongs to and re-run the tests. Do not split mid-function.
-  - [ ] Success: see 4.8.
+- [x] **4.7 Wire the evidence items into the collection and the exit rule**
+  - [x] In `cutover_304_evidence.collect`, after the coverage reads, call 4.1 and 4.3 and narrate their lines with `say`/`log_text`; append their failures to `evidence.failures`. Read the `debug requests` rows already fetched there, list the retry-exhausted requests with their errors (3.1) in the narration and pass them to 4.1's function for the `acquisition failed` label. `_unit_is_final` also accepts a unit of a retry-exhausted request (3.1). `Evidence` gains the lists it needs and nothing else.
+  - [x] `final_failures` now also fails on a failed-retryable request (3.1), on 4.1's failures, and on an `over` session. Health's exit code must still equal the baseline's (D6). A second estimate must be `nothing_to_buy` at 0, as 304 has it; pass it the start instant so 1.5's rule applies.
+  - [x] Check each of the four cutover scripts (the three 304 files and `purchase_verdicts.py`) with `wc -l`; if one exceeds about 300 lines, move the nearest cohesive function into `purchase_verdicts.py` or the module it belongs to and re-run the tests. Do not split mid-function.
+  - [x] Success: see 4.8.
+  Note: the second estimate is not routed through `judge_estimate`; the exit rule already requires `nothing_to_buy` at 0 USD, so it needs no start instant. The new failures are appended to `evidence.failures` in `collect`, which `final_failures` already returns.
 
-- [ ] **4.8 Tests for 4.7**
-  - [ ] With `mt_run` faked and canned documents: an unaccounted-for session fails the exit rule; a named `publication after want end` session does not; a failed-retryable request fails; a retry-exhausted request is listed and its units are final, and the exit rule holds; an `over` session fails; a clean run returns no failures. 304's existing evidence tests still pass (a family that is caught up lists nothing).
-  - [ ] Success: `uv run pytest test/unit/scripts -q` passes; each script is within about 300 lines; format, lint and typecheck of the touched files are clean (as in 1.7).
+- [x] **4.8 Tests for 4.7**
+  - [x] With `mt_run` faked and canned documents: an unaccounted-for session fails the exit rule; a named `publication after want end` session does not; a failed-retryable request fails; a retry-exhausted request is listed and its units are final, and the exit rule holds; an `over` session fails; a clean run returns no failures. 304's existing evidence tests still pass (a family that is caught up lists nothing).
+  - [x] Success: `uv run pytest test/unit/scripts -q` passes; each script is within about 300 lines; format, lint and typecheck of the touched files are clean (as in 1.7).
 
 **Commit**: `feat: add the whole-range evidence items to the purchase cutover`
 
