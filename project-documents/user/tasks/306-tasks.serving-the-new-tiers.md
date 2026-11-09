@@ -78,29 +78,29 @@ revision_number: 2
 
 ## 2. Provider bar reader (D2, D5)
 
-- [ ] **2.1 `BAR_SOURCE` in `bar_constants.py`**
-  - [ ] Add `BAR_SOURCE: Mapping[Granularity, TickSchema]` mapping every size in `TICK_BAR_GRANULARITIES` to `TickSchema.OHLCV_1M`. Derive the keys from `TICK_BAR_GRANULARITIES` so a new served size cannot be forgotten. Import `TickSchema` from `data/tick/constants.py`; check there is no import cycle with `constants.py` importing `bar_constants`.
-  - [ ] Unit test: the keys equal `TICK_BAR_GRANULARITIES` and every value is `OHLCV_1M`.
-  - [ ] Success: unit test passes.
+- [x] **2.1 `BAR_SOURCE` in `bar_constants.py`**
+  - [x] Add `BAR_SOURCE: Mapping[Granularity, TickSchema]` mapping every size in `TICK_BAR_GRANULARITIES` to `TickSchema.OHLCV_1M`. Derive the keys from `TICK_BAR_GRANULARITIES` so a new served size cannot be forgotten. Import `TickSchema` from `data/tick/constants.py`; check there is no import cycle with `constants.py` importing `bar_constants`.
+  - [x] Unit test: the keys equal `TICK_BAR_GRANULARITIES` and every value is `OHLCV_1M`.
+  - [x] Success: unit test passes.
 
-- [ ] **2.2 `read_provider_bars`**
-  - [ ] Create `data/tick/bar_reads.py`. Reuse `TickWindow`, `BAR_COLUMNS`, `OnBatch`, `Row` and the `_stream`/window-parameter helpers from `tick_reads.py`; if they are private there, rename them without the underscore rather than copying.
-  - [ ] Define the session-anchored bucket once, as a SQL fragment that `bar_parity` (5.1) imports: `bucket = open_ns + ((ts_event - open_ns) / width_ns) * width_ns` (integer division). Width is `GRANULARITY_BAR_MINUTES[granularity]` times ns per minute. There is no Python copy of the formula. Its boundaries are tested through the database in 2.3.
-  - [ ] Implement `read_provider_bars(conn, window, granularity, on_batch) -> int` with the same signature and `BAR_COLUMNS` row order as `read_bars`. Window predicate: `instrument_id = :id AND ts_event BETWEEN :open_ns AND :close_ns` on `tick_ohlcv_1m` (use `BAR_1M_TABLE`).
-  - [ ] `M1`: select the stored rows in `ts_event` order, with the window's `session_date`, `raw_symbol` and `instrument_id` as parameters, as the tick reads do.
-  - [ ] Coarser: group by the session-anchored bucket. First open and last close by `ts_event` order, max high, min low, `sum(volume)::bigint`. Use `array_agg(... ORDER BY ts_event)` as `_BARS` does. Empty buckets are omitted. `D1` is one bucket stamped at `open_ns`.
-  - [ ] The one-minute bar's `time` is the stored `ts_event`, unchanged.
-  - [ ] Success: module under about 300 lines and mypy clean.
+- [x] **2.2 `read_provider_bars`**
+  - [x] Create `data/tick/bar_reads.py`. Reuse `TickWindow`, `BAR_COLUMNS`, `OnBatch`, `Row` and the `_stream`/window-parameter helpers from `tick_reads.py`; if they are private there, rename them without the underscore rather than copying.
+  - [x] Define the session-anchored bucket once, as a SQL fragment that `bar_parity` (5.1) imports: `bucket = open_ns + ((ts_event - open_ns) / width_ns) * width_ns` (integer division). Width is `GRANULARITY_BAR_MINUTES[granularity]` times ns per minute. There is no Python copy of the formula. Its boundaries are tested through the database in 2.3.
+  - [x] Implement `read_provider_bars(conn, window, granularity, on_batch) -> int` with the same signature and `BAR_COLUMNS` row order as `read_bars`. Window predicate: `instrument_id = :id AND ts_event BETWEEN :open_ns AND :close_ns` on `tick_ohlcv_1m` (use `BAR_1M_TABLE`).
+  - [x] `M1`: select the stored rows in `ts_event` order, with the window's `session_date`, `raw_symbol` and `instrument_id` as parameters, as the tick reads do.
+  - [x] Coarser: group by the session-anchored bucket. First open and last close by `ts_event` order, max high, min low, `sum(volume)::bigint`. Use `array_agg(... ORDER BY ts_event)` as `_BARS` does. Empty buckets are omitted. `D1` is one bucket stamped at `open_ns`.
+  - [x] The one-minute bar's `time` is the stored `ts_event`, unchanged.
+  - [x] Success: module under about 300 lines and mypy clean.
 
-- [ ] **2.3 Integration tests for the reader**
-  - [ ] Create `test/integration/data/test_bar_reads.py` on a scratch tick database. Seed `tick_ohlcv_1m` from the derived 2024-12-03 bar day using `seed_bar_units` plus the ingest path (see `test_bar_ingest_e2e.py` for how bars reach the table). Build `TickWindow`s from the calendar session for 2024-12-03.
-  - [ ] Tests: (a) `M1` rows equal the stored rows exactly (count, prices, volume); (b) for each of 5m, 15m, 1h, 4h, 1d the result equals a rollup computed in the test from the same 1m rows (first open, max high, min low, last close, summed volume); (c) the bucket formula's boundaries: 4h bucket starts on the 2024-12-03 session are 23:00Z, 03:00Z, 07:00Z, 11:00Z, 15:00Z, 19:00Z; (d) a window with no bars returns 0 rows; (e) 5m, 15m and 1h bucket starts equal the session open plus whole multiples of the width (the pre-306 boundaries).
-  - [ ] DBN sample check: decode `test_data.ohlcv-1m.v1.dbn.zst` (2 bars, ESH1, 2020-12-28) through the existing DBN test helper and assert the reader returns its price scale and `ts_event` unchanged.
-  - [ ] Success: all pass on the test cluster.
+- [x] **2.3 Integration tests for the reader**
+  - [x] Create `test/integration/data/test_bar_reads.py` on a scratch tick database. Seed `tick_ohlcv_1m` from the derived 2024-12-03 bar day using `seed_bar_units` plus the ingest path (see `test_bar_ingest_e2e.py` for how bars reach the table). Build `TickWindow`s from the calendar session for 2024-12-03.
+  - [x] Tests: (a) `M1` rows equal the stored rows exactly (count, prices, volume); (b) for each of 5m, 15m, 1h, 4h, 1d the result equals a rollup computed in the test from the same 1m rows (first open, max high, min low, last close, summed volume); (c) the bucket formula's boundaries: 4h bucket starts on the 2024-12-03 session are 23:00Z, 03:00Z, 07:00Z, 11:00Z, 15:00Z, 19:00Z; (d) a window with no bars returns 0 rows; (e) 5m, 15m and 1h bucket starts equal the session open plus whole multiples of the width (the pre-306 boundaries).
+  - [x] DBN sample check: decode `test_data.ohlcv-1m.v1.dbn.zst` (2 bars, ESH1, 2020-12-28) through the existing DBN test helper and assert the reader returns its price scale and `ts_event` unchanged.
+  - [x] Success: all pass on the test cluster.
 
-- [ ] **2.4 DST and early-close bucket tests (criterion 3)**
-  - [ ] Add a DST test: one session on each side of the 2024-11-03 US change, 4h bucket starts are at 17:00 CT (22:00Z/23:00Z open) offsets. Add an early-close session, Friday 2024-11-29 (day after Thanksgiving; confirm its close in the calendar), asserting the last 4h bucket holds no bar after the early close. Seed those days with `write_bar_file` and hand-built minute bars. Read the calendar rows through the same session fixture the other bar tests use.
-  - [ ] Success: all pass on the test cluster.
+- [x] **2.4 DST and early-close bucket tests (criterion 3)**
+  - [x] Add a DST test: one session on each side of the 2024-11-03 US change, 4h bucket starts are at 17:00 CT (22:00Z/23:00Z open) offsets. Add an early-close session, Friday 2024-11-29 (day after Thanksgiving; confirm its close in the calendar), asserting the last 4h bucket holds no bar after the early close. Windows come from the production calendar (`tick_support.reads.session_window`). The minute bars are inserted straight into `tick_ohlcv_1m`, because the reader reads only that table and ingest placement is 302's, tested there.
+  - [x] Success: all pass on the test cluster.
 
 **Commit**: `feat: add provider bar reader with session-anchored rollup`
 

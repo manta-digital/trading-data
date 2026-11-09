@@ -378,7 +378,7 @@ async def test_a_tick_plan_still_reads_the_tick_ledger_beside_bars(
     plan = await _contract(migrated_tick_db, session_migrated_db, "ESZ4", None, None)
 
     assert plan.start == date(2024, 9, 3)  # the tick ledger's first session
-    assert plan.end > date(2024, 9, 19)
+    assert plan.end is not None and plan.end > date(2024, 9, 19)
 
 
 async def test_bar_product_plan_defaults_to_the_held_bar_sessions(

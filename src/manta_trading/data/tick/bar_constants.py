@@ -5,8 +5,12 @@ Every value that names or shapes the bar tables lives here and only here.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Final
+
+from manta_trading.constants import Granularity
+from manta_trading.data.tick.constants import TICK_BAR_GRANULARITIES, TickSchema
 
 #: Provider one-minute bars: one row per instrument and minute.
 BAR_1M_TABLE: Final = "tick_ohlcv_1m"
@@ -40,3 +44,10 @@ BAR_1M_COMPRESS_AFTER: Final[timedelta] = timedelta(days=14)
 #: Columnstore layout: segment by instrument, order by event time.
 BAR_1M_SEGMENT_BY: Final[tuple[str, ...]] = ("instrument_id",)
 BAR_1M_ORDER_BY: Final[tuple[str, ...]] = ("ts_event",)
+
+#: The provider schema each served bar size is built from (306 D2). Keyed by
+#: ``TICK_BAR_GRANULARITIES`` so a new served size cannot be forgotten; the
+#: response's ``source`` is this value. ``1s`` will join here.
+BAR_SOURCE: Final[Mapping[Granularity, TickSchema]] = {
+    granularity: TickSchema.OHLCV_1M for granularity in TICK_BAR_GRANULARITIES
+}

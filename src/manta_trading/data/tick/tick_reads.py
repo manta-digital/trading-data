@@ -79,11 +79,11 @@ class TickWindow:
     close_ns: int
 
 
-#: The window's own columns, selected as parameters so rows need no reshaping.
-_WINDOW_COLUMNS = sql.SQL(
+#: The window's own columns (``bar_reads`` and ``bar_parity`` share these)., selected as parameters so rows need no reshaping.
+WINDOW_COLUMNS = sql.SQL(
     "%(session_date)s::date, %(raw_symbol)s::text, %(instrument_id)s::bigint"
 )
-_WINDOW_WHERE = sql.SQL(
+WINDOW_WHERE = sql.SQL(
     "instrument_id = %(instrument_id)s"
     " AND ts_event BETWEEN %(open_ns)s AND %(close_ns)s"
 )
@@ -113,7 +113,7 @@ _INTRADAY_BUCKET = sql.SQL(
 _SESSION_BUCKET = sql.SQL("%(open_ns)s::bigint")
 
 
-def _params(window: TickWindow) -> dict[str, Any]:
+def window_params(window: TickWindow) -> dict[str, Any]:
     return {
         "session_date": window.session_date,
         "raw_symbol": window.raw_symbol,
@@ -123,7 +123,7 @@ def _params(window: TickWindow) -> dict[str, Any]:
     }
 
 
-async def _stream(
+async def stream_rows(
     conn: Conn, query: sql.Composed, params: dict[str, Any], on_batch: OnBatch
 ) -> int:
     """Run ``query`` on a named cursor; hand each batch on; return the count."""
@@ -138,8 +138,8 @@ async def _stream(
 
 async def read_ticks(conn: Conn, window: TickWindow, on_batch: OnBatch) -> int:
     """The window's ticks in key order (TD5 tick rows); returns the row count."""
-    query = _TICKS.format(window=_WINDOW_COLUMNS, where=_WINDOW_WHERE)
-    return await _stream(conn, query, _params(window), on_batch)
+    query = _TICKS.format(window=WINDOW_COLUMNS, where=WINDOW_WHERE)
+    return await stream_rows(conn, query, window_params(window), on_batch)
 
 
 async def read_bars(
@@ -147,11 +147,11 @@ async def read_bars(
 ) -> int:
     """The window's bars (TD5 bar rows), empty buckets omitted; returns the
     row count."""
-    params = _params(window)
+    params = window_params(window)
     if granularity is Granularity.D1:
         bucket = _SESSION_BUCKET
     else:
         bucket = _INTRADAY_BUCKET
         params["width_ns"] = GRANULARITY_BAR_MINUTES[granularity] * _NS_PER_MINUTE
-    query = _BARS.format(window=_WINDOW_COLUMNS, bucket=bucket, where=_WINDOW_WHERE)
-    return await _stream(conn, query, params, on_batch)
+    query = _BARS.format(window=WINDOW_COLUMNS, bucket=bucket, where=WINDOW_WHERE)
+    return await stream_rows(conn, query, params, on_batch)
