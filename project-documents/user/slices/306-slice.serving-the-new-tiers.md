@@ -233,7 +233,7 @@ Rejected:
 ### D8 — `mt data tick get` follows the API
 Status: decided
 
-`get <size>` plans with `family=BAR_1M` and reads `read_provider_bars`, sharing the API's read path. Its JSON output gains `"source"`, and its text/CSV header line names the source. `get ticks` is unchanged. Exit 2 (partial) still means unresolved or incomplete sessions. For bars, "incomplete" now means the bar family, so a range with ticks and no provider bars exits 2 with every session listed, and prints no rows.
+`get <size>` plans with `family=BAR_1M` and reads `read_provider_bars`, sharing the API's read path. Its JSON output gains `"source"`, and its text/CSV header line names the source. `get ticks` is unchanged. Exit 3 (`EXIT_PARTIAL`) still means unresolved or incomplete sessions. For bars, "incomplete" now means the bar family, so a range with ticks and no provider bars exits 3 with every session listed, and prints no rows.
 
 ### D9 — Fixtures and the first parity measurement: no purchase
 Status: decided
@@ -282,13 +282,13 @@ Status: decided
 
 The tick-derived bars are retired in one slice, with every consumer updated:
 
-| Consumer of `read_bars` / `TICK_BAR_GRANULARITIES` | After |
+| Consumer of `read_bars` | After |
 |---|---|
 | `routes/futures_series._bars_reader` | `read_provider_bars`, plan `family=BAR_1M` |
 | `cli/commands/tick_get_cmds._stream` (bar sizes) | `read_provider_bars`, plan `family=BAR_1M` |
 | tests of `read_bars` bucketing | rewritten against `read_provider_bars`. Tick-minute SQL tests move to `bar_parity` |
 
-`tick_reads.py` keeps `read_ticks`, `TICK_COLUMNS`, `BAR_COLUMNS` and `TickWindow`. `_BARS`, `_INTRADAY_BUCKET`, `_SESSION_BUCKET` and `read_bars` are deleted. A grep for `read_bars` and `TICK_BAR_GRANULARITIES` returns nothing at the end of the slice.
+`tick_reads.py` keeps `read_ticks`, `TICK_COLUMNS`, `BAR_COLUMNS` and `TickWindow`. `_BARS`, `_INTRADAY_BUCKET`, `_SESSION_BUCKET` and `read_bars` are deleted. A grep for `read_bars` returns nothing at the end of the slice.
 
 Behaviour verification: response field names and the `BAR_COLUMNS` order are pinned by the existing model test. 1m/5m/15m/1h buckets on a regular session are unchanged (tested). The intentional changes are listed in the CHANGELOG: source, 4h anchoring, no bars without provider bars.
 
@@ -323,7 +323,7 @@ Behaviour verification: response field names and the `BAR_COLUMNS` order are pin
 
 ### Technical Requirements
 
-10. `read_bars`, `_BARS`, `_INTRADAY_BUCKET`, `_SESSION_BUCKET` and `TICK_BAR_GRANULARITIES` no longer exist (grep is empty).
+10. `read_bars`, `_BARS`, `_INTRADAY_BUCKET`, `_SESSION_BUCKET` no longer exist (grep is empty).
 11. ruff format/lint (scoped to touched files), mypy and the unit and integration tiers for the touched areas pass. New files stay under about 300 lines.
 
 ### Integration Requirements
@@ -345,7 +345,7 @@ The commands exist after Phase 6. They run in production after the release (Phas
 2. **No provider bars means no bars.** GC has ticks for 2024-11-04 onward and no bars until 307:
    ```bash
    sudo mt-run data tick get 1h --product GC --start 2024-11-04 --end 2024-11-06; echo "exit $?"
-   # no rows, both sessions listed incomplete (bar_1m status), exit 2
+   # no rows, both sessions listed incomplete (bar_1m status), exit 3
    ```
 3. **The API says the same.**
    ```bash
