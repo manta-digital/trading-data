@@ -13,7 +13,7 @@ projectState: 302 (tick_ohlcv_1m, BAR_1M family) and 303 (statistics, basis on s
   routes yet.
 dateCreated: 20261108
 dateUpdated: 20261109
-status: in_progress
+status: complete
 turns: 29
 promptTokens: 2531122
 cachedTokens: 2393647

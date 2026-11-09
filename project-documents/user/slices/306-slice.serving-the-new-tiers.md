@@ -10,8 +10,8 @@ interfaces:
 - 307
 - 308
 dateCreated: 20261108
-dateUpdated: 20261108
-status: not_started
+dateUpdated: 20261109
+status: complete
 turns: 49
 promptTokens: 4864185
 cachedTokens: 4709281
@@ -333,20 +333,22 @@ Behaviour verification: response field names and the `BAR_COLUMNS` order are pin
 
 ### Verification Walkthrough
 
-The commands exist after Phase 6. They run in production after the release (Phase 7), once 304's purchase is ingested: ES bars for 2024. Before then, the integration tests run the same paths on the fixtures.
+The commands exist after Phase 6. Steps 1 to 5 run on the integration fixtures now (the test named under each step runs the same path); the production runs are Phase 7, once 304's ES 2024 bars are ingested. Run tests with `MT_TIMESCALE_TEST_URL` exported from `.env` (quotes stripped).
 
 1. **Provider bars, as stored and rolled up.**
    ```bash
-   sudo mt-run data tick get 1m --product ES --start 2024-12-03 --end 2024-12-04 --json | jq '.source, .count'
+   sudo mt-run data tick get 1m --product ES --start 2024-12-03 --end 2024-12-04 --json | jq '.source, .row_count'
    # "ohlcv-1m", ~1,380 (one full session of the front month)
-   sudo mt-run data tick get 4h --product ES --start 2024-12-03 --end 2024-12-04 --json | jq -r '.bars[].time'
+   sudo mt-run data tick get 4h --product ES --start 2024-12-03 --end 2024-12-04 --json | jq -r '.rows[].time'
    # six bucket starts: 23:00Z, 03:00Z, 07:00Z, 11:00Z, 15:00Z, 19:00Z (17:00 … 13:00 CT, standard time)
    ```
+   `get --json` keys its rows under `rows` and counts them in `row_count` (the API says `bars` and `count`). Fixture proof: `test_bar_reads.py` (1m equals the stored rows; 5m to 1d equal a rollup computed in the test; 4h starts `23:00 03:00 07:00 11:00 15:00 19:00`), `test_bar_reads_sessions.py` (DST and early close), `test_tick_get_cli.py`.
 2. **No provider bars means no bars.** GC has ticks for 2024-11-04 onward and no bars until 307:
    ```bash
    sudo mt-run data tick get 1h --product GC --start 2024-11-04 --end 2024-11-06; echo "exit $?"
-   # no rows, both sessions listed incomplete (bar_1m status), exit 3
+   # no rows, both sessions listed incomplete with their bar status, exit 3
    ```
+   The incomplete lines read `incomplete 2024-11-04  <status>`. Expect `missing` in production; a scratch database with no dataset edge says `edge_unknown`, which is what the fixture tests see. Fixture proof: `test_tick_get_cli.py::test_ticks_and_no_provider_bars_print_no_rows_list_every_session_and_exit_three`, `test_futures_bars_provider.py::test_a_session_with_ticks_and_no_provider_bars_has_no_bars`.
 3. **The API says the same.**
    ```bash
    curl -s 'localhost:8100/api/v1/futures/products/ES/bars?granularity=1d&start=2024-12-03&end=2024-12-04' | jq '{source, count, bars: [.bars[] | {time, volume}]}'
@@ -355,13 +357,15 @@ The commands exist after Phase 6. They run in production after the release (Phas
    time curl -s -o /dev/null 'localhost:8100/api/v1/futures/products/ES/bars?granularity=1d&start=2024-01-02&end=2025-01-01'
    # D10: under 10 s; recorded in the parity note
    ```
+   Fixture proof: `test_futures_series.py` (API rows equal `get` rows at `1d`, `1h` and `1m`, `source` equal), `test_futures_bars_provider.py`. The 231 load test (`test/load/test_231_futures_api_nfr.py`, run by hand) passes on provider bars with its original bound: product 1m bars median 1.916 s against 3.2 s, 54 sessions, 74,280 bars.
 4. **Parity over the held ES tick window (fills the note, closes #70).**
    ```bash
    sudo mt-run data tick parity --product ES --start 2024-08-30 --end 2025-01-01 --json > ~/306-parity-prod.json; echo "exit $?"
-   # per session: agree / differ / provider_only / tick_only counts, close-stamped counts; exit 0 if all agree, 3 otherwise
+   # per session: counts {agree, differ, provider_only, tick_only}, close_stamped, close_stamped_agree,
+   # tick_volume, provider_volume, minutes_listed; skipped sessions with tick_status and bar_status; exit 0 if all agree, 3 otherwise
    ```
-   The result goes in `user/notes/306-bar-parity.md`, and issue #70 is closed with it.
-5. **Docs.** `uv run python scripts/check_api_docs.py` passes. `docs/api/openapi.json` shows `source` on `FuturesBarsResponse`.
+   The result goes in `user/notes/306-bar-parity.md`, and issue #70 is closed with it. Fixture proof (`test_tick_parity.py`, `test_tick_parity_exit.py`): on the cut 2024-12-03 `tbbo` day against the derived bar day, ESZ4 session 2024-12-03 comes out 49 `agree`, 2 `differ`, 1,269 `provider_only`, 0 `tick_only` (the cut keeps only about 50 whole minutes), so the command exits 3; the other classes, a close-stamped minute and a skipped session are proven on a bar day hand-built from the same ticks.
+5. **Docs.** `uv run python scripts/check_api_docs.py` passes. `docs/api/openapi.json` shows `source` (required) on `FuturesBarsResponse`, and both bars routes' 200 reference it (`test_openapi_artifact.py`). Caveat: `test/integration/test_api_docs_examples.py::test_every_curl_block_is_followed_by_a_capture_date` fails on main as well (the Kalshi search example has no capture date); the new `reference.md` bars example is shape only and carries no curl block.
 
 ## Risk Assessment
 
