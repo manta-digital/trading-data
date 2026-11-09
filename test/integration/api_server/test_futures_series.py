@@ -2,8 +2,9 @@
 
 The September 2024 roll is seeded (``roll_seed``) plus ``N_TICKS`` ESZ4 ticks,
 one a minute from 14:00 UTC in session 2024-09-18 (22:00 UTC 09-17 → 21:00 UTC
-09-18), with the ledger's record count set to match. CLI comparisons run
-``mt data tick get --json`` in-process over the same databases.
+09-18), with the ledger's record count set to match. The same minutes are also
+seeded as provider bars (priced apart), which the bars routes read (306). CLI
+comparisons run ``mt data tick get --json`` in-process over the same databases.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 from tick_support.api import SECOND, client_for
 from tick_support.cli import clear_tick_env, cli_settings, closed_port
+from tick_support.roll_bars import seed_bar_sessions
 from tick_support.roll_seed import ESU4, ESZ4, SeededRoll, seed_september_roll
 from tick_support.rows import (
     FILE_COLUMNS,
@@ -72,6 +74,30 @@ def seeded(migrated_tick_db: str) -> SeededRoll:
             " WHERE unit_id = %s AND instrument_id = %s AND session_date = %s",
             (N_TICKS, unit, ESZ4.instrument_id, SESSION),
         )
+    seed_bar_sessions(
+        migrated_tick_db,
+        {
+            (date(2024, 9, 16), ESU4.instrument_id): N_TICKS,
+            (date(2024, 9, 17), ESU4.instrument_id): N_TICKS,
+            (SESSION, ESZ4.instrument_id): N_TICKS,
+            (date(2024, 9, 19), ESZ4.instrument_id): N_TICKS,
+        },
+        {
+            (day, instrument.instrument_id): [
+                (
+                    utc_ns(datetime(2024, 9, day.day, 14, n, tzinfo=UTC)),
+                    6_000 * 10**9 + n,
+                )
+                for n in range(N_TICKS)
+            ]
+            for day, instrument in (
+                (date(2024, 9, 16), ESU4),
+                (date(2024, 9, 17), ESU4),
+                (SESSION, ESZ4),
+                (date(2024, 9, 19), ESZ4),
+            )
+        },
+    )
     return roll
 
 
@@ -319,6 +345,7 @@ def test_contract_bars_equal_the_cli(
 
     assert body["bars"] == cli["rows"] and body["count"] > 0
     assert body["granularity"] == granularity
+    assert body["source"] == cli["source"] == "ohlcv-1m"
 
 
 @pytest.mark.parametrize("granularity", ["2h", "1w", "1mo"])
@@ -335,20 +362,23 @@ def test_a_bar_size_outside_the_tick_sizes_is_422(
 # -- product routes (6.9) ------------------------------------------------------
 
 
+@pytest.mark.parametrize("granularity", ["1d", "1h"])
 def test_product_bars_across_the_roll_equal_the_cli(
     client: TestClient,
     migrated_tick_db: str,
     session_migrated_db: str,
     monkeypatch: pytest.MonkeyPatch,
+    granularity: str,
 ) -> None:
     """FR2."""
     body = client.get(
-        PRODUCT.format("ES", "bars"), params={**ROLL_RANGE, "granularity": "1d"}
+        PRODUCT.format("ES", "bars"),
+        params={**ROLL_RANGE, "granularity": granularity},
     ).json()
     cli = _cli_get(
         monkeypatch,
         (migrated_tick_db, session_migrated_db),
-        "1d",
+        granularity,
         *(
             "--product",
             "ES",
@@ -362,7 +392,8 @@ def test_product_bars_across_the_roll_equal_the_cli(
     assert [s["raw_symbol"] for s in body["segments"]] == [ESU4.raw_symbol, "ESZ4"]
     assert body["segments"] == cli["segments"]
     assert (body["target"]["rule"], body["target"]["is_default"]) == ("v.0", True)
-    assert body["bars"] == cli["rows"]
+    assert body["bars"] == cli["rows"] and body["count"] > 0
+    assert body["source"] == cli["source"] == "ohlcv-1m"
 
 
 def test_the_first_held_sessions_are_unresolved_with_http_200(

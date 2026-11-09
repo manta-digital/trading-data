@@ -1383,7 +1383,7 @@
         "type": "object"
       },
       "FuturesBarsResponse": {
-        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars``.\n\n``end`` is exclusive (session dates); a bar never crosses a session.",
+        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars``.\n\n``end`` is exclusive (session dates); a bar never crosses a session.\n``source`` names the provider schema the bars came from (306 D2).",
         "properties": {
           "bars": {
             "items": {
@@ -1438,6 +1438,10 @@
             "title": "Segments",
             "type": "array"
           },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
           "start": {
             "anyOf": [
               {
@@ -1464,6 +1468,7 @@
         "required": [
           "target",
           "granularity",
+          "source",
           "start",
           "end",
           "definitions_as_of",
@@ -4246,7 +4251,7 @@
     },
     "/api/v1/futures/contracts/{symbol}/bars": {
       "get": {
-        "description": "One contract's session-bounded bars over ``[start, end)`` sessions.",
+        "description": "One contract's provider bars over ``[start, end)`` sessions.",
         "operationId": "contract_bars_api_v1_futures_contracts__symbol__bars_get",
         "parameters": [
           {

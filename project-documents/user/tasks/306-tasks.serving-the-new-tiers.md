@@ -108,27 +108,27 @@ revision_number: 2
 
 ## 3. Serve provider bars: API (D2, D3, D4)
 
-- [ ] **3.1 `source` on `FuturesBarsResponse`**
-  - [ ] In `api_server/models/futures.py`, add `source: str` to `FuturesBarsResponse` (placed after `granularity`, as the design example shows). `from_plan` takes the source from `BAR_SOURCE[granularity]` and writes its `.value`; the model never invents it. Look at how `granularity` is passed in today and mirror it.
-  - [ ] Update `test/unit/api_server/test_futures_models.py`: `source` appears in the model and equals `"ohlcv-1m"` for every served size. The existing field-name and `BAR_COLUMNS` order pins still pass.
-  - [ ] Success: unit tests pass.
+- [x] **3.1 `source` on `FuturesBarsResponse`**
+  - [x] In `api_server/models/futures.py`, add `source: str` to `FuturesBarsResponse` (placed after `granularity`, as the design example shows). `from_plan` takes the source from `BAR_SOURCE[granularity]` and writes its `.value`; the model never invents it. Look at how `granularity` is passed in today and mirror it.
+  - [x] Update `test/unit/api_server/test_futures_models.py`: `source` appears in the model and equals `"ohlcv-1m"` for every served size. The existing field-name and `BAR_COLUMNS` order pins still pass.
+  - [x] Success: unit tests pass.
 
-- [ ] **3.2 Bars routes read provider bars**
-  - [ ] In `routes/futures_series.py`: `_bars_reader` calls `read_provider_bars`. The bars handlers build their plans with `SchemaFamily.BAR_1M`; the ticks handlers keep `TICK_TIER`. Thread the family through `_contract_plan` and `_product_plan` as a parameter, not a module constant. Remove the `read_bars` import.
-  - [ ] `futures_read.py` comment (line ~25) mentions `read_bars`: update it.
-  - [ ] Success: mypy clean; the module stays under about 300 lines (it is 244 now).
+- [x] **3.2 Bars routes read provider bars**
+  - [x] In `routes/futures_series.py`: `_bars_reader` calls `read_provider_bars`. The bars handlers build their plans with `SchemaFamily.BAR_1M`; the ticks handlers keep `TICK_TIER`. Thread the family through `_contract_plan` and `_product_plan` as a parameter, not a module constant. Remove the `read_bars` import.
+  - [x] `futures_read.py` comment (line ~25) mentions `read_bars`: update it.
+  - [x] Success: mypy clean; the module stays under about 300 lines (it is 244 now).
 
-- [ ] **3.3 API tests rewritten for provider bars**
-  - [ ] Rework the bars tests in `test/integration/api_server/test_futures_series.py` (contract bars, product bars across a roll, second product, row ceiling) so the fixtures hold `tick_ohlcv_1m` bars, not only ticks. The two CLI-equality tests (`test_contract_bars_equal_the_cli`, `test_product_bars_across_the_roll_equal_the_cli`) need task 4, so they are reworked in 4.3, not here.
-  - [ ] Add: (a) a session with ticks and no provider bars returns `count: 0` and lists the session in `incomplete` with its `BAR_1M` status (criterion 1; also assert no `tick_trade` statement runs for bars, for example by seeding ticks whose prices differ from the bars and asserting the bars are the provider's); (b) every size returns `source == "ohlcv-1m"`; (c) `/schedule` and `/bars` give identical segments (contract and `basis`) for `v.0` over a bar-only window and over a mixed window (D3); (d) a load-complete session that fails the cross-tier volume check is served and not listed in `incomplete` (use the 303 fixture or helper for that check, see `test_family_surface_agreement.py`).
-  - [ ] Success: the bars tests in `test_futures_series.py` other than the two CLI-equality tests, plus `test/unit/api_server/test_bars.py` and `test_tick_access.py`, pass.
+- [x] **3.3 API tests rewritten for provider bars**
+  - [x] Rework the bars tests in `test/integration/api_server/test_futures_series.py` (contract bars, product bars across a roll, second product, row ceiling) so the fixtures hold `tick_ohlcv_1m` bars, not only ticks. The two CLI-equality tests (`test_contract_bars_equal_the_cli`, `test_product_bars_across_the_roll_equal_the_cli`) need task 4, so they are reworked in 4.3, not here.
+  - [x] Add: (a) a session with ticks and no provider bars returns `count: 0` and lists the session in `incomplete` with its `BAR_1M` status (criterion 1; also assert no `tick_trade` statement runs for bars, for example by seeding ticks whose prices differ from the bars and asserting the bars are the provider's); (b) every size returns `source == "ohlcv-1m"`; (c) `/schedule` and `/bars` give identical segments (contract and `basis`) for `v.0` over a bar-only window and over a mixed window (D3); (d) a load-complete session that fails the cross-tier volume check is served and not listed in `incomplete` (use the 303 fixture or helper for that check, see `test_family_surface_agreement.py`).
+  - [x] Success: the bars tests in `test_futures_series.py` other than the two CLI-equality tests, plus `test/unit/api_server/test_bars.py` and `test_tick_access.py`, pass.
 
-- [ ] **3.4 Rewire the 231 load test to provider bars**
-  - [ ] `test/load/test_231_futures_api_nfr.py` seeds ticks only (`long_roll` via `seed_minute_roll`), so `test_a_product_1m_bars_read_across_the_roll` would return no bars once the route reads `tick_ohlcv_1m`. Extend `long_roll` (or a sibling fixture in `test/tick_support/bulk_ticks.py`) to also seed `tick_ohlcv_1m` rows and bar-ledger rows for the same sessions and instruments, using the same bulk COPY approach `seed_minute_roll` uses. Seed enough minutes per session that the product 1m read keeps its current shape (`READ_SESSIONS` sessions, same segments). Other users of `long_roll` (`test_the_tick_block_adds_little_to_status`) must still pass.
-  - [ ] Keep `PRODUCT_BARS_BOUND_S` and the assertions as they are. If the bound fails on provider bars, do not raise it. Write a line starting `BLOCKED:` with the measured median under this task, leave the task unchecked, and stop.
-  - [ ] The load tier takes about 77 minutes in full. Run only this file (`test/load/test_231_futures_api_nfr.py`).
-  - [ ] The load tier is run by hand, not in CI, so no wiring is needed. D10's 10 s bound is the one-off Phase 7 production measurement the design sets, not a Phase 6 test.
-  - [ ] Success: the rewired load test passes with its original bound.
+- [x] **3.4 Rewire the 231 load test to provider bars**
+  - [x] `test/load/test_231_futures_api_nfr.py` seeds ticks only (`long_roll` via `seed_minute_roll`), so `test_a_product_1m_bars_read_across_the_roll` would return no bars once the route reads `tick_ohlcv_1m`. Extend `long_roll` (or a sibling fixture in `test/tick_support/bulk_ticks.py`) to also seed `tick_ohlcv_1m` rows and bar-ledger rows for the same sessions and instruments, using the same bulk COPY approach `seed_minute_roll` uses. Seed enough minutes per session that the product 1m read keeps its current shape (`READ_SESSIONS` sessions, same segments). Other users of `long_roll` (`test_the_tick_block_adds_little_to_status`) must still pass.
+  - [x] Keep `PRODUCT_BARS_BOUND_S` and the assertions as they are. If the bound fails on provider bars, do not raise it. Write a line starting `BLOCKED:` with the measured median under this task, leave the task unchecked, and stop.
+  - [x] The load tier takes about 77 minutes in full. Run only this file (`test/load/test_231_futures_api_nfr.py`).
+  - [x] The load tier is run by hand, not in CI, so no wiring is needed. D10's 10 s bound is the one-off Phase 7 production measurement the design sets, not a Phase 6 test.
+  - [x] Success: the rewired load test passes with its original bound.
 
 (No commit here: the API-versus-CLI equality tests pass only once task 4 lands. Sections 3 and 4 commit together.)
 
@@ -136,19 +136,19 @@ revision_number: 2
 
 ## 4. Serve provider bars: `mt data tick get` (D8)
 
-- [ ] **4.1 `get <size>` reads provider bars**
-  - [ ] In `cli/commands/tick_get_cmds.py`: `_plan` takes the family. Bar sizes plan with `BAR_1M`, `ticks` with `TICK_TIER`. `_stream` calls `read_provider_bars` for sizes and `read_ticks` for `ticks`. Remove the `read_bars` import. Exit-code logic is unchanged: `EXIT_PARTIAL` when unresolved or incomplete sessions exist. For bars "incomplete" is the bar family, so ticks with no bars exits `EXIT_PARTIAL` with no rows.
-  - [ ] Update the `tick_get` docstring and `GET_EPILOG`: "bars built from ticks" becomes "provider bars" (check the epilog text).
-  - [ ] Success: mypy clean.
+- [x] **4.1 `get <size>` reads provider bars**
+  - [x] In `cli/commands/tick_get_cmds.py`: `_plan` takes the family. Bar sizes plan with `BAR_1M`, `ticks` with `TICK_TIER`. `_stream` calls `read_provider_bars` for sizes and `read_ticks` for `ticks`. Remove the `read_bars` import. Exit-code logic is unchanged: `EXIT_PARTIAL` when unresolved or incomplete sessions exist. For bars "incomplete" is the bar family, so ticks with no bars exits `EXIT_PARTIAL` with no rows.
+  - [x] Update the `tick_get` docstring and `GET_EPILOG`: "bars built from ticks" becomes "provider bars" (check the epilog text).
+  - [x] Success: mypy clean.
 
-- [ ] **4.2 `source` in `get` output**
-  - [ ] In `tick_get_writers.py`: JSON output gains `"source"` for bar sizes (value from `BAR_SOURCE[Granularity(what)]`). The text and CSV header line names the source. `ticks` output is unchanged and has no `source`. Pass the source through the writer factory (`writer_for`), not a string literal in the writers.
-  - [ ] Success: mypy clean; `tick_get_writers.py` under about 300 lines.
+- [x] **4.2 `source` in `get` output**
+  - [x] In `tick_get_writers.py`: JSON output gains `"source"` for bar sizes (value from `BAR_SOURCE[Granularity(what)]`). The text and CSV header line names the source. `ticks` output is unchanged and has no `source`. Pass the source through the writer factory (`writer_for`), not a string literal in the writers.
+  - [x] Success: mypy clean; `tick_get_writers.py` under about 300 lines.
 
-- [ ] **4.3 `get` tests**
-  - [ ] Rework the bar tests in `test/integration/data/test_tick_get_cli.py` (`test_product_bars_follow_the_schedule`, `test_product_bars_as_json`, the unresolved test) to seed provider bars. Tick-only expectations (`N_TICKS`) become bar values.
-  - [ ] Add: (a) `get 1h --product ES` returns the same rows as the API for the same arguments, with `source` in the JSON. This includes the two reworked API tests `test_contract_bars_equal_the_cli` and `test_product_bars_across_the_roll_equal_the_cli` in `test_futures_series.py`; (b) a range with ticks and no provider bars prints no rows, lists every session as incomplete and exits `EXIT_PARTIAL`; (c) the text and CSV header names the source; (d) `get ticks` output is unchanged.
-  - [ ] Success: `test_tick_get_cli.py`, all of `test_futures_series.py` and `test/unit/cli/commands` pass.
+- [x] **4.3 `get` tests**
+  - [x] Rework the bar tests in `test/integration/data/test_tick_get_cli.py` (`test_product_bars_follow_the_schedule`, `test_product_bars_as_json`, the unresolved test) to seed provider bars. Tick-only expectations (`N_TICKS`) become bar values.
+  - [x] Add: (a) `get 1h --product ES` returns the same rows as the API for the same arguments, with `source` in the JSON. This includes the two reworked API tests `test_contract_bars_equal_the_cli` and `test_product_bars_across_the_roll_equal_the_cli` in `test_futures_series.py`; (b) a range with ticks and no provider bars prints no rows, lists every session as incomplete and exits `EXIT_PARTIAL`; (c) the text and CSV header names the source; (d) `get ticks` output is unchanged.
+  - [x] Success: `test_tick_get_cli.py`, all of `test_futures_series.py` and `test/unit/cli/commands` pass.
 
 **Commit**: `feat: serve futures bars and get from provider ohlcv-1m with source (Fixes #47)`
 

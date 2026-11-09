@@ -17,6 +17,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from manta_trading.constants import Granularity
+from manta_trading.data.tick.bar_constants import BAR_SOURCE
 from manta_trading.data.tick.get_plan import ContractTarget, GetPlan
 from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
 from manta_trading.data.tick.roll_payload import basis_text
@@ -212,10 +214,12 @@ class FuturesBarsResponse(BaseModel):
     """``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars``.
 
     ``end`` is exclusive (session dates); a bar never crosses a session.
+    ``source`` names the provider schema the bars came from (306 D2).
     """
 
     target: FuturesTarget
     granularity: str
+    source: str
     start: date | None
     end: date | None
     definitions_as_of: date | None
@@ -232,6 +236,7 @@ class FuturesBarsResponse(BaseModel):
         return cls(
             **_envelope(plan),
             granularity=granularity,
+            source=BAR_SOURCE[Granularity(granularity)].value,
             count=len(rows),
             bars=_records(FuturesBarRecord, BAR_COLUMNS, rows),
         )

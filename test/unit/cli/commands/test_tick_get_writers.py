@@ -49,6 +49,8 @@ TICK_ROWS = [
     (TS, D16, "ESZ4", 183748, PX, 2, "A", None, None, None, None, None, None, 9),
     (TS + 1, D16, "ESZ4", 183748, PX, 1, "B", PX, UNDEF_INT64, 3, 0, 1, 0, 10),
 ]
+#: What a bar size's output names as its source (306 D8).
+BAR_SOURCE_TEXT = "ohlcv-1m"
 BAR_ROWS = [(TS, D16, "ESU4", 118, PX, PX + 250_000_000, PX, PX, 7)]
 
 
@@ -62,7 +64,12 @@ def _run(
 ) -> tuple[str, str]:
     out, err = io.StringIO(), io.StringIO()
     writer = writer_for(
-        what, json_output=fmt == "json", csv_output=fmt == "csv", out=out, err=err
+        what,
+        source=None if what == TICK_GET_TICKS else BAR_SOURCE_TEXT,
+        json_output=fmt == "json",
+        csv_output=fmt == "csv",
+        out=out,
+        err=err,
     )
     writer.begin(plan)
     for batch in batches:
@@ -202,3 +209,25 @@ def test_nothing_held_says_so_in_the_header() -> None:
 
     assert out.splitlines()[0] == "ESZ9 (42004134)  ticks  nothing held"
     assert "None" not in out
+
+
+def test_a_bar_size_names_its_source_in_json_after_what() -> None:
+    body = json.loads(_run("1m", PRODUCT, [BAR_ROWS], "json")[0])
+
+    keys = list(body)
+    assert body["source"] == "ohlcv-1m"
+    assert keys[keys.index("what") + 1] == "source"
+
+
+def test_ticks_name_no_source_in_any_format() -> None:
+    assert "source" not in json.loads(_run(TICK_GET_TICKS, CONTRACT, [], "json")[0])
+    assert "source" not in _run(TICK_GET_TICKS, CONTRACT, [], "text")[0]
+    assert "source" not in _run(TICK_GET_TICKS, CONTRACT, [], "csv")[1]
+
+
+def test_text_and_csv_headers_name_the_source_of_a_bar_size() -> None:
+    text, _ = _run("1h", PRODUCT, [BAR_ROWS], "text")
+    _, err = _run("1h", PRODUCT, [BAR_ROWS], "csv")
+
+    assert "1h  source ohlcv-1m  2024-09-16" in text.splitlines()[0]
+    assert "1h  source ohlcv-1m  2024-09-16" in err.splitlines()[0]

@@ -52,16 +52,11 @@ from manta_trading.api_server.serialization import (
 )
 from manta_trading.api_server.tick_access import tick_connection, tick_errors
 from manta_trading.constants import Granularity
+from manta_trading.data.tick.bar_reads import read_provider_bars
 from manta_trading.data.tick.get_plan import GetPlan, contract_plan, product_plan
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.schema_families import SchemaFamily
-from manta_trading.data.tick.tick_reads import (
-    OnBatch,
-    Row,
-    TickWindow,
-    read_bars,
-    read_ticks,
-)
+from manta_trading.data.tick.tick_reads import OnBatch, Row, TickWindow, read_ticks
 
 router = APIRouter(prefix="/api/v1/futures", tags=["futures"])
 
@@ -102,14 +97,15 @@ async def _serve(
 
 
 def _contract_plan(
-    request: Request, symbol: str, start: date | None, end: date | None
+    request: Request,
+    symbol: str,
+    span: tuple[date | None, date | None],
+    family: SchemaFamily,
 ) -> PlanFor:
     calendar_url = request.app.state.calendar_url
 
     async def plan(conn: Conn) -> GetPlan:
-        return await contract_plan(
-            conn, calendar_url, symbol, start, end, SchemaFamily.TICK_TIER
-        )
+        return await contract_plan(conn, calendar_url, symbol, *span, family)
 
     return plan
 
@@ -119,15 +115,14 @@ def _product_plan(
     product: str,
     rule: str | None,
     span: tuple[date | None, date | None],
+    family: SchemaFamily,
 ) -> PlanFor:
     """Resolves the product (404) and the rule (422) before any read."""
     entry, parsed = product_entry(product), parse_rule(rule)
     urls = (request.app.state.tick_url, request.app.state.calendar_url)
 
     async def plan(conn: Conn) -> GetPlan:
-        return await product_plan(
-            conn, urls, entry, parsed, *span, SchemaFamily.TICK_TIER
-        )
+        return await product_plan(conn, urls, entry, parsed, *span, family)
 
     return plan
 
@@ -136,7 +131,7 @@ def _bars_reader(granularity: TickBarGranularity) -> ReadWindow:
     size = Granularity(granularity.value)
 
     async def read(conn: Conn, window: TickWindow, on_batch: OnBatch) -> int:
-        return await read_bars(conn, window, size, on_batch)
+        return await read_provider_bars(conn, window, size, on_batch)
 
     return read
 
@@ -187,7 +182,7 @@ async def contract_ticks(
 ) -> Response:
     """One contract's ticks over ``[start, end)`` sessions, clipped to
     ``[from, until)``, in key order. Refused past the row ceiling."""
-    plan_for = _contract_plan(request, symbol, start, end)
+    plan_for = _contract_plan(request, symbol, (start, end), SchemaFamily.TICK_TIER)
     return await _ticks(request, conn, plan_for, max_rows, (from_, until), fmt)
 
 
@@ -204,8 +199,8 @@ async def contract_bars(
     end: EndParam = None,
     fmt: Format = "json",
 ) -> Response:
-    """One contract's session-bounded bars over ``[start, end)`` sessions."""
-    plan_for = _contract_plan(request, symbol, start, end)
+    """One contract's provider bars over ``[start, end)`` sessions."""
+    plan_for = _contract_plan(request, symbol, (start, end), SchemaFamily.BAR_1M)
     return await _bars(request, conn, plan_for, max_rows, granularity, fmt)
 
 
@@ -226,7 +221,9 @@ async def product_ticks(
 ) -> Response:
     """A product's ticks under ``rule``: each session from the contract the
     rule names (``segments``); ``unresolved`` sessions have no rows."""
-    plan_for = _product_plan(request, product, rule, (start, end))
+    plan_for = _product_plan(
+        request, product, rule, (start, end), SchemaFamily.TICK_TIER
+    )
     return await _ticks(request, conn, plan_for, max_rows, (from_, until), fmt)
 
 
@@ -245,5 +242,5 @@ async def product_bars(
     fmt: Format = "json",
 ) -> Response:
     """A product's bars under ``rule``, one contract per session, never merged."""
-    plan_for = _product_plan(request, product, rule, (start, end))
+    plan_for = _product_plan(request, product, rule, (start, end), SchemaFamily.BAR_1M)
     return await _bars(request, conn, plan_for, max_rows, granularity, fmt)

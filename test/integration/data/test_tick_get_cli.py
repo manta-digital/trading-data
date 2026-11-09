@@ -1,8 +1,10 @@
 """``mt data tick get`` end to end (slice 230, FR1, FR5–FR7, FR10a; TD5, TD11).
 
 The September 2024 roll is seeded (``roll_seed``) plus a few ESZ4 ticks in
-session 2024-09-18 (22:00 UTC 09-17 → 21:00 UTC 09-18); the calendar is the
-scratch production database's CME_EQUITY.
+session 2024-09-18 (22:00 UTC 09-17 → 21:00 UTC 09-18), and beside them the same
+minutes as provider bars, priced apart (306: bar sizes read ``tick_ohlcv_1m``,
+ticks are read only for ``ticks``). Session 09-20 holds ticks and no bars. The
+calendar is the scratch production database's CME_EQUITY.
 """
 
 from __future__ import annotations
@@ -18,7 +20,8 @@ from typing import Any
 import psycopg
 import pytest
 from tick_support.cli import clear_tick_env, cli_settings, closed_port
-from tick_support.roll_seed import ESZ4, SeededRoll, seed_september_roll
+from tick_support.roll_bars import seed_bar_sessions
+from tick_support.roll_seed import ESU4, ESZ4, SeededRoll, seed_september_roll
 from tick_support.rows import FILE_COLUMNS, insert_request, insert_unit
 from tick_support.ticks import Tick, seed_ticks
 from typer.testing import CliRunner
@@ -32,6 +35,7 @@ runner = CliRunner(env={"COLUMNS": "200"})
 GET = ["data", "tick", "get"]
 SESSION_0918 = ["--start", "2024-09-18", "--end", "2024-09-19"]
 N_TICKS = 5
+BAR_PRICE = 6_000_000_000_000
 
 
 def _ns(hour: int, minute: int = 0) -> int:
@@ -50,6 +54,17 @@ def seeded(
     ]
     seed_ticks(
         migrated_tick_db, roll.units[date(2024, 9, 18)], ESZ4.instrument_id, ticks
+    )
+    bars = [(_ns(14, n), BAR_PRICE + n) for n in range(N_TICKS)]
+    seed_bar_sessions(
+        migrated_tick_db,
+        {
+            (date(2024, 9, 16), ESU4.instrument_id): 1,
+            (date(2024, 9, 17), ESU4.instrument_id): 1,
+            (date(2024, 9, 18), ESZ4.instrument_id): N_TICKS,
+            (date(2024, 9, 19), ESZ4.instrument_id): 1,
+        },
+        {(date(2024, 9, 18), ESZ4.instrument_id): bars},
     )
     with cli_settings(migrated_tick_db, session_migrated_db):
         yield roll
@@ -79,7 +94,44 @@ def test_product_bars_follow_the_schedule(seeded: SeededRoll) -> None:
     assert "v.0 (default)" in result.stdout
     assert "2024-09-16 → 2024-09-17  ESU4 (118)" in result.stdout
     assert "2024-09-18 → 2024-09-19  ESZ4 (183748)" in result.stdout
-    assert "1 row(s)" in result.stdout  # the five ticks fall in one hour
+    assert "1 row(s)" in result.stdout  # the five bars fall in one hour
+    assert "source ohlcv-1m" in result.stdout.splitlines()[0]
+
+
+def test_ticks_and_no_provider_bars_print_no_rows_list_every_session_and_exit_three(
+    seeded: SeededRoll,
+) -> None:
+    """09-20 onward holds ticks and no bars: no bars, every session incomplete."""
+    span = ["--start", "2024-09-20", "--end", "2024-09-25"]
+
+    result = _invoke("1h", "--contract", "ESZ4", *span, "--json")
+
+    assert result.exit_code == 3, result.output
+    body = json.loads(result.stdout)
+    assert body["rows"] == [] and body["source"] == "ohlcv-1m"
+    assert [i["session_date"] for i in body["incomplete"]] == [
+        "2024-09-20",
+        "2024-09-23",
+        "2024-09-24",
+    ]
+    assert body["exit_code"] == 3
+
+
+def test_the_csv_header_names_the_source_and_ticks_name_none(
+    seeded: SeededRoll,
+) -> None:
+    bars = _invoke("1m", "--contract", "ESZ4", *SESSION_0918, "--csv")
+    ticks = _invoke("ticks", "--contract", "ESZ4", *SESSION_0918, "--csv")
+
+    assert "1m  source ohlcv-1m" in bars.stderr.splitlines()[0]
+    assert "source" not in ticks.stderr
+    assert len(bars.stdout.splitlines()) == 1 + N_TICKS
+
+
+def test_ticks_json_carries_no_source(seeded: SeededRoll) -> None:
+    result = _invoke("ticks", "--contract", "ESZ4", *SESSION_0918, "--json")
+
+    assert "source" not in json.loads(result.stdout)
 
 
 def test_product_bars_as_json(seeded: SeededRoll) -> None:
@@ -90,8 +142,9 @@ def test_product_bars_as_json(seeded: SeededRoll) -> None:
     assert (bar["raw_symbol"], bar["volume"], bar["open"]) == (
         "ESZ4",
         N_TICKS,
-        "5650.25",
+        "6000",  # the provider bar's price, not the ticks' 5650.25
     )
+    assert json.loads(result.stdout)["source"] == "ohlcv-1m"
 
 
 def test_unresolved_sessions_print_and_exit_three(seeded: SeededRoll) -> None:

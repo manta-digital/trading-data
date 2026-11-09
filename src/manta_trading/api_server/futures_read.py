@@ -22,7 +22,7 @@ from manta_trading.data.tick.tick_reads import OnBatch, Row, TickWindow
 
 #: Builds the plan on the read's own connection, inside its snapshot.
 PlanFor = Callable[[Conn], Awaitable[GetPlan]]
-#: Reads one window: ``read_ticks``, or ``read_bars`` bound to a granularity.
+#: Reads one window: ``read_ticks``, or ``read_provider_bars`` bound to a granularity.
 ReadWindow = Callable[[Conn, TickWindow, OnBatch], Awaitable[int]]
 #: Half-open instant bounds in epoch ns, ``[from, until)``; ``None`` = open.
 Bounds = tuple[int | None, int | None]

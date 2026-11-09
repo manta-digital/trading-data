@@ -6,7 +6,8 @@ went out, ``partial(n_rows, error)``. Rows are written as they arrive, never
 collected: text is fixed-width lines (Rich would buffer a table), CSV keeps
 stdout to the header and rows, and JSON is one object written incrementally
 in TD5's key order. Every price goes through ``price_text`` and every
-nanosecond time through ``ts_text``.
+nanosecond time through ``ts_text``. A bar size names its ``source`` (the
+provider schema, 306 D8) in the header line and the JSON head; ticks have none.
 """
 
 from __future__ import annotations
@@ -95,7 +96,7 @@ def _segment_text(s: DisplaySegment) -> str:
     )
 
 
-def _head_lines(plan: GetPlan, what: str) -> list[str]:
+def _head_lines(plan: GetPlan, what: str, source: str | None) -> list[str]:
     target = plan.target
     if isinstance(target, ContractTarget):
         name = contract_label(target.contract, target.instrument_id)
@@ -107,7 +108,11 @@ def _head_lines(plan: GetPlan, what: str) -> list[str]:
         span = "nothing held"  # no range given, and no held session to default to
     else:
         span = f"{plan.start} → {plan.end} (end exclusive)"
-    return [f"{name}  {what}  {span}", *(f"  {_segment_text(s)}" for s in plan.display)]
+    origin = "" if source is None else f"  source {source}"
+    return [
+        f"{name}  {what}{origin}  {span}",
+        *(f"  {_segment_text(s)}" for s in plan.display),
+    ]
 
 
 def _list_lines(plan: GetPlan) -> list[str]:
@@ -118,8 +123,8 @@ def _list_lines(plan: GetPlan) -> list[str]:
 
 
 class TextWriter:
-    def __init__(self, what: str, out: TextIO, err: TextIO) -> None:
-        self._what, self._out, self._err = what, out, err
+    def __init__(self, what: str, source: str | None, out: TextIO, err: TextIO) -> None:
+        self._what, self._source, self._out, self._err = what, source, out, err
         self._columns = columns_for(what)
         self._lists: list[str] = []
         self._n = 0
@@ -132,7 +137,10 @@ class TextWriter:
 
     def begin(self, plan: GetPlan) -> None:
         self._lists = _list_lines(plan)  # printed after the rows
-        lines = [*_head_lines(plan, self._what), self._line(self._columns)]
+        lines = [
+            *_head_lines(plan, self._what, self._source),
+            self._line(self._columns),
+        ]
         self._out.write("\n".join(lines) + "\n")
 
     def rows(self, batch: Sequence[Row]) -> None:
@@ -167,14 +175,14 @@ class TextWriter:
 class CsvWriter:
     """Header and rows on stdout; everything else on stderr (FR10)."""
 
-    def __init__(self, what: str, out: TextIO, err: TextIO) -> None:
-        self._what, self._err = what, err
+    def __init__(self, what: str, source: str | None, out: TextIO, err: TextIO) -> None:
+        self._what, self._source, self._err = what, source, err
         self._columns = columns_for(what)
         self._csv = csv.writer(out, lineterminator="\n")
 
     def begin(self, plan: GetPlan) -> None:
         self._csv.writerow(self._columns)
-        lines = [*_head_lines(plan, self._what), *_list_lines(plan)]
+        lines = [*_head_lines(plan, self._what, self._source), *_list_lines(plan)]
         self._err.write("\n".join(lines) + "\n")
 
     def rows(self, batch: Sequence[Row]) -> None:
@@ -192,8 +200,8 @@ class CsvWriter:
 class JsonWriter:
     """One object, written as the rows arrive; valid even when cut short."""
 
-    def __init__(self, what: str, out: TextIO, err: TextIO) -> None:
-        self._what, self._out = what, out
+    def __init__(self, what: str, source: str | None, out: TextIO, err: TextIO) -> None:
+        self._what, self._source, self._out = what, source, out
         self._columns = columns_for(what)
         self._n = 0
 
@@ -201,6 +209,7 @@ class JsonWriter:
         head = {
             "target": _target_dict(plan),
             "what": self._what,
+            **({} if self._source is None else {"source": self._source}),
             "start": _iso(plan.start),
             "end": _iso(plan.end),
             "segments": [
@@ -253,10 +262,18 @@ class JsonWriter:
 
 
 def writer_for(
-    what: str, *, json_output: bool, csv_output: bool, out: TextIO, err: TextIO
+    what: str,
+    *,
+    source: str | None,
+    json_output: bool,
+    csv_output: bool,
+    out: TextIO,
+    err: TextIO,
 ) -> GetWriter:
+    """The writer for ``what``; ``source`` is the provider schema a bar size was
+    built from (``None`` for ticks, which name none)."""
     if json_output:
-        return JsonWriter(what, out, err)
+        return JsonWriter(what, source, out, err)
     if csv_output:
-        return CsvWriter(what, out, err)
-    return TextWriter(what, out, err)
+        return CsvWriter(what, source, out, err)
+    return TextWriter(what, source, out, err)

@@ -79,7 +79,8 @@ class TickWindow:
     close_ns: int
 
 
-#: The window's own columns (``bar_reads`` and ``bar_parity`` share these)., selected as parameters so rows need no reshaping.
+#: The window's own columns, selected as parameters so rows need no reshaping
+#: (``bar_reads`` and ``bar_parity`` share these).
 WINDOW_COLUMNS = sql.SQL(
     "%(session_date)s::date, %(raw_symbol)s::text, %(instrument_id)s::bigint"
 )

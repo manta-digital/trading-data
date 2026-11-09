@@ -1,4 +1,4 @@
-"""``mt data tick get``: stored ticks or session-bounded bars (slice 230).
+"""``mt data tick get``: stored ticks or provider bars (slices 230, 306).
 
 LLD 230 TD1, TD2, TD5, TD11. Provider-free, like ``status``: no Databento
 key, no archive, no lock. The tick track's migrations are checked first
@@ -38,9 +38,12 @@ from manta_trading.cli.commands.tick_store_cmds import (
     read_storage,
     run_mapped,
 )
+from manta_trading.constants import Granularity
+from manta_trading.data.tick.bar_constants import BAR_SOURCE
 from manta_trading.data.tick.constants import TICK_GET_CHOICES, TICK_GET_TICKS
 from manta_trading.data.tick.line_state import first_line
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE, RollRule
+from manta_trading.data.tick.schema_families import SchemaFamily
 
 if TYPE_CHECKING:
     from manta_trading.cli.commands.tick_get_writers import GetWriter
@@ -50,6 +53,8 @@ if TYPE_CHECKING:
     from manta_trading.data.tick.tick_reads import Row
 
 GET_EPILOG = (
+    "Bars are the provider's ohlcv-1m bars (rolled up per session for the "
+    "coarser sizes), never built from ticks; the output names its source.  "
     "Examples: mt data tick get 1m --product ES --start 2024-09-16 --end "
     "2024-09-20;  mt data tick get ticks --contract ESZ4 --start 2024-09-18 "
     "--end 2024-09-19 --csv > esz4.csv.  "
@@ -97,6 +102,19 @@ _CSV_OPTION = typer.Option(
 )
 
 
+def family_for(what: str) -> SchemaFamily:
+    """The family ``get WHAT`` plans and judges: ticks the tick tier, a bar size
+    the provider bar family (306 D8)."""
+    return SchemaFamily.TICK_TIER if what == TICK_GET_TICKS else SchemaFamily.BAR_1M
+
+
+def bar_source(what: str) -> str | None:
+    """The provider schema a bar size is built from; ``None`` for ticks."""
+    if what == TICK_GET_TICKS:
+        return None
+    return BAR_SOURCE[Granularity(what)].value
+
+
 def _rule(
     contract: str | None, product: str | None, rule: str | None, json_output: bool
 ) -> RollRule:
@@ -116,10 +134,10 @@ async def _plan(
     target: tuple[str | None, ...],
     rule: RollRule,
     span: tuple[datetime | None, ...],
+    family: SchemaFamily,
 ) -> GetPlan:
     from manta_trading.cli.commands.tick_store_cmds import universe_entries
     from manta_trading.data.tick.get_plan import contract_plan, product_plan
-    from manta_trading.data.tick.schema_families import SchemaFamily
     from manta_trading.data.tick.store_context import database_url
     from manta_trading.data.tick.tick_calendar import calendar_url
 
@@ -127,20 +145,16 @@ async def _plan(
     start, end = (None if d is None else d.date() for d in span)
     calendar = calendar_url(settings)
     if contract is not None:
-        return await contract_plan(
-            conn, calendar, contract, start, end, SchemaFamily.TICK_TIER
-        )
+        return await contract_plan(conn, calendar, contract, start, end, family)
     (entry,) = universe_entries(product)
     urls = (database_url(settings), calendar)
-    return await product_plan(
-        conn, urls, entry, rule, start, end, SchemaFamily.TICK_TIER
-    )
+    return await product_plan(conn, urls, entry, rule, start, end, family)
 
 
 async def _stream(conn: Conn, plan: GetPlan, what: str, writer: GetWriter) -> int:
     """Read every planned session in one snapshot; return the exit code."""
-    from manta_trading.constants import Granularity
-    from manta_trading.data.tick.tick_reads import read_bars, read_ticks
+    from manta_trading.data.tick.bar_reads import read_provider_bars
+    from manta_trading.data.tick.tick_reads import read_ticks
 
     written = 0
 
@@ -159,7 +173,7 @@ async def _stream(conn: Conn, plan: GetPlan, what: str, writer: GetWriter) -> in
                 if what == TICK_GET_TICKS:
                     await read_ticks(conn, window, on_batch)
                 else:
-                    await read_bars(conn, window, Granularity(what), on_batch)
+                    await read_provider_bars(conn, window, Granularity(what), on_batch)
     except psycopg.OperationalError as exc:  # QueryCanceled included
         if written == 0:
             raise  # nothing printed yet: the ordinary error path (run_mapped)
@@ -195,7 +209,7 @@ def tick_get(
     csv_output: bool = _CSV_OPTION,
     json_output: bool = JSON_OPTION,
 ) -> None:
-    """Stored ticks, or bars built from them, for one contract or for a product
+    """Stored ticks, or the provider's bars, for one contract or for a product
     under a roll rule (one contract per session, never merged).
 
     Dates are session dates; --end is EXCLUSIVE, unlike mt data get.
@@ -209,9 +223,11 @@ def tick_get(
     if csv_output and json_output:
         refuse("--csv and --json are exclusive", json_output)
     parsed = _rule(contract, product, rule, json_output)
+    family = family_for(what)
     settings: Settings = ctx.obj["settings"]
     writer = writer_for(
         what,
+        source=bar_source(what),
         json_output=json_output,
         csv_output=csv_output,
         out=sys.stdout,
@@ -222,7 +238,7 @@ def tick_get(
         conn = await connect_migrated(roll_conninfo(database_url(settings)))
         try:
             plan = await _plan(
-                conn, settings, (contract, product), parsed, (start, end)
+                conn, settings, (contract, product), parsed, (start, end), family
             )
             return await _stream(conn, plan, what, writer)
         finally:

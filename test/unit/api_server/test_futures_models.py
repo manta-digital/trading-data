@@ -28,7 +28,9 @@ from manta_trading.api_server.models.futures_catalog import (
     FuturesScheduleResponse,
     ScheduleSegmentRecord,
 )
-from manta_trading.data.tick.constants import UNDEF_INT64
+from manta_trading.constants import Granularity
+from manta_trading.data.tick.bar_constants import BAR_SOURCE
+from manta_trading.data.tick.constants import TICK_BAR_GRANULARITIES, UNDEF_INT64
 from manta_trading.data.tick.get_plan import (
     DisplaySegment,
     GetPlan,
@@ -207,6 +209,19 @@ def test_from_and_until_are_on_the_wire_under_their_names() -> None:
     )
     assert "from_" not in body
     assert body["incomplete"] == [{"session_date": "2024-09-18", "status": "missing"}]
+
+
+@pytest.mark.parametrize("size", [g.value for g in TICK_BAR_GRANULARITIES])
+def test_every_served_size_names_its_provider_source(size: str) -> None:
+    body = _json(FuturesBarsResponse.from_plan(_plan(), size, []))
+
+    assert body["source"] == "ohlcv-1m"
+    assert body["source"] == BAR_SOURCE[Granularity(size)].value
+    assert list(FuturesBarsResponse.model_fields)[:3] == [
+        "target",
+        "granularity",
+        "source",
+    ]
 
 
 def test_every_segment_of_a_time_series_carries_its_basis() -> None:
