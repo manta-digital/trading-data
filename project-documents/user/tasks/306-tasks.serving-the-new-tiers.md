@@ -212,25 +212,25 @@ revision_number: 2
 
 ## 6. Retire the tick-derived bars (Migration Plan)
 
-- [ ] **6.1 Delete `read_bars` and its SQL**
-  - [ ] In `tick_reads.py`, delete `_BARS`, `_INTRADAY_BUCKET`, `_SESSION_BUCKET`, `read_bars` and the imports only they used (`Granularity`, `GRANULARITY_BAR_MINUTES`, `_NS_PER_MINUTE` if nothing else uses it). Update the module docstring: it no longer mentions bars. Keep `read_ticks`, `TICK_COLUMNS`, `BAR_COLUMNS`, `TickWindow` and the helpers `bar_reads`/`bar_parity` import.
-  - [ ] Success: the module imports cleanly and mypy passes.
+- [x] **6.1 Delete `read_bars` and its SQL**
+  - [x] In `tick_reads.py`, delete `_BARS`, `_INTRADAY_BUCKET`, `_SESSION_BUCKET`, `read_bars` and the imports only they used (`Granularity`, `GRANULARITY_BAR_MINUTES`, `_NS_PER_MINUTE` if nothing else uses it). Update the module docstring: it no longer mentions bars. Keep `read_ticks`, `TICK_COLUMNS`, `BAR_COLUMNS`, `TickWindow` and the helpers `bar_reads`/`bar_parity` import.
+  - [x] Success: the module imports cleanly and mypy passes.
 
 - [ ] **6.2 Move or delete the old tick-bar tests**
   - [ ] `test/integration/data/test_tick_reads.py`: remove the `read_bars` tests (lines ~99–149); the equivalent bucketing and window cases are covered by `test_bar_reads.py` (2.3) and the tick-minute SQL by `test_tick_parity.py` (5.7). If any case there has no counterpart (for example the two-instrument isolation test or the empty window), port it to the matching new file first. Update the module docstring.
-  - [ ] `test/integration/data/test_tick_coverage_bars.py` and `test_tick_status_build.py` matched the earlier grep for `_BARS`; check each match. If it is only an unrelated name, leave the file alone.
-  - [ ] Success: `test_tick_reads.py` covers `read_ticks` only and passes.
+  - [x] `test/integration/data/test_tick_coverage_bars.py` and `test_tick_status_build.py` matched the earlier grep for `_BARS`; check each match. If it is only an unrelated name, leave the file alone.
+  - [x] Success: `test_tick_reads.py` covers `read_ticks` only and passes.
 
-- [ ] **6.3 Verify nothing references the removed code**
-  - [ ] Run `grep -rn "read_bars\|_INTRADAY_BUCKET\|_SESSION_BUCKET" src test scripts docs`. Expected: no matches. Also run `grep -rnw "_BARS" src test scripts`; the only allowed matches are the tick-minute SQL now in `bar_parity.py`, if you kept the name there. Substring hits such as `MIN_BARS` are unrelated.
-  - [ ] Run `scripts/cut_tick_fixtures.py` only by reading it: if it imports anything removed, update it. Do not re-cut fixtures.
-  - [ ] Confirm `TICK_BAR_GRANULARITIES` and `TickBarGranularity` still exist (D4; see Context Summary).
-  - [ ] Success: grep output as expected; `uv run mypy` (src paths and tests in one invocation) passes.
+- [x] **6.3 Verify nothing references the removed code**
+  - [x] Run `grep -rn "read_bars\|_INTRADAY_BUCKET\|_SESSION_BUCKET" src test scripts docs`. Expected: no matches. Also run `grep -rnw "_BARS" src test scripts`; the only allowed matches are the tick-minute SQL now in `bar_parity.py`, if you kept the name there. Substring hits such as `MIN_BARS` are unrelated.
+  - [x] Run `scripts/cut_tick_fixtures.py` only by reading it: if it imports anything removed, update it. Do not re-cut fixtures.
+  - [x] Confirm `TICK_BAR_GRANULARITIES` and `TickBarGranularity` still exist (D4; see Context Summary).
+  - [x] Success: grep output as expected; `uv run mypy` (src paths and tests in one invocation) passes.
 
-- [ ] **6.4 Touched-area test run**
-  - [ ] Run the unit tier for `test/unit/api_server`, `test/unit/cli`, `test/unit/data/tick`, and the integration tests `test/integration/data` (tick files) and `test/integration/api_server`. Run the integration tiers separately and re-run any failure in isolation before investigating.
-  - [ ] Run `ruff format` and `ruff check` on the touched files only. Check `git diff` for swept pre-existing lines.
-  - [ ] Success: all touched-area tests pass. Any failure is explained as pre-existing by running it on the slice base.
+- [x] **6.4 Touched-area test run**
+  - [x] Run the unit tier for `test/unit/api_server`, `test/unit/cli`, `test/unit/data/tick`, and the integration tests `test/integration/data` (tick files) and `test/integration/api_server`. Run the integration tiers separately and re-run any failure in isolation before investigating.
+  - [x] Run `ruff format` and `ruff check` on the touched files only. Check `git diff` for swept pre-existing lines.
+  - [x] Success: all touched-area tests pass. Any failure is explained as pre-existing by running it on the slice base.
 
 **Commit**: `refactor: remove read-time tick bars from every serving path`
 

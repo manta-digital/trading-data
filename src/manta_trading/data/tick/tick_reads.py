@@ -1,4 +1,5 @@
-"""Per-session reads of ``tick_trade``: raw ticks and session-bounded bars (230).
+"""Per-session reads of ``tick_trade``: raw ticks (230), and the window plumbing
+the bar readers share (306).
 
 LLD 230 TD3. One statement per :class:`TickWindow` (one session of one
 instrument), each a range scan on the key prefix ``(instrument_id,
@@ -20,11 +21,8 @@ from typing import Any
 
 from psycopg import sql
 
-from manta_trading.constants import GRANULARITY_BAR_MINUTES, Granularity
 from manta_trading.data.tick.constants import TICK_GET_FETCH_ROWS
 from manta_trading.data.tick.manifest_reads import Conn
-
-_NS_PER_MINUTE = 60 * 1_000_000_000
 
 #: TD5's tick row, in order. The BBO columns are null on trades-tier rows.
 TICK_COLUMNS = (
@@ -94,24 +92,6 @@ _TICKS = sql.SQL(
     " FROM tick_trade WHERE {where}"
     " ORDER BY ts_event, sequence, sequence_ordinal"
 )
-#: Open and close by full key order: several trades can share a nanosecond.
-_BARS = sql.SQL(
-    "SELECT bucket, {window},"
-    " (array_agg(price ORDER BY ts_event, sequence, sequence_ordinal))[1],"
-    " max(price), min(price),"
-    " (array_agg(price ORDER BY ts_event DESC, sequence DESC,"
-    " sequence_ordinal DESC))[1],"
-    " sum(size)::bigint"  # numeric otherwise; a bar volume is an integer
-    " FROM (SELECT {bucket} AS bucket, ts_event, sequence, sequence_ordinal,"
-    " price, size FROM tick_trade WHERE {where}) AS t"
-    " GROUP BY bucket ORDER BY bucket"
-)
-#: A bar never crosses the session open: the first bucket starts there.
-_INTRADAY_BUCKET = sql.SQL(
-    "GREATEST(time_bucket(%(width_ns)s::bigint, ts_event), %(open_ns)s::bigint)"
-)
-#: ``1d`` is the whole session, stamped with its open.
-_SESSION_BUCKET = sql.SQL("%(open_ns)s::bigint")
 
 
 def window_params(window: TickWindow) -> dict[str, Any]:
@@ -141,18 +121,3 @@ async def read_ticks(conn: Conn, window: TickWindow, on_batch: OnBatch) -> int:
     """The window's ticks in key order (TD5 tick rows); returns the row count."""
     query = _TICKS.format(window=WINDOW_COLUMNS, where=WINDOW_WHERE)
     return await stream_rows(conn, query, window_params(window), on_batch)
-
-
-async def read_bars(
-    conn: Conn, window: TickWindow, granularity: Granularity, on_batch: OnBatch
-) -> int:
-    """The window's bars (TD5 bar rows), empty buckets omitted; returns the
-    row count."""
-    params = window_params(window)
-    if granularity is Granularity.D1:
-        bucket = _SESSION_BUCKET
-    else:
-        bucket = _INTRADAY_BUCKET
-        params["width_ns"] = GRANULARITY_BAR_MINUTES[granularity] * _NS_PER_MINUTE
-    query = _BARS.format(window=WINDOW_COLUMNS, bucket=bucket, where=WINDOW_WHERE)
-    return await stream_rows(conn, query, params, on_batch)

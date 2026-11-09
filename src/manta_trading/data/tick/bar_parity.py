@@ -5,7 +5,7 @@ parity`` sets them against ``tick_ohlcv_1m`` where both are held. Buckets are
 the served ones (``bar_reads.SESSION_BUCKET`` at a 60 s width), so a tick minute
 and a provider minute meet on the same key.
 
-- :func:`read_tick_minute_bars` is the former ``read_bars`` SQL at one minute.
+- :func:`read_tick_minute_bars` is the read-time tick-bar SQL, kept at one minute.
 - :func:`classify_minutes` joins the two sides by bucket and classes each minute.
 """
 

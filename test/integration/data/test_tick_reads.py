@@ -1,8 +1,8 @@
-"""``read_ticks`` and ``read_bars`` on a scratch tick database (slice 230, TD3).
+"""``read_ticks`` on a scratch tick database (slice 230, TD3; bars moved in 306).
 
 Two synthetic sessions around a daily break: A closes 21:00 UTC, B opens
-22:00 UTC. A 4h bucket (20:00 → 24:00 UTC) straddles the break. Ticks are
-seeded directly (``tick_support.ticks``); no calendar is read.
+22:00 UTC. Ticks are seeded directly (``tick_support.ticks``); no calendar is
+read.
 """
 
 from __future__ import annotations
@@ -16,13 +16,10 @@ import pytest
 from tick_support.rows import insert_request, insert_unit
 from tick_support.ticks import Tick, seed_ticks
 
-from manta_trading.constants import Granularity
 from manta_trading.data.tick import tick_reads
 from manta_trading.data.tick.tick_reads import (
-    BAR_COLUMNS,
     TICK_COLUMNS,
     TickWindow,
-    read_bars,
     read_ticks,
 )
 
@@ -95,39 +92,6 @@ async def test_tbbo_row_carries_its_quote(seeded: str) -> None:
     assert rows[0]["ask_sz"] == 2
 
 
-async def test_4h_bucket_across_the_break_is_two_bars(seeded: str) -> None:
-    a = _rows(await _read(seeded, read_bars, A, Granularity.H4), BAR_COLUMNS)
-    b = _rows(await _read(seeded, read_bars, B, Granularity.H4), BAR_COLUMNS)
-
-    assert a[-1]["time"] == _ns(20)  # the close ties' bucket, A's side of the break
-    assert b[0]["time"] == B.open_ns  # 22:00, not 20:00
-    assert b[0]["volume"] == 13
-    # A's first bar starts at A's open, not at the 20:00 bucket before it.
-    assert a[0]["time"] == A.open_ns
-
-
-async def test_session_bar_matches_the_ticks_with_ties_by_key(seeded: str) -> None:
-    (bar,) = _rows(await _read(seeded, read_bars, A, Granularity.D1), BAR_COLUMNS)
-
-    assert bar["time"] == A.open_ns
-    assert (bar["open"], bar["high"], bar["low"], bar["close"]) == (
-        5_000,
-        5_010,
-        5_000,
-        5_003,  # the last tie in key order, not the first inserted
-    )
-    assert bar["volume"] == 4 + 5 + 1 + 2 + 3
-    assert type(bar["volume"]) is int  # not numeric: JSON must serialize it
-
-
-async def test_1m_volume_sums_sizes_and_skips_empty_buckets(seeded: str) -> None:
-    rows = _rows(await _read(seeded, read_bars, A, Granularity.M1), BAR_COLUMNS)
-
-    assert [r["time"] for r in rows] == [A.open_ns, _ns(9), _ns(21)]
-    assert rows[-1]["volume"] == 6
-    assert (rows[-1]["open"], rows[-1]["close"]) == (5_001, 5_003)
-
-
 async def test_batches_stream_before_the_read_ends(
     seeded: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -146,4 +110,3 @@ async def test_empty_window_reads_nothing(seeded: str) -> None:
     empty = TickWindow(date(2024, 9, 18), ES, "ESU4", _ns(22, day=17), _ns(21, day=18))
 
     assert await _read(seeded, read_ticks, empty) == []
-    assert await _read(seeded, read_bars, empty, Granularity.H1) == []
