@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Slice 304's first real purchase: install the release, buy, ingest, collect evidence.
+"""A purchase slice's cutover: install the release, buy, ingest, collect evidence.
 
-    uv run python scripts/cutover_304_first_purchase.py <release-tag>
+    uv run python scripts/cutover_304_first_purchase.py --slice <n> [--estimate] <tag>
+
+Written for slice 304's first purchase and shared by every purchase slice: what
+is wanted comes from ``TICK_UNIVERSE``, and ``--slice`` names the state files
+(``{slice}-cutover-start.txt``, ``{slice}-cutover-baseline.json``) and the log
+(``cutover-{slice}-{tag}-{stamp}.log``) under the notes directory.
 
 Run as the operator from the dev checkout root with the release checked out and
 the PM's ceiling script already run (the preflight names its command if not).
@@ -24,6 +29,7 @@ rule holds.
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -38,9 +44,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cutover_304_evidence as evidence  # noqa: E402
 from cutover_304_checks import (  # noqa: E402
     Estimate,
+    ceiling_command,
     check_checkout_database,
     check_env_text,
+    check_plan_unset,
     judge_estimate,
+    resubmit_origins,
 )
 from cutover_common import (  # noqa: E402
     ENV_FILE,
@@ -61,8 +70,7 @@ EXIT_STILL_PROCESSING = 6
 PASS_DONE_EXITS = (0, 3)  # 3: some units failed, which is a finding
 TICK_UNIT = "mt-tick-pass.service"
 JOURNAL_LINES = 30
-START_FILE = NOTES_DIR / "304-cutover-start.txt"
-BASELINE_FILE = NOTES_DIR / "304-cutover-baseline.json"
+EXIT_USAGE = 2
 ESTIMATE_ARGS = ["data", "tick", "pass", "--estimate-only", "--json"]
 
 
@@ -82,10 +90,19 @@ def read_checkout_env_text() -> str:
     return Path(".env").read_text()
 
 
-def record_start_and_baselines() -> tuple[str, dict[str, Any]]:
+def start_file(slice_id: str) -> Path:
+    return NOTES_DIR / f"{slice_id}-cutover-start.txt"
+
+
+def baseline_file(slice_id: str) -> Path:
+    return NOTES_DIR / f"{slice_id}-cutover-baseline.json"
+
+
+def record_start_and_baselines(slice_id: str) -> tuple[str, dict[str, Any]]:
     """First run: write the start instant and the baselines. Re-run: read them."""
-    if START_FILE.exists() and BASELINE_FILE.exists():
-        return START_FILE.read_text().strip(), json.loads(BASELINE_FILE.read_text())
+    start_path, baseline_path = start_file(slice_id), baseline_file(slice_id)
+    if start_path.exists() and baseline_path.exists():
+        return start_path.read_text().strip(), json.loads(baseline_path.read_text())
     baseline = {
         "health_exit": evidence.health_exit_code(),
         "definitions": evidence.definition_counts(),
@@ -93,8 +110,8 @@ def record_start_and_baselines() -> tuple[str, dict[str, Any]]:
     log_text(f"baselines: {baseline}")
     start = datetime.now(UTC).isoformat(timespec="seconds")
     NOTES_DIR.mkdir(parents=True, exist_ok=True)
-    BASELINE_FILE.write_text(json.dumps(baseline))
-    START_FILE.write_text(start + "\n")
+    baseline_path.write_text(json.dumps(baseline))
+    start_path.write_text(start + "\n")
     return start, baseline
 
 
@@ -124,6 +141,18 @@ def fetch_estimate() -> dict[str, Any]:
     return summary
 
 
+def judge(
+    summary: dict[str, Any], start: str | None, *, check_ceilings: bool = True
+) -> Estimate:
+    """Judge the estimate; a resubmit is matched to its original request's row."""
+    since = None if start is None else datetime.fromisoformat(start)
+    origins = {}
+    if since is not None and any(req["resubmit"] for req in summary["requests"]):
+        rows = evidence.mt_json(["data", "tick", "debug", "requests"])["rows"]
+        origins = resubmit_origins(rows)
+    return judge_estimate(summary, since, origins, check_ceilings=check_ceilings)
+
+
 def run_passes(run_pass: Callable[[], int]) -> int:
     """Run ``mt-run tick`` while it exits 6; return its final exit (0 or 3)."""
     for _ in range(PASS_ATTEMPTS):
@@ -147,15 +176,40 @@ def _tick_once() -> int:
     return result.returncode
 
 
+def _nonempty(text: str) -> str:
+    if not text.strip():
+        raise argparse.ArgumentTypeError("must not be empty")
+    return text.strip()
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="cutover_304_first_purchase.py", description=__doc__.split("\n")[0]
+    )
+    parser.add_argument("ref", type=_nonempty, help="release tag to install")
+    parser.add_argument(
+        "--estimate",
+        action="store_true",
+        help="preflight and the free estimate only; print the PM's ceiling command",
+    )
+    parser.add_argument(
+        "--slice", required=True, dest="slice_id", type=_nonempty, help="slice number"
+    )
+    return parser
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__)
-        return 2
-    ref = argv[1]
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    print(f"narration -> {start_log(NOTES_DIR / f'cutover-304-{ref}-{stamp}.log')}")
     try:
-        return _steps(ref)
+        args = _parser().parse_args(argv[1:])
+    except SystemExit as exc:
+        # argparse already printed usage; its exit code (2, or 0 for --help) stands.
+        return int(exc.code or 0)
+    ref, slice_id = args.ref, args.slice_id
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    log_path = NOTES_DIR / f"cutover-{slice_id}-{ref}-{stamp}.log"
+    print(f"narration -> {start_log(log_path)}")
+    try:
+        return _estimate_only(ref) if args.estimate else _steps(ref, slice_id)
     except PassStopped as exc:
         say(f"FAILED: {exc}")
         return exc.exit_code
@@ -168,17 +222,40 @@ def main(argv: list[str]) -> int:
         return 1
 
 
-def _steps(ref: str) -> int:
+def _estimate_only(ref: str) -> int:
+    """Preflight and the free estimate: buys nothing, writes no state (D4).
+
+    The ceilings are usually unset here, so their env checks are skipped and a
+    short ceiling is reported as the command to run, not as a stop.
+    """
+    say(f"1/2 preflight — {ref}")
+    preflight(ref)
+    production_env = read_env_text()
+    check_plan_unset(production_env)
+    check_checkout_database(read_checkout_env_text(), production_env)
+    say("2/2 estimate")
+    summary = fetch_estimate()
+    outcome = judge(summary, None, check_ceilings=False)
+    planned = Decimal(summary["planned_usd"])
+    say(f"planned {planned} USD over {len(summary['requests'])} requests")
+    say(f"verdict {summary['verdict']}: {outcome}")
+    if outcome is Estimate.BUY:
+        trailing = Decimal(summary["trailing_30d_usd"])
+        say(f"the PM runs: {ceiling_command(planned, trailing)}")
+    return 0
+
+
+def _steps(ref: str, slice_id: str) -> int:
     say(f"1/6 preflight — {ref}")
     commit = preflight(ref)
     production_env = read_env_text()
     per_pass: Decimal = check_env_text(production_env)
     check_checkout_database(read_checkout_env_text(), production_env)
-    start, baseline = record_start_and_baselines()
+    start, baseline = record_start_and_baselines(slice_id)
     say(f"2/6 install {ref}")
     install_release(ref, commit)
     say("3/6 estimate")
-    if judge_estimate(fetch_estimate()) is Estimate.NOTHING_TO_BUY:
+    if judge(fetch_estimate(), start) is Estimate.NOTHING_TO_BUY:
         say("4/6 nothing to buy; straight to evidence")
     else:
         say("4/6 buy and ingest")

@@ -26,19 +26,20 @@ from cutover_304_checks import (  # noqa: E402
     FindingClass,
     SessionCheck,
     bar_job_dirs,
+    calendar_for,
     classify_unfinished,
     classify_unit,
     run_session_check,
 )
 from cutover_common import CutoverError, log_text, run, say  # noqa: E402
 
+from manta_trading.data.tick.constants import TickSchema  # noqa: E402
+from manta_trading.data.tick.universe import TICK_UNIVERSE  # noqa: E402
+
 RECONCILE_SCRIPT = Path(__file__).resolve().parent / "reconcile_tick_spend.py"
 EXIT_OK, EXIT_PARTIAL = 0, 3  # ``mt data tick`` verbs: 3 = a verdict, not a failure
 RECONCILE_FAILED, RECONCILE_STOPPED = 1, 2
-PRODUCTS = ("ES", "GC")
-BAR_SCHEMA = "ohlcv-1m"
-BARS_START, BARS_END = "2024-01-01", "2025-01-01"
-STATISTICS_START, STATISTICS_END = "2010-06-08", "2026-11-01"
+PRODUCTS = tuple(entry.product for entry in TICK_UNIVERSE)
 COMPLETE = "complete"
 MISMATCH = "mismatch"
 INGESTED = "ingested"
@@ -64,6 +65,28 @@ def mt_json(args: Sequence[str], accepted: Iterable[int] = (EXIT_OK,)) -> Any:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise CutoverError(f"mt-run {command} printed no JSON: {exc}") from exc
+
+
+def coverage_reads() -> list[tuple[str, str, str, str]]:
+    """``(product, schema, start, end)`` for every history want but definitions."""
+    reads = []
+    for entry in TICK_UNIVERSE:
+        for want in entry.history:
+            if want.schema is TickSchema.DEFINITION:
+                continue
+            if want.end is None:
+                raise CutoverError(
+                    f"{entry.product} {want.schema.value} want has no end date"
+                )
+            reads.append(
+                (
+                    entry.product,
+                    want.schema.value,
+                    want.start.isoformat(),
+                    want.end.isoformat(),
+                )
+            )
+    return reads
 
 
 def health_exit_code() -> int:
@@ -180,12 +203,7 @@ def collect(start: str, cap: Decimal, baseline: Mapping[str, Any]) -> Evidence:
     say("status and coverage")
     verdict_exits = (EXIT_OK, EXIT_PARTIAL)
     mt_json(["data", "tick", "status"], verdict_exits)
-    coverage = [
-        ("ES", BAR_SCHEMA, BARS_START, BARS_END),
-        ("ES", "statistics", STATISTICS_START, STATISTICS_END),
-        ("GC", "statistics", STATISTICS_START, STATISTICS_END),
-    ]
-    for product, schema, first, last in coverage:
+    for product, schema, first, last in coverage_reads():
         args = ["data", "tick", "coverage", "--product", product, "--schema", schema]
         doc = mt_json([*args, "--start", first, "--end", last], verdict_exits)
         evidence.failures += ledger_failures(doc, schema)
@@ -214,14 +232,15 @@ def collect(start: str, cap: Decimal, baseline: Mapping[str, Any]) -> Evidence:
 
 
 def _session_placement(requests: Sequence[Mapping[str, Any]]) -> None:
-    dirs = bar_job_dirs(requests)
-    if not dirs:
+    dirs_by_product = bar_job_dirs(requests)
+    if not dirs_by_product:
         say("session placement: no ohlcv-1m job directories")
         return
-    outcome = run_session_check(dirs)
-    say(f"session placement: {outcome}")
-    if outcome is SessionCheck.FINDING:
-        say("records outside any session are a finding; see the output above")
+    for product, dirs in dirs_by_product.items():
+        outcome = run_session_check(dirs, calendar_for(product))
+        say(f"session placement {product}: {outcome}")
+        if outcome is SessionCheck.FINDING:
+            say(f"{product}: records outside any session are a finding; see above")
 
 
 def final_failures(

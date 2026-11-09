@@ -48,48 +48,50 @@ revision_number: 2
 
 ### 1. Parameterise the cutover: `--slice`, derived values, `--estimate` (D3, D4)
 
-- [ ] **1.1 Replace 304's constants with derived values**
-  - [ ] First, read (edit nothing yet) the three 304 cutover scripts, their two test files, `FUTURES_PRODUCT_CALENDAR` in `data/tick/constants.py`, `src/manta_trading/data/tick/family_report.py`, and the `coverage --json`, `status --json` and `accounting --json` producers (`tick_status_build.py`, `cli/commands/tick_status_render.py`, and the accounting renderer). Learn the real field names of the dataset edge, the sessions (`status`, `check`), the per-family record total, and the request rows (product, schema, start, end, request time, state, error). Find also how the planner maps a statistics session to the UTC day its records fall in (used by 4.1); name the function.
-  - [ ] In `cutover_304_evidence.py`, delete `BARS_START`, `BARS_END`, `STATISTICS_START`, `STATISTICS_END` and the hard-coded coverage list in `collect`. Derive the coverage reads from `TICK_UNIVERSE`: for every entry and every history want except `definition`, one read with that product, the want's schema, and the want's own start and end.
-  - [ ] In `cutover_304_checks.py`, remove `SESSION_CALENDAR`. `run_session_check` takes the calendar id as an argument. The caller gets it from `FUTURES_PRODUCT_CALENDAR[product]`; a product missing from the map raises `CutoverError`, never a default calendar.
-  - [ ] `bar_job_dirs` groups the `ohlcv-1m` job directories by product (return a mapping product to directories). `_session_placement` runs the check once per product with that product's calendar and narrates each outcome by product.
-  - [ ] `PRODUCTS` in the evidence module comes from `TICK_UNIVERSE`, not a literal.
-  - [ ] Success: no `2024`, `2026` or `CME_EQUITY` literal remains in the three scripts (grep).
+- [x] **1.1 Replace 304's constants with derived values**
+  - [x] First, read (edit nothing yet) the three 304 cutover scripts, their two test files, `FUTURES_PRODUCT_CALENDAR` in `data/tick/constants.py`, `src/manta_trading/data/tick/family_report.py`, and the `coverage --json`, `status --json` and `accounting --json` producers (`tick_status_build.py`, `cli/commands/tick_status_render.py`, and the accounting renderer). Learn the real field names of the dataset edge, the sessions (`status`, `check`), the per-family record total, and the request rows (product, schema, start, end, request time, state, error). Find also how the planner maps a statistics session to the UTC day its records fall in (used by 4.1); name the function.
+  - [x] In `cutover_304_evidence.py`, delete `BARS_START`, `BARS_END`, `STATISTICS_START`, `STATISTICS_END` and the hard-coded coverage list in `collect`. Derive the coverage reads from `TICK_UNIVERSE`: for every entry and every history want except `definition`, one read with that product, the want's schema, and the want's own start and end.
+  - [x] In `cutover_304_checks.py`, remove `SESSION_CALENDAR`. `run_session_check` takes the calendar id as an argument. The caller gets it from `FUTURES_PRODUCT_CALENDAR[product]`; a product missing from the map raises `CutoverError`, never a default calendar.
+  - [x] `bar_job_dirs` groups the `ohlcv-1m` job directories by product (return a mapping product to directories). `_session_placement` runs the check once per product with that product's calendar and narrates each outcome by product.
+  - [x] `PRODUCTS` in the evidence module comes from `TICK_UNIVERSE`, not a literal.
+  - [x] Success: no `2024`, `2026` or `CME_EQUITY` literal remains in the three scripts (grep).
+  Note: `debug requests` rows carry no request state or error text. The retry-exhausted state and its error are on the units (`fetch_status` RETRY_EXHAUSTED, `failure_reason`). Dataset edge: `status --json` `.products[].edge_available_end` (ISO or null). Accounting lines: `.tick.products[].families[]` with `records`, `caught_up`, `source_edge`, `buckets`, `cross_tier`. The statistics session is the UTC date of `ts_ref`: `utc_date_of_ns` and `assign_session` in `data/tick/statistics_session.py`.
 
-- [ ] **1.2 Tests for 1.1**
-  - [ ] Update 304's two test files for the new signatures (`bar_job_dirs`, `run_session_check`, coverage reads). Do not weaken an assertion: change what is called, not what is asserted.
-  - [ ] Coverage reads derive from the universe: monkeypatch `TICK_UNIVERSE` with a one-product entry and assert exactly its non-definition wants are read, with their own ranges.
-  - [ ] The session check runs once per product with that product's calendar (ES with the equity calendar id, GC with the metals id); an unmapped product raises.
-  - [ ] Success: `uv run pytest test/unit/scripts -q` passes.
+- [x] **1.2 Tests for 1.1**
+  - [x] Update 304's two test files for the new signatures (`bar_job_dirs`, `run_session_check`, coverage reads). Do not weaken an assertion: change what is called, not what is asserted.
+  - [x] Coverage reads derive from the universe: monkeypatch `TICK_UNIVERSE` with a one-product entry and assert exactly its non-definition wants are read, with their own ranges.
+  - [x] The session check runs once per product with that product's calendar (ES with the equity calendar id, GC with the metals id); an unmapped product raises.
+  - [x] Success: `uv run pytest test/unit/scripts -q` passes.
 
-- [ ] **1.3 Add `--slice` and rename the state and log files**
-  - [ ] Replace the positional-only `argv` handling in `cutover_304_first_purchase.py` with `argparse`: positional `ref`, required `--slice` (a non-empty string; a missing one is refused with usage and exit 2), and `--estimate` (flag, used by 1.7).
-  - [ ] `START_FILE` and `BASELINE_FILE` become functions of the slice (`{slice}-cutover-start.txt`, `{slice}-cutover-baseline.json` under `NOTES_DIR`); the narration log is `cutover-{slice}-{ref}-{stamp}.log`. The script writes nothing else under the notes directory. `record_start_and_baselines` takes the slice.
-  - [ ] Update the module docstring: usage with the new arguments, and that the file is shared by purchase slices.
-  - [ ] Success: `--slice 304` reproduces 304's file names exactly.
+- [x] **1.3 Add `--slice` and rename the state and log files**
+  - [x] Replace the positional-only `argv` handling in `cutover_304_first_purchase.py` with `argparse`: positional `ref`, required `--slice` (a non-empty string; a missing one is refused with usage and exit 2), and `--estimate` (flag, used by 1.7).
+  - [x] `START_FILE` and `BASELINE_FILE` become functions of the slice (`{slice}-cutover-start.txt`, `{slice}-cutover-baseline.json` under `NOTES_DIR`); the narration log is `cutover-{slice}-{ref}-{stamp}.log`. The script writes nothing else under the notes directory. `record_start_and_baselines` takes the slice.
+  - [x] Update the module docstring: usage with the new arguments, and that the file is shared by purchase slices.
+  - [x] Success: `--slice 304` reproduces 304's file names exactly.
 
-- [ ] **1.4 Tests for 1.3**
-  - [ ] Update 304's `main` tests to pass `--slice 304`.
-  - [ ] `--slice` missing: refused, exit 2, nothing run. `--slice 307` writes `307-cutover-start.txt`, `307-cutover-baseline.json` and `cutover-307-<ref>-<stamp>.log`, and reads back its own start instant on a re-run (use a temp `NOTES_DIR`).
-  - [ ] Success: `uv run pytest test/unit/scripts -q` passes.
+- [x] **1.4 Tests for 1.3**
+  - [x] Update 304's `main` tests to pass `--slice 304`.
+  - [x] `--slice` missing: refused, exit 2, nothing run. `--slice 307` writes `307-cutover-start.txt`, `307-cutover-baseline.json` and `cutover-307-<ref>-<stamp>.log`, and reads back its own start instant on a re-run (use a temp `NOTES_DIR`).
+  - [x] Success: `uv run pytest test/unit/scripts -q` passes.
 
-- [ ] **1.5 Ceiling values from the estimate (D4) and resubmits since the start (D5)**
-  - [ ] In `cutover_304_checks.py` add `CEILING_STEP_USD = 5`, defined once, and a pure function that returns the per-pass value (planned figure rounded up to the next multiple of the step) and the 30-day value (trailing plus planned, rounded up likewise), as `Decimal`s. A planned figure that is already a multiple of the step is not raised further.
-  - [ ] Replace the fixed `CEILING_PER_PASS_USD`, `CEILING_CAP_30D_USD` and `CEILING_COMMAND` with a function that builds the PM's command from those two values and `CEILING_SCRIPT`. `_ceiling` and `check_env_text` stop naming a fixed command: a missing ceiling says the PM sets the ceilings with the command the `--estimate` run prints. When `judge_estimate` refuses because planned exceeds the per-pass ceiling or planned plus trailing exceeds the 30-day ceiling, the message includes the command built from that estimate's figures.
-  - [ ] `judge_estimate` takes an optional `since` (the cutover's start instant, or `None`). In `_check_scope` a request with `resubmit` true is accepted only when `since` is given and its original request was made at or after it; any other resubmit, and every resubmit when `since` is `None` (the `--estimate` mode records no start), refuses naming the request. Find which field carries when the original was made in 1.1's reading; if the estimate payload has none, take it from the matching `debug requests` row by request id. If neither carries it, write `BLOCKED:` under this task.
-  - [ ] The full cutover passes the start instant from `record_start_and_baselines`, which already runs before the estimate in `_steps`; keep that order.
-  - [ ] Success: for planned 89 and trailing 0 the command contains `--per-pass 90 --cap-30d 90`; for planned 90 and trailing 0 the same; for planned 6.3 and trailing 4 it contains `--per-pass 10 --cap-30d 15`.
+- [x] **1.5 Ceiling values from the estimate (D4) and resubmits since the start (D5)**
+  - [x] In `cutover_304_checks.py` add `CEILING_STEP_USD = 5`, defined once, and a pure function that returns the per-pass value (planned figure rounded up to the next multiple of the step) and the 30-day value (trailing plus planned, rounded up likewise), as `Decimal`s. A planned figure that is already a multiple of the step is not raised further.
+  - [x] Replace the fixed `CEILING_PER_PASS_USD`, `CEILING_CAP_30D_USD` and `CEILING_COMMAND` with a function that builds the PM's command from those two values and `CEILING_SCRIPT`. `_ceiling` and `check_env_text` stop naming a fixed command: a missing ceiling says the PM sets the ceilings with the command the `--estimate` run prints. When `judge_estimate` refuses because planned exceeds the per-pass ceiling or planned plus trailing exceeds the 30-day ceiling, the message includes the command built from that estimate's figures.
+  - [x] `judge_estimate` takes an optional `since` (the cutover's start instant, or `None`). In `_check_scope` a request with `resubmit` true is accepted only when `since` is given and its original request was made at or after it; any other resubmit, and every resubmit when `since` is `None` (the `--estimate` mode records no start), refuses naming the request. Find which field carries when the original was made in 1.1's reading; if the estimate payload has none, take it from the matching `debug requests` row by request id. If neither carries it, write `BLOCKED:` under this task.
+  - [x] The full cutover passes the start instant from `record_start_and_baselines`, which already runs before the estimate in `_steps`; keep that order.
+  - [x] Success: for planned 89 and trailing 0 the command contains `--per-pass 90 --cap-30d 90`; for planned 90 and trailing 0 the same; for planned 6.3 and trailing 4 it contains `--per-pass 10 --cap-30d 15`.
+  Note: the estimate payload and `debug requests` rows carry no request id, so a resubmit is matched to its original by (schema, start, end) against jobless `debug requests` rows (`requested_at` is kept on resubmit); the earliest match wins on a shared range.
 
-- [ ] **1.6 Tests for 1.5**
-  - [ ] The three ceiling cases above, and the stop message of an over-ceiling estimate carries the command.
-  - [ ] A resubmit of a request made after `since` is accepted; one made before it refuses; with `since=None` every resubmit refuses, including one made just now.
-  - [ ] Success: `uv run pytest test/unit/scripts -q` passes.
+- [x] **1.6 Tests for 1.5**
+  - [x] The three ceiling cases above, and the stop message of an over-ceiling estimate carries the command.
+  - [x] A resubmit of a request made after `since` is accepted; one made before it refuses; with `since=None` every resubmit refuses, including one made just now.
+  - [x] Success: `uv run pytest test/unit/scripts -q` passes.
 
-- [ ] **1.7 The `--estimate` mode**
-  - [ ] With `--estimate`, `_steps` runs preflight and the free estimate only (no install, no start instant or baseline written, no pass, no evidence), then prints the planned figure, the request count, the verdict and the PM's ceiling command from 1.5, and returns 0. It never calls `mt-run tick`.
-  - [ ] The estimate is judged for scope with `since=None`. In this mode the preflight skips the env file's ceiling checks (`check_env_text`'s unset-ceiling raise; the usage-plan check still runs), and the estimate is not refused for short ceilings: the whole purpose is to print the command, so the ceiling-short stop becomes the printed command, not an error. The full cutover still stops on short ceilings (D4).
-  - [ ] Test: prints the command, buys nothing (a fake `mt-run tick` that fails the test if called), writes no start or baseline file, and does not fail on short or unset ceilings.
-  - [ ] Success: `uv run pytest test/unit/scripts -q` passes; `ruff format` and `ruff check` on the touched files by name and `mypy` (kalshi src paths and tests in one invocation) are clean.
+- [x] **1.7 The `--estimate` mode**
+  - [x] With `--estimate`, `_steps` runs preflight and the free estimate only (no install, no start instant or baseline written, no pass, no evidence), then prints the planned figure, the request count, the verdict and the PM's ceiling command from 1.5, and returns 0. It never calls `mt-run tick`.
+  - [x] The estimate is judged for scope with `since=None`. In this mode the preflight skips the env file's ceiling checks (`check_env_text`'s unset-ceiling raise; the usage-plan check still runs), and the estimate is not refused for short ceilings: the whole purpose is to print the command, so the ceiling-short stop becomes the printed command, not an error. The full cutover still stops on short ceilings (D4).
+  - [x] Test: prints the command, buys nothing (a fake `mt-run tick` that fails the test if called), writes no start or baseline file, and does not fail on short or unset ceilings.
+  - [x] Success: `uv run pytest test/unit/scripts -q` passes; `ruff format` and `ruff check` on the touched files by name and `mypy` (kalshi src paths and tests in one invocation) are clean.
 
 **Commit**: `refactor: parameterise the purchase cutover by slice and derive its wants`
 

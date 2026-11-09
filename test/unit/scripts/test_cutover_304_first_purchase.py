@@ -60,8 +60,6 @@ BASELINE = {"health_exit": 0, "definitions": {"ES": 10, "GC": 5}}
 @pytest.fixture
 def notes(fp: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(fp, "NOTES_DIR", tmp_path)
-    monkeypatch.setattr(fp, "START_FILE", tmp_path / "start.txt")
-    monkeypatch.setattr(fp, "BASELINE_FILE", tmp_path / "baseline.json")
     return tmp_path
 
 
@@ -102,8 +100,8 @@ def test_a_rerun_keeps_the_first_start_and_baselines(
 
     monkeypatch.setattr(ev, "health_exit_code", health)
     monkeypatch.setattr(ev, "definition_counts", definitions)
-    first = fp.record_start_and_baselines()
-    second = fp.record_start_and_baselines()
+    first = fp.record_start_and_baselines("304")
+    second = fp.record_start_and_baselines("304")
     assert first == second
     assert calls == ["h", "d"]
 
@@ -120,7 +118,7 @@ def _drive(
     monkeypatch.setattr(
         fp,
         "record_start_and_baselines",
-        lambda: ("2026-11-08T00:00:00+00:00", BASELINE),
+        lambda slice_id: ("2026-11-08T00:00:00+00:00", BASELINE),
     )
 
     def note(what: str) -> None:
@@ -151,7 +149,7 @@ def test_an_estimate_refusal_never_buys(
     refused = NOTHING | {"verdict": "refused", "reasons": ["over"]}
     calls = _drive(fp, ev, monkeypatch, refused)
     with pytest.raises(cutover_error):
-        fp._steps("v0.27.0")
+        fp._steps("v0.27.0", "304")
     assert "tick" not in calls
 
 
@@ -159,7 +157,7 @@ def test_nothing_to_buy_skips_the_purchase_and_goes_to_evidence(
     fp: ModuleType, ev: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = _drive(fp, ev, monkeypatch, NOTHING)
-    assert fp._steps("v0.27.0") == 0
+    assert fp._steps("v0.27.0", "304") == 0
     assert calls == ["install", "collect"]
 
 
@@ -205,15 +203,54 @@ def test_any_other_exit_stops_with_that_code(fp: ModuleType, code: int) -> None:
 def test_main_returns_the_stopping_exit_code(
     fp: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def stopped(ref: str) -> int:
+    def stopped(ref: str, slice_id: str) -> int:
         raise fp.PassStopped(4)
 
     monkeypatch.setattr(fp, "_steps", stopped)
-    assert fp.main(["x", "v0.27.0"]) == 4
+    assert fp.main(["x", "--slice", "304", "v0.27.0"]) == 4
 
 
 def test_no_argument_prints_usage_and_exits_two(fp: ModuleType) -> None:
     assert fp.main(["x"]) == 2
+
+
+def test_a_missing_slice_is_refused_and_nothing_runs(
+    fp: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def never(ref: str, slice_id: str) -> int:
+        raise AssertionError("_steps must not run")
+
+    monkeypatch.setattr(fp, "_steps", never)
+    assert fp.main(["x", "v0.27.0"]) == 2
+    assert fp.main(["x", "--slice", " ", "v0.27.0"]) == 2
+    assert list(notes.iterdir()) == []
+
+
+def test_slice_304_keeps_304s_file_names(fp: ModuleType, notes: Path) -> None:
+    assert fp.start_file("304") == notes / "304-cutover-start.txt"
+    assert fp.baseline_file("304") == notes / "304-cutover-baseline.json"
+
+
+def test_slice_307_names_its_own_state_files_and_log(
+    fp: ModuleType, ev: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ev, "health_exit_code", lambda: 0)
+    monkeypatch.setattr(ev, "definition_counts", lambda: {"ES": 1})
+    start, _ = fp.record_start_and_baselines("307")
+    assert (notes / "307-cutover-start.txt").read_text().strip() == start
+    assert (notes / "307-cutover-baseline.json").exists()
+    assert fp.record_start_and_baselines("307")[0] == start  # re-run reads it back
+    seen: list[str] = []
+
+    def log(path: Path) -> Path:
+        seen.append(path.name)
+        return path
+
+    monkeypatch.setattr(fp, "start_log", log)
+    monkeypatch.setattr(fp, "_steps", lambda ref, slice_id: 0)
+    assert fp.main(["x", "--slice", "307", "v0.28.0"]) == 0
+    assert seen[0].startswith("cutover-307-v0.28.0-")
+    assert seen[0].endswith(".log")
 
 
 # -- 5.4: evidence -------------------------------------------------------------
@@ -285,7 +322,7 @@ def _fake_mt_run(
 
     monkeypatch.setattr(ev, "mt_run", fake)
     monkeypatch.setattr(ev, "_reconcile", lambda *a: None)
-    monkeypatch.setattr(ev, "run_session_check", lambda dirs: "pass")
+    monkeypatch.setattr(ev, "run_session_check", lambda dirs, calendar: "pass")
 
 
 def test_a_failing_evidence_command_stops_the_script_naming_it(
@@ -353,3 +390,145 @@ def test_failed_units_with_reasons_and_coverage_findings_pass(
     _fake_mt_run(ev, monkeypatch, units, sessions=sessions)
     found = ev.collect("2026-11-08T00:00:00+00:00", D(7), BASELINE)
     assert ev.final_failures(found, BASELINE, NOTHING) == []
+
+
+# -- slice 307 1.1: reads and placement derive from the universe ----------------
+
+
+def test_coverage_reads_derive_from_the_universe(
+    ev: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import date
+
+    universe = _load("cutover_304_checks").TICK_UNIVERSE
+    entry = universe[0].__class__(
+        "ES",
+        ("ES.FUT",),
+        universe[0].stype_in,
+        tier=universe[0].tier,
+        start=universe[0].start,
+        end=universe[0].end,
+        history=(
+            universe[0]
+            .history[0]
+            .__class__(ev.TickSchema.DEFINITION, date(2020, 1, 1), date(2020, 3, 1)),
+            universe[0]
+            .history[0]
+            .__class__(ev.TickSchema.OHLCV_1M, date(2020, 1, 1), date(2020, 2, 1)),
+        ),
+    )
+    monkeypatch.setattr(ev, "TICK_UNIVERSE", (entry,))
+    assert ev.coverage_reads() == [("ES", "ohlcv-1m", "2020-01-01", "2020-02-01")]
+
+
+def test_an_open_ended_want_is_a_stop_not_a_default(
+    ev: ModuleType, cutover_error: type[Exception], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import date
+
+    base = _load("cutover_304_checks").TICK_UNIVERSE[0]
+    open_want = base.history[0].__class__(ev.TickSchema.STATISTICS, date(2020, 1, 1))
+    entry = base.__class__(
+        "ES",
+        ("ES.FUT",),
+        base.stype_in,
+        tier=base.tier,
+        start=base.start,
+        end=base.end,
+        history=(open_want,),
+    )
+    monkeypatch.setattr(ev, "TICK_UNIVERSE", (entry,))
+    with pytest.raises(cutover_error, match="no end date"):
+        ev.coverage_reads()
+
+
+def test_session_placement_runs_once_per_product_with_its_calendar(
+    ev: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, list[Path]]] = []
+
+    def check(dirs: list[Path], calendar: str) -> str:
+        calls.append((calendar, list(dirs)))
+        return "pass"
+
+    monkeypatch.setattr(ev, "run_session_check", check)
+    rows = [
+        {"schema": "ohlcv-1m", "provider_job_id": "J-ES", "symbols": ["ES.FUT"]},
+        {"schema": "ohlcv-1m", "provider_job_id": "J-GC", "symbols": ["GC.FUT"]},
+    ]
+    ev._session_placement(rows)
+    constants = _load("cutover_304_checks")
+    assert [c for c, _ in calls] == [
+        constants.calendar_for("ES"),
+        constants.calendar_for("GC"),
+    ]
+    assert calls[0][1] != calls[1][1]
+
+
+# -- slice 307 1.7: --estimate -------------------------------------------------
+
+
+def _drive_estimate(
+    fp: ModuleType, monkeypatch: pytest.MonkeyPatch, summary: Any, env: str
+) -> list[str]:
+    calls: list[str] = []
+    monkeypatch.setattr(fp, "preflight", lambda ref: "c" * 40)
+    monkeypatch.setattr(fp, "read_env_text", lambda: env)
+    monkeypatch.setattr(fp, "check_checkout_database", lambda checkout, prod: "tick")
+    monkeypatch.setattr(fp, "read_checkout_env_text", lambda: "")
+    monkeypatch.setattr(fp, "fetch_estimate", lambda: summary)
+    for name in ("install_release", "run_passes", "record_start_and_baselines"):
+        monkeypatch.setattr(fp, name, lambda *a, _n=name: calls.append(_n))
+    return calls
+
+
+@pytest.mark.parametrize("env", ["", "MT_TICK_SPEND_CEILING_USD=1\n", ENV])
+def test_estimate_prints_the_command_and_buys_nothing(
+    fp: ModuleType,
+    notes: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    env: str,
+) -> None:
+    summary = NOTHING | {
+        "verdict": "refused",
+        "reasons": ["ceiling"],
+        "per_pass_ceiling_usd": None,
+        "cap_30d_usd": None,
+        "planned_usd": "89",
+        "requests": [
+            {
+                "schema": "ohlcv-1m",
+                "start": "2010-06-08",
+                "end": "2010-07-01",
+                "resubmit": False,
+            }
+        ],
+    }
+    calls = _drive_estimate(fp, monkeypatch, summary, env)
+
+    def tick_once() -> int:
+        calls.append("tick")
+        return 0
+
+    monkeypatch.setattr(fp, "_tick_once", tick_once)
+    assert fp.main(["x", "--slice", "307", "--estimate", "v0.28.0"]) == 0
+    assert "--per-pass 90 --cap-30d 90" in capsys.readouterr().out
+    assert calls == []  # no install, no pass, no start or baseline recorded
+    assert [p.name for p in notes.iterdir() if "cutover-307" not in p.name] == []
+
+
+def test_estimate_still_refuses_a_set_plan(
+    fp: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _drive_estimate(fp, monkeypatch, NOTHING, "MT_TICK_DATABENTO_PLAN=standard\n")
+    assert fp.main(["x", "--slice", "307", "--estimate", "v0.28.0"]) == 1
+
+
+def test_the_full_cutover_still_stops_on_an_unset_ceiling(
+    fp: ModuleType, ev: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _drive(fp, ev, monkeypatch, NOTHING)
+    monkeypatch.setattr(fp, "read_env_text", lambda: "")
+    with pytest.raises(_load("cutover_common").CutoverError, match="not set"):
+        fp._steps("v0.28.0", "307")
