@@ -115,6 +115,7 @@ def _drive(
     monkeypatch.setattr(fp, "read_env_text", lambda: ENV)
     monkeypatch.setattr(fp, "check_checkout_database", lambda checkout, prod: "tick")
     monkeypatch.setattr(fp, "read_checkout_env_text", lambda: "")
+    monkeypatch.setattr(fp, "run_gates", lambda number: calls.append("gates"))
     monkeypatch.setattr(
         fp,
         "record_start_and_baselines",
@@ -149,7 +150,7 @@ def test_an_estimate_refusal_never_buys(
     refused = NOTHING | {"verdict": "refused", "reasons": ["over"]}
     calls = _drive(fp, ev, monkeypatch, refused)
     with pytest.raises(cutover_error):
-        fp._steps("v0.27.0", "304")
+        fp._steps("v0.27.0", "304", 69)
     assert "tick" not in calls
 
 
@@ -157,8 +158,8 @@ def test_nothing_to_buy_skips_the_purchase_and_goes_to_evidence(
     fp: ModuleType, ev: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = _drive(fp, ev, monkeypatch, NOTHING)
-    assert fp._steps("v0.27.0", "304") == 0
-    assert calls == ["install", "collect"]
+    assert fp._steps("v0.27.0", "304", 69) == 0
+    assert calls == ["gates", "install", "collect"]
 
 
 @pytest.mark.parametrize(
@@ -203,11 +204,11 @@ def test_any_other_exit_stops_with_that_code(fp: ModuleType, code: int) -> None:
 def test_main_returns_the_stopping_exit_code(
     fp: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def stopped(ref: str, slice_id: str) -> int:
+    def stopped(ref: str, slice_id: str, gate_issue: int) -> int:
         raise fp.PassStopped(4)
 
     monkeypatch.setattr(fp, "_steps", stopped)
-    assert fp.main(["x", "--slice", "304", "v0.27.0"]) == 4
+    assert fp.main(["x", "--slice", "304", "--gate-issue", "69", "v0.27.0"]) == 4
 
 
 def test_no_argument_prints_usage_and_exits_two(fp: ModuleType) -> None:
@@ -217,7 +218,7 @@ def test_no_argument_prints_usage_and_exits_two(fp: ModuleType) -> None:
 def test_a_missing_slice_is_refused_and_nothing_runs(
     fp: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def never(ref: str, slice_id: str) -> int:
+    def never(ref: str, slice_id: str, gate_issue: int) -> int:
         raise AssertionError("_steps must not run")
 
     monkeypatch.setattr(fp, "_steps", never)
@@ -247,8 +248,8 @@ def test_slice_307_names_its_own_state_files_and_log(
         return path
 
     monkeypatch.setattr(fp, "start_log", log)
-    monkeypatch.setattr(fp, "_steps", lambda ref, slice_id: 0)
-    assert fp.main(["x", "--slice", "307", "v0.28.0"]) == 0
+    monkeypatch.setattr(fp, "_steps", lambda ref, slice_id, gate_issue: 0)
+    assert fp.main(["x", "--slice", "307", "--gate-issue", "69", "v0.28.0"]) == 0
     assert seen[0].startswith("cutover-307-v0.28.0-")
     assert seen[0].endswith(".log")
 
@@ -477,6 +478,7 @@ def _drive_estimate(
     monkeypatch.setattr(fp, "check_checkout_database", lambda checkout, prod: "tick")
     monkeypatch.setattr(fp, "read_checkout_env_text", lambda: "")
     monkeypatch.setattr(fp, "fetch_estimate", lambda: summary)
+    monkeypatch.setattr(fp, "run_gates", lambda number: None)
     for name in ("install_release", "run_passes", "record_start_and_baselines"):
         monkeypatch.setattr(fp, name, lambda *a, _n=name: calls.append(_n))
     return calls
@@ -512,7 +514,10 @@ def test_estimate_prints_the_command_and_buys_nothing(
         return 0
 
     monkeypatch.setattr(fp, "_tick_once", tick_once)
-    assert fp.main(["x", "--slice", "307", "--estimate", "v0.28.0"]) == 0
+    assert (
+        fp.main(["x", "--slice", "307", "--gate-issue", "69", "--estimate", "v0.28.0"])
+        == 0
+    )
     assert "--per-pass 90 --cap-30d 90" in capsys.readouterr().out
     assert calls == []  # no install, no pass, no start or baseline recorded
     assert [p.name for p in notes.iterdir() if "cutover-307" not in p.name] == []
@@ -522,7 +527,10 @@ def test_estimate_still_refuses_a_set_plan(
     fp: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _drive_estimate(fp, monkeypatch, NOTHING, "MT_TICK_DATABENTO_PLAN=standard\n")
-    assert fp.main(["x", "--slice", "307", "--estimate", "v0.28.0"]) == 1
+    assert (
+        fp.main(["x", "--slice", "307", "--gate-issue", "69", "--estimate", "v0.28.0"])
+        == 1
+    )
 
 
 def test_the_full_cutover_still_stops_on_an_unset_ceiling(
@@ -531,4 +539,74 @@ def test_the_full_cutover_still_stops_on_an_unset_ceiling(
     _drive(fp, ev, monkeypatch, NOTHING)
     monkeypatch.setattr(fp, "read_env_text", lambda: "")
     with pytest.raises(_load("cutover_common").CutoverError, match="not set"):
-        fp._steps("v0.28.0", "307")
+        fp._steps("v0.28.0", "307", 69)
+
+
+# -- slice 307 2.3: the gates in the preflight ---------------------------------
+
+
+def _gated(
+    fp: ModuleType,
+    ev: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    issue: str = "CLOSED",
+    edge: str = "2099-01-01T00:00:00+00:00",
+) -> list[str]:
+    """``_drive`` with the real gates over fakes for ``gh`` and ``status``."""
+    real_gates = fp.run_gates  # read before ``_drive`` replaces it with a fake
+    calls = _drive(fp, ev, monkeypatch, NOTHING)
+    monkeypatch.setattr(fp, "run_gates", real_gates)
+    monkeypatch.setattr(fp, "_view_issue", lambda n: json.dumps({"state": issue}))
+    body = json.dumps({"products": [{"product": "ES", "edge_available_end": edge}]})
+    monkeypatch.setattr(
+        ev, "mt_run", lambda args: subprocess.CompletedProcess(args, 0, body, "")
+    )
+    return calls
+
+
+def test_a_missing_gate_issue_is_refused_with_exit_two(
+    fp: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def never(ref: str, slice_id: str, gate_issue: int) -> int:
+        raise AssertionError("_steps must not run")
+
+    monkeypatch.setattr(fp, "_steps", never)
+    assert fp.main(["x", "--slice", "307", "v0.28.0"]) == 2
+    assert fp.main(["x", "--slice", "307", "--gate-issue", "abc", "v0.28.0"]) == 2
+
+
+def test_an_open_gate_issue_stops_before_the_install_and_writes_nothing(
+    fp: ModuleType,
+    ev: ModuleType,
+    cutover_error: type[Exception],
+    notes: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _gated(fp, ev, monkeypatch, issue="OPEN")
+    with pytest.raises(cutover_error, match="invoice comparison"):
+        fp._steps("v0.28.0", "307", 69)
+    assert "install" not in calls
+    assert list(notes.iterdir()) == []
+
+
+def test_a_short_dataset_edge_stops_before_the_install_and_writes_nothing(
+    fp: ModuleType,
+    ev: ModuleType,
+    cutover_error: type[Exception],
+    notes: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _gated(fp, ev, monkeypatch, edge="2010-01-01T00:00:00+00:00")
+    with pytest.raises(cutover_error, match="before the latest want end"):
+        fp._steps("v0.28.0", "307", 69)
+    assert "install" not in calls
+    assert list(notes.iterdir()) == []
+
+
+def test_closed_issue_and_sufficient_edge_let_the_cutover_go_on(
+    fp: ModuleType, ev: ModuleType, notes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _gated(fp, ev, monkeypatch)
+    assert fp._steps("v0.28.0", "307", 69) == 0
+    assert calls[0] == "install"

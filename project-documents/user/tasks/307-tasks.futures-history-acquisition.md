@@ -97,29 +97,31 @@ revision_number: 2
 
 ### 2. The issue gate, the dataset-edge check and failed requests (D1, D2, D5)
 
-- [ ] **2.1 Create `scripts/purchase_verdicts.py` with the preflight gates**
-  - [ ] New module with a docstring stating it holds the cutover's own judgements (D5, D6) so each cutover script stays near 300 lines. It imports from `cutover_common` and `cutover_304_checks` and from nothing that imports it (no cycle).
-  - [ ] `check_gate_issue(number, view)`: `view` is an injected callable that runs `gh issue view <number> --json state` through `cutover_common.out` and returns its text. Parse the JSON; the state must be exactly `CLOSED` (the string held in one constant) or raise `CutoverError` saying the invoice comparison is not done and naming the issue. A `gh` failure (the call raising), non-JSON output or a missing `state` key raises `CutoverError` naming the cause. Never return success on any of those.
-  - [ ] `latest_want_end()`: the greatest history-want end across `TICK_UNIVERSE`, as a UTC instant at 00:00 of that date. Read from the universe, never passed in.
-  - [ ] `check_dataset_edge(status_result, minimum)`: `status_result` is the completed `status --json` process. Raise `CutoverError` when it exited non-zero (naming the exit code and its error text), when its output is not JSON, when the edge field is absent or null, when it does not parse as a UTC instant (quote the text), or when the instant is before `minimum` (the stop names the edge and the minimum). The edge needs only to reach `minimum`; equal passes.
-  - [ ] Both functions are pure apart from the injected callable; each failure message is distinct so the test can tell them apart.
-  - [ ] Success: the module imports; `uv run mypy` on it is clean.
+- [x] **2.1 Create `scripts/purchase_verdicts.py` with the preflight gates**
+  - [x] New module with a docstring stating it holds the cutover's own judgements (D5, D6) so each cutover script stays near 300 lines. It imports from `cutover_common` and `cutover_304_checks` and from nothing that imports it (no cycle).
+  - [x] `check_gate_issue(number, view)`: `view` is an injected callable that runs `gh issue view <number> --json state` through `cutover_common.out` and returns its text. Parse the JSON; the state must be exactly `CLOSED` (the string held in one constant) or raise `CutoverError` saying the invoice comparison is not done and naming the issue. A `gh` failure (the call raising), non-JSON output or a missing `state` key raises `CutoverError` naming the cause. Never return success on any of those.
+  - [x] `latest_want_end()`: the greatest history-want end across `TICK_UNIVERSE`, as a UTC instant at 00:00 of that date. Read from the universe, never passed in.
+  - [x] `check_dataset_edge(status_result, minimum)`: `status_result` is the completed `status --json` process. Raise `CutoverError` when it exited with a code other than 0 or 3 (naming the exit code and its error text; 3 is a verdict, not a failure), when its output is not JSON, when any product's edge field is absent or null, when it does not parse as a UTC instant (quote the text), or when the instant is before `minimum` (the stop names the edge and the minimum). The edge needs only to reach `minimum`; equal passes.
+  - [x] Both functions are pure apart from the injected callable; each failure message is distinct so the test can tell them apart.
+  - [x] Success: the module imports; `uv run mypy` on it is clean.
 
-- [ ] **2.2 Tests for 2.1**
-  - [ ] New `test/unit/scripts/test_purchase_verdicts.py`. Gate: `CLOSED` passes; `OPEN` stops; a raising `view` stops (never "closed"); non-JSON output stops; JSON without `state` stops.
-  - [ ] Edge: an edge equal to the minimum passes, one second earlier stops; a non-zero `status` exit stops naming the code; absent edge, null edge and an unparseable edge (`"yesterday"`) each stop with their own message; `latest_want_end()` equals the universe's latest end at midnight UTC (monkeypatch the universe to a different end and assert it follows).
-  - [ ] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
+  Note: `status` exit 3 is a verdict (a roll line), not a failure, so `check_dataset_edge` accepts exits 0 and 3 and stops on any other code, as the evidence step's status read does. The edge is read from every product in `status --json` (`.products[].edge_available_end`); all must reach the minimum.
 
-- [ ] **2.3 Wire the gates into the preflight**
-  - [ ] Add required `--gate-issue` (an integer; missing is refused with usage and exit 2) to the argparse of 1.3. There is no flag that skips it.
-  - [ ] The preflight step (`_steps` step 1) runs, in order after `preflight(ref)` and the env checks: `check_gate_issue`, then `check_dataset_edge` with `status` read through `evidence.mt_run(["data","tick","status","--json"])` and `latest_want_end()`. Both run before the install and before any start instant is written, so a refusal leaves no state and spends nothing. In `--estimate` mode they still run.
-  - [ ] 304's tests call the preflight function directly with no gate issue; keep that possible by making the gate and edge checks separate calls made from `_steps`, not hidden inside `cutover_common.preflight`.
-  - [ ] Success: see 2.4.
+- [x] **2.2 Tests for 2.1**
+  - [x] New `test/unit/scripts/test_purchase_verdicts.py`. Gate: `CLOSED` passes; `OPEN` stops; a raising `view` stops (never "closed"); non-JSON output stops; JSON without `state` stops.
+  - [x] Edge: an edge equal to the minimum passes, one second earlier stops; a `status` exit other than 0 or 3 stops naming the code; absent edge, null edge and an unparseable edge (`"yesterday"`) each stop with their own message; `latest_want_end()` equals the universe's latest end at midnight UTC (monkeypatch the universe to a different end and assert it follows).
+  - [x] Success: `uv run pytest test/unit/scripts/test_purchase_verdicts.py -q` passes.
 
-- [ ] **2.4 Tests for 2.3**
-  - [ ] First update 304's and 1.4's `main` tests, which now need `--gate-issue` and fakes for the gate and edge calls (the fakes return a closed issue and a sufficient edge), so they keep their meaning.
-  - [ ] Through `main` with fakes: `--gate-issue` not given is refused (exit 2); an open issue stops before the install is called; a short edge stops before the install is called; neither writes a start or baseline file.
-  - [ ] Success: `uv run pytest test/unit/scripts -q` passes; format, lint and typecheck of the touched files are clean (as in 1.7).
+- [x] **2.3 Wire the gates into the preflight**
+  - [x] Add required `--gate-issue` (an integer; missing is refused with usage and exit 2) to the argparse of 1.3. There is no flag that skips it.
+  - [x] The preflight step (`_steps` step 1) runs, in order after `preflight(ref)` and the env checks: `check_gate_issue`, then `check_dataset_edge` with `status` read through `evidence.mt_run(["data","tick","status","--json"])` and `latest_want_end()`. Both run before the install and before any start instant is written, so a refusal leaves no state and spends nothing. In `--estimate` mode they still run.
+  - [x] 304's tests call the preflight function directly with no gate issue; keep that possible by making the gate and edge checks separate calls made from `_steps`, not hidden inside `cutover_common.preflight`.
+  - [x] Success: see 2.4.
+
+- [x] **2.4 Tests for 2.3**
+  - [x] First update 304's and 1.4's `main` tests, which now need `--gate-issue` and fakes for the gate and edge calls (the fakes return a closed issue and a sufficient edge), so they keep their meaning.
+  - [x] Through `main` with fakes: `--gate-issue` not given is refused (exit 2); an open issue stops before the install is called; a short edge stops before the install is called; neither writes a start or baseline file.
+  - [x] Success: `uv run pytest test/unit/scripts -q` passes; format, lint and typecheck of the touched files are clean (as in 1.7).
 
 **Commit**: `feat: gate the purchase cutover on the invoice issue and the dataset edge`
 
