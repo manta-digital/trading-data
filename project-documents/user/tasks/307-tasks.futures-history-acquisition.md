@@ -14,7 +14,7 @@ projectState: 304's cutover (cutover_304_first_purchase.py, cutover_304_checks.p
   health and accounting rows and traded_vs_cleared counts exist
 dateCreated: 20261109
 dateUpdated: 20261109
-status: not_started
+status: complete
 turns: 24
 promptTokens: 1766470
 cachedTokens: 1653536
