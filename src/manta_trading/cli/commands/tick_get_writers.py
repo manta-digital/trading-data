@@ -68,7 +68,7 @@ def columns_for(what: str) -> tuple[str, ...]:
     return TICK_COLUMNS if what == TICK_GET_TICKS else BAR_COLUMNS
 
 
-def _target_dict(plan: GetPlan) -> dict[str, Any]:
+def target_dict(plan: GetPlan) -> dict[str, Any]:
     target = plan.target
     if isinstance(target, ContractTarget):
         return {"contract": target.contract, "instrument_id": target.instrument_id}
@@ -76,7 +76,7 @@ def _target_dict(plan: GetPlan) -> dict[str, Any]:
         "product": target.product,
         "rule": str(target.rule),
         "is_default": target.rule == DEFAULT_ROLL_RULE,
-        "definitions_as_of": _iso(plan.definitions_as_of),
+        "definitions_as_of": iso_day(plan.definitions_as_of),
     }
 
 
@@ -85,7 +85,7 @@ def _members(values: dict[str, Any]) -> str:
     return ", ".join(f"{json.dumps(k)}: {json.dumps(v)}" for k, v in values.items())
 
 
-def _iso(day: Any) -> str | None:
+def iso_day(day: Any) -> str | None:
     return None if day is None else day.isoformat()
 
 
@@ -96,7 +96,7 @@ def _segment_text(s: DisplaySegment) -> str:
     )
 
 
-def _head_lines(plan: GetPlan, what: str, source: str | None) -> list[str]:
+def head_lines(plan: GetPlan, what: str, source: str | None) -> list[str]:
     target = plan.target
     if isinstance(target, ContractTarget):
         name = contract_label(target.contract, target.instrument_id)
@@ -138,7 +138,7 @@ class TextWriter:
     def begin(self, plan: GetPlan) -> None:
         self._lists = _list_lines(plan)  # printed after the rows
         lines = [
-            *_head_lines(plan, self._what, self._source),
+            *head_lines(plan, self._what, self._source),
             self._line(self._columns),
         ]
         self._out.write("\n".join(lines) + "\n")
@@ -182,7 +182,7 @@ class CsvWriter:
 
     def begin(self, plan: GetPlan) -> None:
         self._csv.writerow(self._columns)
-        lines = [*_head_lines(plan, self._what, self._source), *_list_lines(plan)]
+        lines = [*head_lines(plan, self._what, self._source), *_list_lines(plan)]
         self._err.write("\n".join(lines) + "\n")
 
     def rows(self, batch: Sequence[Row]) -> None:
@@ -207,11 +207,11 @@ class JsonWriter:
 
     def begin(self, plan: GetPlan) -> None:
         head = {
-            "target": _target_dict(plan),
+            "target": target_dict(plan),
             "what": self._what,
             **({} if self._source is None else {"source": self._source}),
-            "start": _iso(plan.start),
-            "end": _iso(plan.end),
+            "start": iso_day(plan.start),
+            "end": iso_day(plan.end),
             "segments": [
                 {
                     "first_session": s.first_session.isoformat(),

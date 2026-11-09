@@ -75,22 +75,22 @@ _WHAT_ARGUMENT = typer.Argument(
     "(1d = the whole session).",
     show_default=False,
 )
-_CONTRACT_OPTION = typer.Option(
+CONTRACT_OPTION = typer.Option(
     None, "--contract", help="One contract by exchange symbol, e.g. ESZ4."
 )
-_RULE_OPTION = typer.Option(
+RULE_OPTION = typer.Option(
     None,
     "--rule",
     help=f"Roll rule for --product (default {DEFAULT_ROLL_RULE}); see "
     "mt data tick active --help.",
 )
-_START_OPTION = typer.Option(
+START_OPTION = typer.Option(
     None,
     "--start",
     formats=[DATE_FORMAT],
     help="First session date. Omitted: the first held session.",
 )
-_END_OPTION = typer.Option(
+END_OPTION = typer.Option(
     None,
     "--end",
     formats=[DATE_FORMAT],
@@ -115,7 +115,7 @@ def bar_source(what: str) -> str | None:
     return BAR_SOURCE[Granularity(what)].value
 
 
-def _rule(
+def target_rule(
     contract: str | None, product: str | None, rule: str | None, json_output: bool
 ) -> RollRule:
     if (contract is None) == (product is None):
@@ -128,7 +128,7 @@ def _rule(
         refuse(str(exc), json_output)
 
 
-async def _plan(
+async def plan_for_target(
     conn: Conn,
     settings: Settings,
     target: tuple[str | None, ...],
@@ -201,11 +201,11 @@ def _reader_gone() -> None:
 def tick_get(
     ctx: typer.Context,
     what: str = _WHAT_ARGUMENT,
-    contract: str | None = _CONTRACT_OPTION,
+    contract: str | None = CONTRACT_OPTION,
     product: str | None = PRODUCT_OPTION,
-    rule: str | None = _RULE_OPTION,
-    start: datetime | None = _START_OPTION,
-    end: datetime | None = _END_OPTION,
+    rule: str | None = RULE_OPTION,
+    start: datetime | None = START_OPTION,
+    end: datetime | None = END_OPTION,
     csv_output: bool = _CSV_OPTION,
     json_output: bool = JSON_OPTION,
 ) -> None:
@@ -222,7 +222,7 @@ def tick_get(
         refuse(f"WHAT must be one of {', '.join(TICK_GET_CHOICES)}", json_output)
     if csv_output and json_output:
         refuse("--csv and --json are exclusive", json_output)
-    parsed = _rule(contract, product, rule, json_output)
+    parsed = target_rule(contract, product, rule, json_output)
     family = family_for(what)
     settings: Settings = ctx.obj["settings"]
     writer = writer_for(
@@ -237,7 +237,7 @@ def tick_get(
     async def main() -> int:
         conn = await connect_migrated(roll_conninfo(database_url(settings)))
         try:
-            plan = await _plan(
+            plan = await plan_for_target(
                 conn, settings, (contract, product), parsed, (start, end), family
             )
             return await _stream(conn, plan, what, writer)

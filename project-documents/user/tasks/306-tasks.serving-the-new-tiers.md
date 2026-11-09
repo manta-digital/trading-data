@@ -156,55 +156,55 @@ revision_number: 2
 
 ## 5. Parity module and command (D7, D9)
 
-- [ ] **5.1 `bar_parity.py`: tick-derived one-minute SQL**
-  - [ ] Create `data/tick/bar_parity.py` with `read_tick_minute_bars(conn, window, on_batch)`: the former `_BARS` SQL over `tick_trade` at width 60 s with the session-anchored bucket (the bucket SQL fragment from `bar_reads` (2.2), so buckets equal the provider's). Open and close by full key order `ts_event, sequence, sequence_ordinal`, as `_BARS` does today. Rows come back in `BAR_COLUMNS` order.
-  - [ ] Reuse the window and stream helpers from `tick_reads.py`. Do not copy them. Do not import `read_bars` (it is removed in 6.1).
-  - [ ] No unit test: its behaviour is covered by the parity integration tests (5.7).
-  - [ ] Success: module under about 300 lines and mypy clean.
+- [x] **5.1 `bar_parity.py`: tick-derived one-minute SQL**
+  - [x] Create `data/tick/bar_parity.py` with `read_tick_minute_bars(conn, window, on_batch)`: the former `_BARS` SQL over `tick_trade` at width 60 s with the session-anchored bucket (the bucket SQL fragment from `bar_reads` (2.2), so buckets equal the provider's). Open and close by full key order `ts_event, sequence, sequence_ordinal`, as `_BARS` does today. Rows come back in `BAR_COLUMNS` order.
+  - [x] Reuse the window and stream helpers from `tick_reads.py`. Do not copy them. Do not import `read_bars` (it is removed in 6.1).
+  - [x] No unit test: its behaviour is covered by the parity integration tests (5.7).
+  - [x] Success: module under about 300 lines and mypy clean.
 
-- [ ] **5.2 Minute classification**
-  - [ ] In `bar_parity.py` (or `bar_parity_classify.py` if it would pass 300 lines), add a pure function that joins tick minutes and provider minutes by bucket and classes each: `agree` (open, high, low, close and volume all equal), `differ` (record the field names that differ), `provider_only`, `tick_only`. A minute record carries `bucket`, `class`, `fields`, both sides' values and `at_close` (bucket equals the window's `close_ns`).
-  - [ ] Define the class names once, as a `StrEnum`.
-  - [ ] Unit tests (`test/unit/data/tick/`): each of the four classes, a minute differing in two fields names both, `at_close` set only at `close_ns`, and the empty-on-both-sides case returns nothing.
-  - [ ] Success: unit tests pass.
+- [x] **5.2 Minute classification**
+  - [x] In `bar_parity.py` (or `bar_parity_classify.py` if it would pass 300 lines), add a pure function that joins tick minutes and provider minutes by bucket and classes each: `agree` (open, high, low, close and volume all equal), `differ` (record the field names that differ), `provider_only`, `tick_only`. A minute record carries `bucket`, `class`, `fields`, both sides' values and `at_close` (bucket equals the window's `close_ns`).
+  - [x] Define the class names once, as a `StrEnum`.
+  - [x] Unit tests (`test/unit/data/tick/`): each of the four classes, a minute differing in two fields names both, `at_close` set only at `close_ns`, and the empty-on-both-sides case returns nothing.
+  - [x] Success: unit tests pass.
 
-- [ ] **5.3 Session report built in memory**
-  - [ ] Add a per-session report type: counts by class, close-stamped minute count and how many of those agree, and volume totals for both sides. Add a function that builds the full report from classified minutes of each compared session, plus a list of skipped sessions each carrying its `TICK_TIER` and `BAR_1M` status.
-  - [ ] `minutes_listed` rule (for `--json`): every non-agreeing minute plus every close-stamped minute whatever its class.
-  - [ ] `exit_code`: `EXIT_OK` if every compared minute agrees, else `EXIT_PARTIAL`.
-  - [ ] Unit tests for counts, close-stamped count, the listed-minutes rule and the exit rule.
-  - [ ] Success: unit tests pass.
+- [x] **5.3 Session report built in memory**
+  - [x] Add a per-session report type: counts by class, close-stamped minute count and how many of those agree, and volume totals for both sides. Add a function that builds the full report from classified minutes of each compared session, plus a list of skipped sessions each carrying its `TICK_TIER` and `BAR_1M` status.
+  - [x] `minutes_listed` rule (for `--json`): every non-agreeing minute plus every close-stamped minute whatever its class.
+  - [x] `exit_code`: `EXIT_OK` if every compared minute agrees, else `EXIT_PARTIAL`.
+  - [x] Unit tests for counts, close-stamped count, the listed-minutes rule and the exit rule.
+  - [x] Success: unit tests pass.
 
-- [ ] **5.4 Parity plan, shared helpers and session join**
-  - [ ] If `_plan`, the target and rule parsing and the option definitions are private in `tick_get_cmds.py`, promote them (drop the underscore) so parity imports them. Do not copy them. Follow `tick_get_cmds.py` for connection setup (`connect_migrated`, `roll_conninfo`).
-  - [ ] Create `cli/commands/tick_parity_cmds.py`. Plan with `family=TICK_TIER` (windows and tick verdicts). In the same `REPEATABLE READ READ ONLY` snapshot call `verdicts_for(BAR_1M)` over the plan's sessions and join by session date. Compared sessions are `complete` in both. Every other planned session goes in a skipped list with both statuses.
-  - [ ] Success: mypy clean; the existing `get` tests still pass after the promotion.
+- [x] **5.4 Parity plan, shared helpers and session join**
+  - [x] If `_plan`, the target and rule parsing and the option definitions are private in `tick_get_cmds.py`, promote them (drop the underscore) so parity imports them. Do not copy them. Follow `tick_get_cmds.py` for connection setup (`connect_migrated`, `roll_conninfo`).
+  - [x] Create `cli/commands/tick_parity_cmds.py`. Plan with `family=TICK_TIER` (windows and tick verdicts; `plan_for_target` is `get`'s `_plan`, promoted). In the same `REPEATABLE READ READ ONLY` snapshot call `verdicts_for(BAR_1M)` over the plan's sessions (`data/tick/parity_plan.py`) and join by session date. Compared sessions are `complete` in both. Every other planned session goes in a skipped list with both statuses.
+  - [x] Success: mypy clean; the existing `get` tests still pass after the promotion.
 
-- [ ] **5.5 Parity compare loop and failure mapping**
-  - [ ] Per compared window read both sides (`read_tick_minute_bars` and `read_provider_bars(..., M1)`) into memory, classify, and add to the report. Print only after the last session is compared.
-  - [ ] Failures go through `tick_exit.exit_code_for` as `get` does (`run_mapped`): unknown or ambiguous contract, bad range or calendar refusal exit `EXIT_PREFLIGHT`; an `OperationalError` at any point, including a statement timeout, exits `EXIT_STORAGE` with the first line of the error on stderr and no report. Do not catch and continue.
-  - [ ] Success: mypy clean, and neither file passes about 300 lines.
+- [x] **5.5 Parity compare loop and failure mapping**
+  - [x] Per compared window read both sides (`read_tick_minute_bars` and `read_provider_bars(..., M1)`) into memory, classify, and add to the report. Print only after the last session is compared.
+  - [x] Failures go through `tick_exit.exit_code_for` as `get` does (`run_mapped`): unknown or ambiguous contract, bad range or calendar refusal exit `EXIT_PREFLIGHT`; an `OperationalError` at any point, including a statement timeout, exits `EXIT_STORAGE` with the error on stderr (`run_mapped` prints it as `get`'s pre-row path does) and no report. Do not catch and continue.
+  - [x] Success: mypy clean, and neither file passes about 300 lines.
 
-- [ ] **5.6 Output and registration**
-  - [ ] Text output: per-session minute counts by class, the close-stamped count, volume totals for both sides, and the skipped sessions with their statuses. It lists no minutes. `--json` output adds `minutes_listed` and the same session counts. Arguments are those of `get`: `--contract` or `--product [--rule]`, `--start`, `--end` (session dates, end exclusive), `--json`.
-  - [ ] Register `parity` in `tick.py` next to `get` (`tick_app.command("parity", ...)`) and update the `tick` group help line that lists the verbs (line ~69).
-  - [ ] Success: `mt data tick parity --help` runs and lists the options.
+- [x] **5.6 Output and registration**
+  - [x] Text output: per-session minute counts by class, the close-stamped count, volume totals for both sides, and the skipped sessions with their statuses. It lists no minutes. `--json` output adds `minutes_listed` and the same session counts. Arguments are those of `get`: `--contract` or `--product [--rule]`, `--start`, `--end` (session dates, end exclusive), `--json`.
+  - [x] Register `parity` in `tick.py` next to `get` (`tick_app.command("parity", ...)`) and update the `tick` group help line that lists the verbs (line ~69).
+  - [x] Success: `mt data tick parity --help` runs and lists the options.
 
-- [ ] **5.7 Parity classes on the real fixtures**
-  - [ ] Create `test/integration/data/test_tick_parity.py`. Ingest the cut 2024-12-03 `tbbo` fixture and the derived bar day (the `tick_support` helpers used by `test_bar_ingest_e2e.py`).
-  - [ ] Compute each minute's expected class in the test by an independent Python bucketing of the fixture's trades, set against the derived bars (D9). Assert the command's `--json` output agrees minute for minute. Minutes the cut kept whole come out `agree`; the rest `differ` or `provider_only`.
-  - [ ] `tick_only`: a separate test ingests the same `tbbo` day with a hand-built bar day (`write_bar_file`) that omits one minute holding trades, and asserts that minute is `tick_only`. State this in the test docstring.
-  - [ ] `at_close`: assert the minute stamped at the 2024-12-03 session close is flagged and listed in the `--json` minutes.
-  - [ ] Skipped sessions: seed a day with ticks and no bars; assert it is listed as skipped with both statuses and does not change the exit code.
-  - [ ] Success: all pass on the test cluster.
+- [x] **5.7 Parity classes on the real fixtures**
+  - [x] Create `test/integration/data/test_tick_parity.py`. Ingest the cut 2024-12-03 `tbbo` fixture and the derived bar day (the `tick_support` helpers used by `test_bar_ingest_e2e.py`).
+  - [x] Compute each minute's expected class in the test by an independent Python bucketing of the fixture's trades, set against the derived bars (D9). Assert the command's `--json` output agrees minute for minute. Minutes the cut kept whole come out `agree`; the rest `differ` or `provider_only`.
+  - [x] `tick_only`: a separate test ingests the same `tbbo` day with a hand-built bar day (`write_bar_file`) that omits one minute holding trades, and asserts that minute is `tick_only`. State this in the test docstring.
+  - [x] `at_close`: assert the minute stamped at the 2024-12-03 session close is flagged and listed in the `--json` minutes.
+  - [x] Skipped sessions: seed a day with ticks and no bars; assert it is listed as skipped with both statuses and does not change the exit code.
+  - [x] Success: all pass on the test cluster.
 
-- [ ] **5.8 Parity exit codes and failures**
-  - [ ] In the same file or `test_tick_parity_exit.py`: `EXIT_OK` for an all-agree window (hand-built matching bars and trades); `EXIT_PARTIAL` when any minute differs; `EXIT_PREFLIGHT` for an unknown contract; `EXIT_STORAGE` with nothing on stdout when the connection fails. Use the patterns in `test_tick_get_cli.py` to force the failures.
-  - [ ] Success: all pass on the test cluster.
+- [x] **5.8 Parity exit codes and failures**
+  - [x] In the same file or `test_tick_parity_exit.py`: `EXIT_OK` for an all-agree window (hand-built matching bars and trades); `EXIT_PARTIAL` when any minute differs; `EXIT_PREFLIGHT` for an unknown contract; `EXIT_STORAGE` with nothing on stdout when the connection fails. Use the patterns in `test_tick_get_cli.py` to force the failures.
+  - [x] Success: all pass on the test cluster.
 
-- [ ] **5.9 Note template**
-  - [ ] Create `user/notes/306-bar-parity.md` (with the front matter `file-naming-conventions.md` requires for notes) holding headings only: the ES 2024 parity result (minute counts by class, the `--json` minute list reference, the close-stamped finding for issue #70), the D10 long-read timing with the 1,300-session extrapolation, and the D1 provider `ohlcv-1d`/`1h`/`eod` bucketing finding carried from the design. Mark each result section `Not yet measured (Phase 7)`. Copy the D1 text into the D1 section now (it is already decided).
-  - [ ] Success: the file exists and holds no invented numbers.
+- [x] **5.9 Note template**
+  - [x] Create `user/notes/306-bar-parity.md` (with the front matter `file-naming-conventions.md` requires for notes) holding headings only: the ES 2024 parity result (minute counts by class, the `--json` minute list reference, the close-stamped finding for issue #70), the D10 long-read timing with the 1,300-session extrapolation, and the D1 provider `ohlcv-1d`/`1h`/`eod` bucketing finding carried from the design. Mark each result section `Not yet measured (Phase 7)`. Copy the D1 text into the D1 section now (it is already decided).
+  - [x] Success: the file exists and holds no invented numbers.
 
 **Commit**: `feat: add mt data tick parity comparing tick and provider minutes`
 
