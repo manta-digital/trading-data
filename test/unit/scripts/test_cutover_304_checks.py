@@ -228,6 +228,7 @@ def test_the_wanted_set_comes_from_the_universe(checks: ModuleType) -> None:
         "ES/ohlcv-1m",
         "GC/definition",
         "GC/statistics",
+        "GC/ohlcv-1m",
     }
 
 

@@ -93,24 +93,19 @@ DEFINITIONS = HistoryWant(TickSchema.DEFINITION, date(2011, 12, 1), date(2013, 2
 WITH_HISTORY = replace(GOOD, history=(DEFINITIONS, BARS))
 
 
-def test_production_universe_history_is_slice_304_d1() -> None:
-    """D1's table exactly: fixed ends everywhere, no GC bars."""
-    first, last, bars_from = date(2010, 6, 8), date(2026, 11, 1), date(2024, 1, 1)
+def test_production_universe_history_is_slice_307_d1() -> None:
+    """307 D1's table exactly: every schema, both products, one fixed range."""
+    first, last = date(2010, 6, 8), date(2026, 12, 1)
     got = {
         entry.product: [(w.schema, w.start, w.end) for w in entry.history]
         for entry in TICK_UNIVERSE
     }
-    assert got == {
-        "ES": [
-            (TickSchema.DEFINITION, first, last),
-            (TickSchema.STATISTICS, first, last),
-            (TickSchema.OHLCV_1M, bars_from, date(2025, 1, 1)),
-        ],
-        "GC": [
-            (TickSchema.DEFINITION, first, last),
-            (TickSchema.STATISTICS, first, last),
-        ],
-    }
+    wants = [
+        (TickSchema.DEFINITION, first, last),
+        (TickSchema.STATISTICS, first, last),
+        (TickSchema.OHLCV_1M, first, last),
+    ]
+    assert got == {"ES": wants, "GC": wants}
     assert all(w.end is not None for e in TICK_UNIVERSE for w in e.history)
 
 

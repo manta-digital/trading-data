@@ -187,29 +187,30 @@ These are pure functions; task 4.7 wires them in, and they are committed with Ta
 
 ### 5. The universe edit, runbook and evidence note skeleton (D1, D7)
 
-- [ ] **5.1 Edit `TICK_UNIVERSE`**
-  - [ ] In `data/tick/universe.py` change `_HISTORY_END` to `date(2026, 12, 1)` and add `HistoryWant(TickSchema.OHLCV_1M, _HISTORY_START, _HISTORY_END)` to the shared tuple (rename it from `_DEFINITION_AND_STATISTICS` to say it holds all three schemas), so ES and GC both use it and the four ranges are defined once. Remove ES's separate 2024 `ohlcv-1m` want. Do not change `tier`, `start`, `end` or symbols, and edit no file under `src/` other than `universe.py`.
-  - [ ] Update the comment above `TICK_UNIVERSE` to cite 307 D1: the end is fixed because an open end would buy the newest days on every later pass, and the whole month is chosen because it is past by the time the purchase can run. Update any docstring that says ES bars are 2024 only.
-  - [ ] Success: the module imports (import-time validation accepts the wants).
+- [x] **5.1 Edit `TICK_UNIVERSE`**
+  - [x] In `data/tick/universe.py` change `_HISTORY_END` to `date(2026, 12, 1)` and add `HistoryWant(TickSchema.OHLCV_1M, _HISTORY_START, _HISTORY_END)` to the shared tuple (rename it from `_DEFINITION_AND_STATISTICS` to say it holds all three schemas), so ES and GC both use it and the four ranges are defined once. Remove ES's separate 2024 `ohlcv-1m` want. Do not change `tier`, `start`, `end` or symbols, and edit no file under `src/` other than `universe.py`.
+  - [x] Update the comment above `TICK_UNIVERSE` to cite 307 D1: the end is fixed because an open end would buy the newest days on every later pass, and the whole month is chosen because it is past by the time the purchase can run. Update any docstring that says ES bars are 2024 only.
+  - [x] Success: the module imports (import-time validation accepts the wants).
 
-- [ ] **5.2 Tests for 5.1**
-  - [ ] Update the universe pin in `test/unit/data/tick/test_universe.py` to D1's table exactly: for ES and GC, `(schema, start, end)` of `definition`, `statistics` and `ohlcv-1m` are each 2010-06-08 to 2026-12-01, with no open end.
-  - [ ] grep `test/` for tests that assume ES bars are 2024 only, GC has no bars, or the end is 2026-11-01 (`2026, 11, 1`, `2024, 1, 1`), and update them to the new truth. Do not weaken an assertion.
-  - [ ] Success: `uv run pytest test/unit/data/tick test/unit/scripts -q` passes.
+- [x] **5.2 Tests for 5.1**
+  - [x] Update the universe pin in `test/unit/data/tick/test_universe.py` to D1's table exactly: for ES and GC, `(schema, start, end)` of `definition`, `statistics` and `ohlcv-1m` are each 2010-06-08 to 2026-12-01, with no open end.
+  - [x] grep `test/` for tests that assume ES bars are 2024 only, GC has no bars, or the end is 2026-11-01 (`2026, 11, 1`, `2024, 1, 1`), and update them to the new truth. Do not weaken an assertion.
+  Note: the grep finds three files with the old end `2026, 11, 1`; none takes a history range from `TICK_UNIVERSE`. `test/unit/data/tick/test_planner.py` (a `wanted_spans` call with its own edges) and `test/unit/data/tick/test_family_edges.py` (`source_edge` with its own dates) pass their own literals into pure functions and pass unchanged. `test/load/manifest_scale_seed.py` (`WANT_END`, `UNIT_END`, `DATASET_END`) takes only each entry's tier window and symbols from `TICK_UNIVERSE` and replaces `history` with wants of its own at the shape 307 will give production; 305's NFR bounds were measured at that data size, so it is deliberately left unchanged. No test assumed the old ranges.
+  - [x] Success: `uv run pytest test/unit/data/tick test/unit/scripts -q` passes.
 
-- [ ] **5.3 Runbook 100's "Purchase slices" section**
-  - [ ] In `project-documents/user/runbooks/100-production-operations.md`, section "Purchase slices", replace the cutover command with the new arguments: `--slice`, `--gate-issue`, `--estimate`. State that the gate refuses unless the issue is closed, that the dataset edge must reach the universe's latest want end, that the ceiling values come from the `--estimate` run, rounded up to the next 5, and that the PM runs only that one root command. Name the state files and log (`{slice}-cutover-start.txt`, `{slice}-cutover-baseline.json`, `cutover-{slice}-<tag>-<stamp>.log`). Keep the section's other steps.
-  - [ ] Replace the text that says 304's script name is the only one, and the line "Slice 307 reuses it with its own figures", so each is true after this slice. Keep the file's existing style.
-  - [ ] Success: the section's example command is the one in the slice design's Verification Walkthrough step 3 and its arguments are accurate against 1.3 and 2.3 (`--help` of the script).
+- [x] **5.3 Runbook 100's "Purchase slices" section**
+  - [x] In `project-documents/user/runbooks/100-production-operations.md`, section "Purchase slices", replace the cutover command with the new arguments: `--slice`, `--gate-issue`, `--estimate`. State that the gate refuses unless the issue is closed, that the dataset edge must reach the universe's latest want end, that the ceiling values come from the `--estimate` run, rounded up to the next 5, and that the PM runs only that one root command. Name the state files and log (`{slice}-cutover-start.txt`, `{slice}-cutover-baseline.json`, `cutover-{slice}-<tag>-<stamp>.log`). Keep the section's other steps.
+  - [x] Replace the text that says 304's script name is the only one, and the line "Slice 307 reuses it with its own figures", so each is true after this slice. Keep the file's existing style.
+  - [x] Success: the section's example command is the one in the slice design's Verification Walkthrough step 3 and its arguments are accurate against 1.3 and 2.3 (`--help` of the script).
 
-- [ ] **5.4 Create the evidence note skeleton `user/notes/307-history-acquisition-evidence.md`**
-  - [ ] Front matter per `file-naming-conventions.md`, status `not_started`. Headings only, each with a one-line statement of what Phase 7 fills in, mirroring D6's six items: Reconciliation; Per product and family (health row, accounting line); Not-caught-up sessions (product, schema, session date, `coverage` bucket, reason, verbatim); Cross-tier (`traded_vs_cleared` counts, `over` sessions); Session placement (per product); Scale (request and unit counts, durations, `tick_ohlcv_1m` and `tick_definition` rows before and after); Second-run result; Open items (the December invoice follow-up issue of D7, issue #70).
-  - [ ] Do not invent figures; every section is empty until the purchase runs.
-  - [ ] Success: the file exists with the headings above and no numbers.
+- [x] **5.4 Create the evidence note skeleton `user/notes/307-history-acquisition-evidence.md`**
+  - [x] Front matter per `file-naming-conventions.md`, status `not_started`. Headings only, each with a one-line statement of what Phase 7 fills in, mirroring D6's six items: Reconciliation; Per product and family (health row, accounting line); Not-caught-up sessions (product, schema, session date, `coverage` bucket, reason, verbatim); Cross-tier (`traded_vs_cleared` counts, `over` sessions); Session placement (per product); Scale (request and unit counts, durations, `tick_ohlcv_1m` and `tick_definition` rows before and after); Second-run result; Open items (the December invoice follow-up issue of D7, issue #70).
+  - [x] Do not invent figures; every section is empty until the purchase runs.
+  - [x] Success: the file exists with the headings above and no numbers.
 
-- [ ] **5.5 Final verification**
-  - [ ] Each task already ran format, lint, typecheck and its tests. Here run only what no task covered: `uv run mypy` with the kalshi src paths and tests in one invocation, and the integration tick tier (re-run any known flake in isolation first).
-  - [ ] `git diff main` shows no swept lines; `wc -l` of each of the four cutover scripts is within about 300.
-  - [ ] Success: all pass; no secret appears in the diff.
+- [x] **5.5 Final verification**
+  - [x] Each task already ran format, lint, typecheck and its tests. Here run only what no task covered: `uv run mypy` with the kalshi src paths and tests in one invocation, and the integration tick tier (re-run any known flake in isolation first).
+  - [x] `git diff main` shows no swept lines; `wc -l` of each of the four cutover scripts is within about 300.
+  - [x] Success: all pass; no secret appears in the diff.
 
 **Commit**: `feat: add ES and GC futures history wants through 2026-12-01 and the purchase runbook update`
