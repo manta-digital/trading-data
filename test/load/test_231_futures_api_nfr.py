@@ -55,6 +55,7 @@ from manta_trading.constants import API_MAX_BARS_PER_REQUEST
 from manta_trading.data.tick.constants import TickSchema
 from manta_trading.data.tick.get_plan import GetPlan, contract_plan
 from manta_trading.data.tick.pass_contract import TickOutcome
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_format import cell_value
 from manta_trading.data.tick.tick_reads import TICK_COLUMNS, Row, read_ticks
 
@@ -269,7 +270,12 @@ async def _ceiling_rows(
     rows: list[Row] = []
     async with await psycopg.AsyncConnection.connect(url) as conn:
         plan = await contract_plan(
-            conn, calendar_url, "ESZ4", BUSIEST_DAY, BUSIEST_DAY + timedelta(days=1)
+            conn,
+            calendar_url,
+            "ESZ4",
+            BUSIEST_DAY,
+            BUSIEST_DAY + timedelta(days=1),
+            SchemaFamily.TICK_TIER,
         )
         window = plan.segments[0]
         clipped = type(window)(

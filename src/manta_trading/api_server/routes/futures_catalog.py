@@ -43,6 +43,7 @@ from manta_trading.data.tick.get_plan import resolve_range
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.roll_rules import STATUS_ROLL_RULES, RollRule
 from manta_trading.data.tick.roll_types import RollInputError, RollSchedule
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.universe import TICK_UNIVERSE, TickUniverseEntry
 
@@ -126,7 +127,7 @@ async def _schedule(
 ) -> RollSchedule:
     """The schedule over ``span`` (defaulted to the held sessions); empty when
     nothing is held and a side was omitted, as ``get``'s empty plan is."""
-    resolved = await resolve_range(conn, entry, *span)
+    resolved = await resolve_range(conn, entry, *span, SchemaFamily.TICK_TIER)
     if resolved is None:
         return RollSchedule(entry.product, rule, ())
     state = request.app.state

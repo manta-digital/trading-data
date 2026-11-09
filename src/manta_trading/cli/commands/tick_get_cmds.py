@@ -119,6 +119,7 @@ async def _plan(
 ) -> GetPlan:
     from manta_trading.cli.commands.tick_store_cmds import universe_entries
     from manta_trading.data.tick.get_plan import contract_plan, product_plan
+    from manta_trading.data.tick.schema_families import SchemaFamily
     from manta_trading.data.tick.store_context import database_url
     from manta_trading.data.tick.tick_calendar import calendar_url
 
@@ -126,10 +127,14 @@ async def _plan(
     start, end = (None if d is None else d.date() for d in span)
     calendar = calendar_url(settings)
     if contract is not None:
-        return await contract_plan(conn, calendar, contract, start, end)
+        return await contract_plan(
+            conn, calendar, contract, start, end, SchemaFamily.TICK_TIER
+        )
     (entry,) = universe_entries(product)
     urls = (database_url(settings), calendar)
-    return await product_plan(conn, urls, entry, rule, start, end)
+    return await product_plan(
+        conn, urls, entry, rule, start, end, SchemaFamily.TICK_TIER
+    )
 
 
 async def _stream(conn: Conn, plan: GetPlan, what: str, writer: GetWriter) -> int:

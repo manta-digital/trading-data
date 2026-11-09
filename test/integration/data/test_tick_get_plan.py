@@ -12,9 +12,17 @@ from typing import Any
 
 import psycopg
 import pytest
-from tick_support.roll_seed import ESU4, ESZ4, SeededRoll, seed_september_roll
+from tick_support.roll_seed import (
+    ESU4,
+    ESZ4,
+    SeededRoll,
+    seed_september_roll,
+    seed_tier_days,
+    touched_days,
+)
 from tick_support.rows import (
     FILE_COLUMNS,
+    insert_bar_ledger_row,
     insert_definition,
     insert_request,
     insert_unit,
@@ -35,6 +43,7 @@ from manta_trading.data.tick.get_plan import (
 )
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
 ES = UNTIERED[0]
@@ -48,16 +57,27 @@ def seeded(migrated_tick_db: str) -> SeededRoll:
 
 
 async def _contract(
-    tick_url: str, calendar_url: str, symbol: str, start: Any, end: Any
+    tick_url: str,
+    calendar_url: str,
+    symbol: str,
+    start: Any,
+    end: Any,
+    family: SchemaFamily = SchemaFamily.TICK_TIER,
 ) -> GetPlan:
     async with await psycopg.AsyncConnection.connect(tick_url) as conn:
-        return await contract_plan(conn, calendar_url, symbol, start, end)
+        return await contract_plan(conn, calendar_url, symbol, start, end, family)
 
 
-async def _product(tick_url: str, calendar_url: str, start: Any, end: Any) -> GetPlan:
+async def _product(
+    tick_url: str,
+    calendar_url: str,
+    start: Any,
+    end: Any,
+    family: SchemaFamily = SchemaFamily.TICK_TIER,
+) -> GetPlan:
     async with await psycopg.AsyncConnection.connect(tick_url) as conn:
         return await product_plan(
-            conn, (tick_url, calendar_url), ES, DEFAULT_ROLL_RULE, start, end
+            conn, (tick_url, calendar_url), ES, DEFAULT_ROLL_RULE, start, end, family
         )
 
 
@@ -288,3 +308,86 @@ async def test_nothing_held_and_no_range_is_an_empty_plan(
     plan = await _product(migrated_tick_db, session_migrated_db, None, None)
 
     assert plan.segments == () and plan.start is None
+
+
+# -- 306 D3: plans for the bar family ------------------------------------------
+
+BAR_SESSIONS = [date(2024, 9, 17), date(2024, 9, 18)]
+
+
+def _seed_bars(url: str, sessions: list[date], instrument_id: int) -> None:
+    """Ingested ``ohlcv-1m`` units for every day the sessions touch, and a bar
+    ledger row per session. The plan reads only units and ledgers, as it does
+    for ticks, so hand-built rows are the faithful seed."""
+    units = seed_tier_days(url, touched_days(sessions), TickSchema.OHLCV_1M)
+    with psycopg.connect(url, autocommit=True) as conn:
+        for session in sessions:
+            insert_bar_ledger_row(
+                conn, units[session], instrument_id=instrument_id, session_date=session
+            )
+
+
+async def test_bar_plan_of_a_contract_with_ticks_and_no_bars_is_empty(
+    seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    plan = await _contract(
+        migrated_tick_db, session_migrated_db, "ESZ4", None, None, SchemaFamily.BAR_1M
+    )
+
+    assert (plan.start, plan.end) == (None, None)
+    assert plan.segments == () and plan.display == ()
+
+
+async def test_bar_plan_defaults_to_the_held_bar_sessions(
+    seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    _seed_bars(migrated_tick_db, BAR_SESSIONS, ESZ4.instrument_id)
+
+    plan = await _contract(
+        migrated_tick_db, session_migrated_db, "ESZ4", None, None, SchemaFamily.BAR_1M
+    )
+
+    assert (plan.start, plan.end) == (date(2024, 9, 17), date(2024, 9, 19))
+    assert [w.session_date for w in plan.segments] == BAR_SESSIONS
+    assert plan.incomplete == ()
+
+
+async def test_bar_plan_lists_a_session_with_ticks_and_no_bars_as_incomplete(
+    seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    _seed_bars(migrated_tick_db, BAR_SESSIONS, ESZ4.instrument_id)
+    span = (date(2024, 9, 17), date(2024, 9, 20))
+
+    bars = await _contract(
+        migrated_tick_db, session_migrated_db, "ESZ4", *span, SchemaFamily.BAR_1M
+    )
+    ticks = await _contract(migrated_tick_db, session_migrated_db, "ESZ4", *span)
+
+    # 09-19 has ticks and no bars: planned either way, incomplete only for bars.
+    assert [w.session_date for w in bars.segments] == [*BAR_SESSIONS, date(2024, 9, 19)]
+    assert [i.session_date for i in bars.incomplete] == [date(2024, 9, 19)]
+    assert bars.incomplete[0].status is not TickSessionStatus.COMPLETE
+    assert ticks.incomplete == ()
+
+
+async def test_a_tick_plan_still_reads_the_tick_ledger_beside_bars(
+    seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    _seed_bars(migrated_tick_db, BAR_SESSIONS, ESZ4.instrument_id)
+
+    plan = await _contract(migrated_tick_db, session_migrated_db, "ESZ4", None, None)
+
+    assert plan.start == date(2024, 9, 3)  # the tick ledger's first session
+    assert plan.end > date(2024, 9, 19)
+
+
+async def test_bar_product_plan_defaults_to_the_held_bar_sessions(
+    seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    _seed_bars(migrated_tick_db, BAR_SESSIONS, ESZ4.instrument_id)
+
+    plan = await _product(
+        migrated_tick_db, session_migrated_db, None, None, SchemaFamily.BAR_1M
+    )
+
+    assert (plan.start, plan.end) == (date(2024, 9, 17), date(2024, 9, 19))

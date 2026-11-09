@@ -120,10 +120,25 @@ async def test_volumes_are_outrights_over_current_units(
 async def test_held_bounds_empty_then_seeded(
     migrated_tick_db: str, aconn: AConn
 ) -> None:
-    assert await held_session_bounds(aconn, SHAPE) is None
+    tier = SchemaFamily.TICK_TIER
+    assert await held_session_bounds(aconn, SHAPE, tier) is None
     units = seed_tier_days(migrated_tick_db, [D1, D2])
     seed_ledger(migrated_tick_db, units, {(D1, 1): 1, (D2, 1): 1})
-    assert await held_session_bounds(aconn, SHAPE) == (D1, D2)
+    assert await held_session_bounds(aconn, SHAPE, tier) == (D1, D2)
+
+
+async def test_held_bounds_read_the_named_familys_own_ledger(
+    migrated_tick_db: str, aconn: AConn
+) -> None:
+    """A bar ledger row and no tick ledger row: only the bar family holds it."""
+    with psycopg.connect(migrated_tick_db, autocommit=True) as conn:
+        request = insert_request(conn, schema=TickSchema.OHLCV_1M.value)
+        bars = insert_unit(
+            conn, request, state=UnitState.INGESTED.value, **FILE_COLUMNS
+        )
+        insert_bar_ledger_row(conn, bars, session_date=D1)
+    assert await held_session_bounds(aconn, SHAPE, SchemaFamily.BAR_1M) == (D1, D1)
+    assert await held_session_bounds(aconn, SHAPE, SchemaFamily.TICK_TIER) is None
 
 
 async def test_definitions_as_of_is_the_latest_definition_unit(

@@ -29,17 +29,14 @@ from manta_trading.data.tick.manifest_reads import COVERAGE_PREDICATE, Conn
 from manta_trading.data.tick.roll_inputs import held_session_bounds
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import ActiveContract, Unresolved
-from manta_trading.data.tick.schema_families import SchemaFamily
+from manta_trading.data.tick.schema_families import FAMILY_LEDGER, SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
-from manta_trading.data.tick.status_reads import (
-    calendar_sessions,
-    session_verdicts,
-    shape_of,
-)
+from manta_trading.data.tick.status_reads import calendar_sessions, shape_of
 from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.tick_format import ts_text
 from manta_trading.data.tick.tick_reads import TickWindow
 from manta_trading.data.tick.tick_status import TickSessionStatus
+from manta_trading.data.tick.tick_status_scope import verdicts_for
 from manta_trading.data.tick.universe import TICK_UNIVERSE, TickUniverseEntry
 
 _DAY = timedelta(days=1)
@@ -120,9 +117,13 @@ async def sessions_dated(
 
 
 async def _incomplete(
-    conn: Conn, entry: TickUniverseEntry, sessions: Sequence[Session]
+    conn: Conn,
+    entry: TickUniverseEntry,
+    sessions: Sequence[Session],
+    family: SchemaFamily,
 ) -> tuple[Incomplete, ...]:
-    verdicts = await session_verdicts(conn, entry, sessions, SchemaFamily.TICK_TIER)
+    """Planned sessions whose ``family`` verdict is not ``complete`` (306 D3)."""
+    verdicts = await verdicts_for(family)(conn, entry, sessions, family)
     return tuple(
         Incomplete(v.session_date, v.status)
         for v in verdicts
@@ -148,14 +149,18 @@ def _check_range(start: date, end: date) -> None:
 
 
 async def resolve_range(
-    conn: Conn, entry: TickUniverseEntry, start: date | None, end: date | None
+    conn: Conn,
+    entry: TickUniverseEntry,
+    start: date | None,
+    end: date | None,
+    family: SchemaFamily,
 ) -> tuple[date, date] | None:
-    """``start``/``end`` with a missing side defaulted to the held sessions
-    (TD2; ``end`` exclusive, so the last held session plus a day). ``None``
+    """``start``/``end`` with a missing side defaulted to the sessions ``family``
+    holds (TD2; ``end`` exclusive, so the last held session plus a day). ``None``
     when a side is missing and nothing is held. Raises ``TickPreflightError``
     on an empty range. The product plan and 231's schedule route share it."""
     if start is None or end is None:
-        held = await held_session_bounds(conn, shape_of(entry))
+        held = await held_session_bounds(conn, shape_of(entry), family)
         if held is None:
             return None
         start = start or held[0]
@@ -209,11 +214,14 @@ def _entry_for(candidate: _Candidate, symbol: str) -> TickUniverseEntry:
     )
 
 
-async def _held(conn: Conn, instrument_id: int) -> tuple[date, date] | None:
-    """First and last session holding records of the instrument, under
-    current units."""
+async def _held(
+    conn: Conn, instrument_id: int, family: SchemaFamily
+) -> tuple[date, date] | None:
+    """First and last session holding records of the instrument in ``family``'s
+    ledger, under current units."""
     cursor = await conn.execute(
-        "SELECT min(l.session_date), max(l.session_date) FROM tick_ingest_ledger l"
+        "SELECT min(l.session_date), max(l.session_date)"
+        f" FROM {FAMILY_LEDGER[family]} l"
         " JOIN tick_archive_unit u USING (unit_id)"
         f" WHERE l.instrument_id = %s AND l.record_count > 0 AND {COVERAGE_PREDICATE}",
         (instrument_id,),
@@ -228,14 +236,15 @@ async def contract_plan(
     symbol: str,
     start: date | None,
     end: date | None,
+    family: SchemaFamily,
 ) -> GetPlan:
-    """The plan for ``--contract``; ``start``/``end`` default to its held
-    sessions (TD2)."""
+    """The plan for ``--contract``; ``start``/``end`` default to its sessions
+    held in ``family`` (TD2)."""
     candidate = _one(symbol, await _candidates(conn, symbol, start, end))
     entry = _entry_for(candidate, symbol)
     target = ContractTarget(symbol, candidate.instrument_id)
     if start is None or end is None:
-        held = await _held(conn, candidate.instrument_id)
+        held = await _held(conn, candidate.instrument_id, family)
         if held is None:
             return GetPlan(target, start, end, (), (), (), (), None)
         start = start or held[0]
@@ -261,7 +270,7 @@ async def contract_plan(
         if sessions
         else ()
     )
-    incomplete = await _incomplete(conn, entry, sessions)
+    incomplete = await _incomplete(conn, entry, sessions, family)
     return GetPlan(target, start, end, windows, display, (), incomplete, None)
 
 
@@ -275,14 +284,15 @@ async def product_plan(
     rule: RollRule,
     start: date | None,
     end: date | None,
+    family: SchemaFamily,
 ) -> GetPlan:
     """The plan for ``--product`` under ``rule``; ``start``/``end`` default to
-    the held sessions (TD2). ``urls`` is ``(tick_url, calendar_url)``:
+    the sessions held in ``family`` (TD2). ``urls`` is ``(tick_url, calendar_url)``:
     ``build_schedule`` opens its own connections (229 TD9). Its failures
     (``RollRangeTooLong``, a calendar refusal, an outage) propagate."""
     tick_url, calendar_url = urls
     target = ProductTarget(entry.product, rule)
-    span = await resolve_range(conn, entry, start, end)
+    span = await resolve_range(conn, entry, start, end, family)
     if span is None:
         return GetPlan(target, start, end, (), (), (), (), None)
     start, end = span
@@ -312,7 +322,7 @@ async def product_plan(
         for seg in schedule.segments()
     )
     as_of = next(iter(answers.values())).definitions_as_of if answers else None
-    incomplete = await _incomplete(conn, entry, sessions)
+    incomplete = await _incomplete(conn, entry, sessions, family)
     return GetPlan(
         target, start, end, windows, display, schedule.unresolved, incomplete, as_of
     )

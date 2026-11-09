@@ -54,6 +54,7 @@ from manta_trading.api_server.tick_access import tick_connection, tick_errors
 from manta_trading.constants import Granularity
 from manta_trading.data.tick.get_plan import GetPlan, contract_plan, product_plan
 from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_reads import (
     OnBatch,
     Row,
@@ -106,7 +107,9 @@ def _contract_plan(
     calendar_url = request.app.state.calendar_url
 
     async def plan(conn: Conn) -> GetPlan:
-        return await contract_plan(conn, calendar_url, symbol, start, end)
+        return await contract_plan(
+            conn, calendar_url, symbol, start, end, SchemaFamily.TICK_TIER
+        )
 
     return plan
 
@@ -122,7 +125,9 @@ def _product_plan(
     urls = (request.app.state.tick_url, request.app.state.calendar_url)
 
     async def plan(conn: Conn) -> GetPlan:
-        return await product_plan(conn, urls, entry, parsed, *span)
+        return await product_plan(
+            conn, urls, entry, parsed, *span, SchemaFamily.TICK_TIER
+        )
 
     return plan
 

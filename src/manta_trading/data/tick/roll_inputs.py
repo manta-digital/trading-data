@@ -92,12 +92,15 @@ async def session_open_interest(
     )
 
 
-async def held_session_bounds(conn: Conn, shape: Shape) -> tuple[date, date] | None:
-    """Earliest and latest ledger session over current units; ``None`` if none."""
+async def held_session_bounds(
+    conn: Conn, shape: Shape, family: SchemaFamily
+) -> tuple[date, date] | None:
+    """Earliest and latest ``family`` ledger session over current units;
+    ``None`` if none."""
     cursor = await conn.execute(
         "SELECT min(l.session_date), max(l.session_date)"
-        f" FROM {ledger_units(SchemaFamily.TICK_TIER)} WHERE {SHAPE_WHERE}",
-        shape.params(SchemaFamily.TICK_TIER),
+        f" FROM {ledger_units(family)} WHERE {SHAPE_WHERE}",
+        shape.params(family),
     )
     row = await cursor.fetchone()
     if row is None or row[0] is None:

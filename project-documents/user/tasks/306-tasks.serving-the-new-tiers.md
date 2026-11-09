@@ -13,7 +13,7 @@ projectState: 302 (tick_ohlcv_1m, BAR_1M family) and 303 (statistics, basis on s
   routes yet.
 dateCreated: 20261108
 dateUpdated: 20261109
-status: not_started
+status: in_progress
 turns: 29
 promptTokens: 2531122
 cachedTokens: 2393647
@@ -48,29 +48,29 @@ revision_number: 2
 
 ## 1. Plans take the family they serve (D3)
 
-- [ ] **1.1 `held_session_bounds` takes a family**
-  - [ ] In `data/tick/roll_inputs.py`, change `held_session_bounds(conn, shape)` to `held_session_bounds(conn, shape, family)`. Replace both hard-coded `SchemaFamily.TICK_TIER` uses (the `ledger_units` call and `shape.params`) with `family`.
-  - [ ] Update the two callers to pass `SchemaFamily.TICK_TIER`: `get_plan.resolve_range` and `active_contract` (around line 290).
-  - [ ] Update `test/integration/data/test_tick_roll_inputs.py` (two calls, lines ~123 and ~126) to pass `TICK_TIER`.
-  - [ ] Add one test: with a bar ledger row and no tick ledger row for a shape, `held_session_bounds(..., BAR_1M)` returns the bar session and `(..., TICK_TIER)` returns `None`.
-  - [ ] Success: the new test passes and `test_tick_roll_inputs.py` passes with only the argument added.
+- [x] **1.1 `held_session_bounds` takes a family**
+  - [x] In `data/tick/roll_inputs.py`, change `held_session_bounds(conn, shape)` to `held_session_bounds(conn, shape, family)`. Replace both hard-coded `SchemaFamily.TICK_TIER` uses (the `ledger_units` call and `shape.params`) with `family`.
+  - [x] Update the two callers to pass `SchemaFamily.TICK_TIER`: `get_plan.resolve_range` and `active_contract` (around line 290).
+  - [x] Update `test/integration/data/test_tick_roll_inputs.py` (two calls, lines ~123 and ~126) to pass `TICK_TIER`.
+  - [x] Add one test: with a bar ledger row and no tick ledger row for a shape, `held_session_bounds(..., BAR_1M)` returns the bar session and `(..., TICK_TIER)` returns `None`.
+  - [x] Success: the new test passes and `test_tick_roll_inputs.py` passes with only the argument added.
 
-- [ ] **1.2 `verdicts_for(family)` in `tick_status_scope.py`**
-  - [ ] Add `verdicts_for(family: SchemaFamily) -> VerdictReader`: returns `session_verdicts` for `TICK_TIER` and `BAR_1M`, and raises `ValueError` naming the family for any other. Check how `VerdictReader` and `session_verdicts` are declared in that module and in `status_reads.py`, and reuse their types. Do not duplicate them.
-  - [ ] Unit test (`test/unit/data/tick/`): both supported families return the reader. `STATISTICS` raises `ValueError` and the message contains the family value.
-  - [ ] Success: unit test passes. The module stays under about 300 lines.
+- [x] **1.2 `verdicts_for(family)` in `tick_status_scope.py`**
+  - [x] Add `verdicts_for(family: SchemaFamily) -> VerdictReader`: returns `session_verdicts` for `TICK_TIER` and `BAR_1M`, and raises `ValueError` naming the family for any other. Check how `VerdictReader` and `session_verdicts` are declared in that module and in `status_reads.py`, and reuse their types. Do not duplicate them.
+  - [x] Unit test (`test/unit/data/tick/`): both supported families return the reader. `STATISTICS` raises `ValueError` and the message contains the family value.
+  - [x] Success: unit test passes. The module stays under about 300 lines.
 
-- [ ] **1.3 `contract_plan` and `product_plan` take `family`**
-  - [ ] In `get_plan.py`, add a required `family: SchemaFamily` parameter to `contract_plan` and `product_plan`. Thread it to `_held` (read `FAMILY_LEDGER[family]` instead of the literal `tick_ingest_ledger`; keep the `COVERAGE_PREDICATE` join), to `resolve_range` (which passes it to `held_session_bounds`), and to `_incomplete`.
-  - [ ] `_incomplete` gets its reader from `verdicts_for(family)` and passes `family` to it. Remove the hard-coded `TICK_TIER` there.
-  - [ ] Update every caller of the two plan functions to pass `SchemaFamily.TICK_TIER` for now: `routes/futures_series.py` (both plan helpers), `cli/commands/tick_get_cmds.py` (`_plan`), `test/integration/data/test_tick_get_plan.py`, `test/integration/api_server/test_futures_series.py`, `test/load/test_231_futures_api_nfr.py`. Behaviour is unchanged at this step.
-  - [ ] Check `_held` is only called from `contract_plan` (grep) so no caller is missed.
-  - [ ] Success: `ruff`, `mypy` and the existing tests in `test_tick_get_plan.py`, `test_tick_get_cli.py`, `test_futures_series.py` pass unchanged apart from the added argument.
+- [x] **1.3 `contract_plan` and `product_plan` take `family`**
+  - [x] In `get_plan.py`, add a required `family: SchemaFamily` parameter to `contract_plan` and `product_plan`. Thread it to `_held` (read `FAMILY_LEDGER[family]` instead of the literal `tick_ingest_ledger`; keep the `COVERAGE_PREDICATE` join), to `resolve_range` (which passes it to `held_session_bounds`), and to `_incomplete`.
+  - [x] `_incomplete` gets its reader from `verdicts_for(family)` and passes `family` to it. Remove the hard-coded `TICK_TIER` there.
+  - [x] Update every caller of the two plan functions to pass `SchemaFamily.TICK_TIER` for now: `routes/futures_series.py` (both plan helpers), `cli/commands/tick_get_cmds.py` (`_plan`), `test/integration/data/test_tick_get_plan.py`, `test/integration/api_server/test_futures_series.py`, `test/load/test_231_futures_api_nfr.py`. Behaviour is unchanged at this step.
+  - [x] Check `_held` is only called from `contract_plan` (grep) so no caller is missed.
+  - [x] Success: `ruff`, `mypy` and the existing tests in `test_tick_get_plan.py`, `test_tick_get_cli.py`, `test_futures_series.py` pass unchanged apart from the added argument.
 
-- [ ] **1.4 Plan tests for `BAR_1M`**
-  - [ ] In `test_tick_get_plan.py`, add tests with `family=BAR_1M`: (a) a contract with ticks and no bars: default range is empty (`start`/`end` `None`) and no segments; (b) a contract with bars: default range is the held bar sessions, and a session with ticks but no bars is listed in `incomplete` with its `BAR_1M` status; (c) `contract_plan` with `TICK_TIER` on the same data still reads the tick ledger.
-  - [ ] Seed bars with the `tick_support.tick_bar_helpers.seed_bar_units` helper (the cut 2024-12-03 day) and ticks with `tick_support.ticks`/`tier_units`. Read the existing tests in that file first for the fixture shape.
-  - [ ] Success: tests pass on the test cluster.
+- [x] **1.4 Plan tests for `BAR_1M`**
+  - [x] In `test_tick_get_plan.py`, add tests with `family=BAR_1M`: (a) a contract with ticks and no bars: default range is empty (`start`/`end` `None`) and no segments; (b) a contract with bars: default range is the held bar sessions, and a session with ticks but no bars is listed in `incomplete` with its `BAR_1M` status; (c) `contract_plan` with `TICK_TIER` on the same data still reads the tick ledger.
+  - [x] Seed bars with hand-built `ohlcv-1m` units (`seed_tier_days(..., OHLCV_1M)` plus `insert_bar_ledger_row`) beside the existing September roll ticks. The plan reads only units and ledgers, so this is the faithful seed; the cut 2024-12-03 day (`seed_bar_units`) is for the reader tests in section 2.
+  - [x] Success: tests pass on the test cluster.
 
 **Commit**: `refactor: plans take the schema family they serve`
 

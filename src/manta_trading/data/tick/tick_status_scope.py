@@ -46,6 +46,19 @@ VerdictReader = Callable[
 ]
 
 
+#: The families whose sessions ``session_verdicts`` judges.
+_SESSION_VERDICT_FAMILIES = frozenset({SchemaFamily.TICK_TIER, SchemaFamily.BAR_1M})
+
+
+def verdicts_for(family: SchemaFamily) -> VerdictReader:
+    """The one place a family's verdict reader is chosen (306 D3), so no caller
+    pairs a family with a reader by hand. Statistics are judged by their own
+    reader (``statistics_status``) and are not served by a plan yet."""
+    if family not in _SESSION_VERDICT_FAMILIES:
+        raise ValueError(f"no session verdict reader for family {family.value}")
+    return session_verdicts
+
+
 @dataclass(frozen=True)
 class FamilyWant:
     """A family an entry wants, over its own range (end exclusive, None = edge).

@@ -287,7 +287,9 @@ async def latest_lines(
     ``error``.
     """
     async with _snapshot(tick_url) as conn:
-        bounds = await held_session_bounds(conn, shape_of(entry))
+        bounds = await held_session_bounds(
+            conn, shape_of(entry), SchemaFamily.TICK_TIER
+        )
         if bounds is None:
             reason = f"no sessions held for {entry.product}"
             return tuple(ActiveLine(entry.product, r, reason=reason) for r in rules)

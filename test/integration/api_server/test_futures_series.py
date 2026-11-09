@@ -42,6 +42,7 @@ from manta_trading.data.tick.constants import (
 from manta_trading.data.tick.get_plan import GetPlan, contract_plan
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_reads import OnBatch, Row, TickWindow, read_ticks
 
 N_TICKS = 30
@@ -101,7 +102,12 @@ async def _helper(
 
         async def plan_for(c: Conn) -> GetPlan:
             return await contract_plan(
-                c, calendar_url, "ESZ4", SESSION, date(2024, 9, 19)
+                c,
+                calendar_url,
+                "ESZ4",
+                SESSION,
+                date(2024, 9, 19),
+                SchemaFamily.TICK_TIER,
             )
 
         return await read_series(conn, plan_for, read, ceiling, bounds)
