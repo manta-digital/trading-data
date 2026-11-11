@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import json
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -77,7 +78,7 @@ def _summary() -> dict[str, Any]:
         "unheld_jobs": [],
         "per_pass_ceiling_usd": "7.00",
         "cap_30d_usd": "16.00",
-        "verdict": "allowed",
+        "verdict": "estimate_only",
         "reasons": [],
     }
 
@@ -364,3 +365,58 @@ def test_checkout_database_must_be_productions(
     assert checks.check_checkout_database(same, prod) == "tick"
     with pytest.raises(cutover_error, match="tick_dev"):
         checks.check_checkout_database(other, prod)
+
+
+# -- the real ``pass --estimate-only --json`` payload -------------------------------
+
+REAL_PAYLOAD = Path(__file__).parent / "fixtures" / "pass_estimate_only.json"
+
+
+def test_purchase_summary_reads_the_real_pass_payload(checks: ModuleType) -> None:
+    """A captured ``mt-run data tick pass --estimate-only --json`` stdout."""
+    summary = checks.purchase_summary(json.loads(REAL_PAYLOAD.read_text()))
+    assert summary["verdict"] == "nothing_to_buy"
+    assert checks.judge_estimate(summary) is checks.Estimate.NOTHING_TO_BUY
+
+
+def test_a_planned_estimate_reports_estimate_only_and_is_buyable(
+    checks: ModuleType,
+) -> None:
+    payload = json.loads(REAL_PAYLOAD.read_text())
+    purchase = next(p for p in payload["phases"] if p["name"] == "purchase")
+    purchase["summary"] = _summary()
+    assert checks.judge_estimate(checks.purchase_summary(payload)) is (
+        checks.Estimate.BUY
+    )
+
+
+@pytest.mark.parametrize("outcome", ["failed", "skipped"])
+def test_a_purchase_phase_that_did_not_succeed_is_a_stop(
+    checks: ModuleType, cutover_error: type[Exception], outcome: str
+) -> None:
+    payload = json.loads(REAL_PAYLOAD.read_text())
+    next(p for p in payload["phases"] if p["name"] == "purchase")["outcome"] = outcome
+    with pytest.raises(cutover_error, match="purchase phase"):
+        checks.purchase_summary(payload)
+
+
+def test_a_payload_without_a_purchase_phase_is_a_stop(
+    checks: ModuleType, cutover_error: type[Exception]
+) -> None:
+    with pytest.raises(cutover_error, match="0 purchase phases"):
+        checks.purchase_summary({"phases": []})
+
+
+def test_a_naive_requested_at_is_a_stop_not_a_type_error(
+    checks: ModuleType, cutover_error: type[Exception]
+) -> None:
+    row = {
+        "request_id": 1,
+        "schema": "ohlcv-1m",
+        "provider_job_id": None,
+        "range_start": "2026-11-01",
+        "range_end": "2026-12-01",
+        "requested_at": "2026-12-02T10:00:00",
+    }
+    with pytest.raises(cutover_error, match="not a UTC instant"):
+        checks.resubmit_origins([row])

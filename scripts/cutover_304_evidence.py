@@ -213,7 +213,7 @@ def _family_evidence(
 ) -> None:
     """Coverage over each wanted family's whole range: ledger, the not-caught-up
     sessions (D6 item 3) and the ``over`` sessions (item 4)."""
-    named: dict[str, list[str]] = {}
+    named: dict[tuple[str, str], list[str]] = {}
     for product, schema, first, last in coverage_reads():
         args = ["data", "tick", "coverage", "--product", product, "--schema", schema]
         doc = mt_json([*args, "--start", first, "--end", last], (EXIT_OK, EXIT_PARTIAL))
@@ -230,7 +230,8 @@ def _family_evidence(
             say(line)
         evidence.failures += report.failures
         for entry in doc["products"]:
-            named.setdefault(product, []).extend(accounting.over_sessions(entry))
+            for family, names in accounting.over_sessions(entry).items():
+                named.setdefault((product, family), []).extend(names)
     evidence.failures += accounting.over_failures(rows, named)
 
 

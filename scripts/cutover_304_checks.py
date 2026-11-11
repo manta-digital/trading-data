@@ -41,7 +41,11 @@ CEILING_SCRIPT = (
 )
 NO_CEILING_HINT = "the PM sets the ceilings with the command the --estimate run prints"
 TICK_DB_URL_KEY = "MT_TICK_DB_URL"
-VERDICT_ALLOWED = "allowed"
+# ``--estimate-only`` never reports ``allowed``: the guard marks every planned
+# estimate ``estimate_only`` (spend_guard.evaluate_spend); the ceilings decide.
+VERDICT_ESTIMATE_ONLY = "estimate_only"
+PURCHASE_PHASE = "purchase"
+PHASE_OK = "ok"
 VERDICT_NOTHING = "nothing_to_buy"
 ARCHIVE_ROOT = Path("/data/tick-archive")
 VERIFY_SESSIONS_SCRIPT = Path(__file__).resolve().parent / "verify_cme_sessions.py"
@@ -161,6 +165,11 @@ def resubmit_origins(
                 f"request {row['request_id']}: requested_at"
                 f" {row['requested_at']!r} is not a timestamp"
             ) from exc
+        if made.tzinfo is None:
+            raise CutoverError(
+                f"request {row['request_id']}: requested_at {row['requested_at']!r}"
+                " is not a UTC instant"
+            )
         origins[key] = min(made, origins.get(key, made))
     return origins
 
@@ -205,6 +214,18 @@ def _check_scope(
             _check_resubmit(label, key, since, origins)
 
 
+def purchase_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """The purchase phase's plan summary out of a ``pass --json`` payload."""
+    phases = [p for p in payload.get("phases", ()) if p.get("name") == PURCHASE_PHASE]
+    if len(phases) != 1:
+        raise CutoverError(f"estimate: pass reported {len(phases)} purchase phases")
+    phase = phases[0]
+    if phase.get("outcome") != PHASE_OK or not phase.get("summary"):
+        raise CutoverError(f"estimate: purchase phase {phase.get('outcome')!r}")
+    summary: dict[str, Any] = phase["summary"]
+    return summary
+
+
 def judge_estimate(
     summary: Mapping[str, Any],
     since: datetime | None = None,
@@ -239,7 +260,7 @@ def judge_estimate(
             f"estimate: planned {planned} + trailing {trailing}"
             f" exceeds the 30-day {cap_30d}; the PM runs: {command}"
         )
-    if summary["verdict"] != VERDICT_ALLOWED:
+    if summary["verdict"] != VERDICT_ESTIMATE_ONLY:
         raise CutoverError(
             f"estimate: verdict {summary['verdict']}: {summary['reasons']}"
         )

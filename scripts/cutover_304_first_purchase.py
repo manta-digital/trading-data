@@ -10,12 +10,13 @@ is wanted comes from ``TICK_UNIVERSE``, and ``--slice`` names the state files
 (``cutover-{slice}-{tag}-{stamp}.log``) under the notes directory.
 
 Run as the operator from the dev checkout root with the release checked out and
-the PM's ceiling script already run (the preflight names its command if not).
+the PM's ceilings set (the ``--estimate`` run prints the command that sets them).
 Every step is check-then-act and re-runnable; nothing waits on a person.
 
 Steps
-  1. preflight    ref exists and is on origin; env file has no plan and both
-                  ceilings; start instant and baselines recorded (first run)
+  1. preflight    ref exists and is on origin; env file has no plan and (not
+                  with ``--estimate``) both ceilings; start instant and
+                  baselines recorded (first run)
   2. install      acquisition timers held, ref installed, timers released as
                   found on every exit from this step (no migration)
   3. estimate     ``pass --estimate-only --json``, judged; refuses before any
@@ -50,6 +51,7 @@ from cutover_304_checks import (  # noqa: E402
     check_env_text,
     check_plan_unset,
     judge_estimate,
+    purchase_summary,
     resubmit_origins,
 )
 from cutover_common import (  # noqa: E402
@@ -76,7 +78,6 @@ EXIT_STILL_PROCESSING = 6
 PASS_DONE_EXITS = (0, 3)  # 3: some units failed, which is a finding
 TICK_UNIT = "mt-tick-pass.service"
 JOURNAL_LINES = 30
-EXIT_USAGE = 2
 ESTIMATE_ARGS = ["data", "tick", "pass", "--estimate-only", "--json"]
 
 
@@ -157,10 +158,10 @@ def fetch_estimate() -> dict[str, Any]:
         detail = (result.stderr or result.stdout).strip()
         raise CutoverError(f"estimate exited {result.returncode}: {detail}")
     try:
-        summary: dict[str, Any] = json.loads(result.stdout)
+        payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise CutoverError(f"estimate printed no JSON: {exc}") from exc
-    return summary
+    return purchase_summary(payload)
 
 
 def judge(

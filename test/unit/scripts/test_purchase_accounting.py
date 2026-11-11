@@ -30,6 +30,9 @@ def cutover_error() -> type[Exception]:
     return error
 
 
+FAMILY = "bar_1m"  # the family of the ohlcv-1m row in ``_document``
+
+
 def _line(
     family: str, schema: str | None, *, complete: int, over: int | None, records: int
 ) -> Any:
@@ -73,7 +76,8 @@ def test_one_row_per_product_and_family_with_the_three_values(pa: ModuleType) ->
 def test_zero_over_passes_and_a_count_fails_naming_the_family(pa: ModuleType) -> None:
     assert pa.over_failures(pa.accounting_rows(_document(over=0)), {}) == []
     (failure,) = pa.over_failures(
-        pa.accounting_rows(_document(over=2)), {"ES": ["2026-11-03 ESZ6 (traded 9)"]}
+        pa.accounting_rows(_document(over=2)),
+        {("ES", FAMILY): ["2026-11-03 ESZ6 (traded 9)"]},
     )
     assert "ES ohlcv-1m: 2 sessions over" in failure
     assert "2026-11-03 ESZ6" in failure
@@ -85,12 +89,17 @@ def test_over_sessions_are_named_from_a_statistics_coverage_document(
     doc = {
         "volume_checks": [
             {"session_date": "2026-11-03", "raw_symbol": "ESZ6", "traded": 9,
-             "cleared": 5, "verdict": "over"},
+             "cleared": 5, "verdict": "over", "family": "bar_1m"},
             {"session_date": "2026-11-04", "raw_symbol": "ESZ6", "traded": 4,
-             "cleared": 5, "verdict": "under"},
+             "cleared": 5, "verdict": "under", "family": "bar_1m"},
+            {"session_date": "2026-11-05", "raw_symbol": "ESZ6", "traded": 8,
+             "cleared": 5, "verdict": "over", "family": "tick_tier"},
         ]
     }  # fmt: skip
-    assert pa.over_sessions(doc) == ["2026-11-03 ESZ6 (traded 9, cleared 5)"]
+    assert pa.over_sessions(doc) == {
+        "bar_1m": ["2026-11-03 ESZ6 (traded 9, cleared 5)"],
+        "tick_tier": ["2026-11-05 ESZ6 (traded 8, cleared 5)"],
+    }
 
 
 def test_an_over_session_without_a_raw_symbol_names_its_instrument(
@@ -99,10 +108,10 @@ def test_an_over_session_without_a_raw_symbol_names_its_instrument(
     doc = {
         "volume_checks": [
             {"session_date": "2026-11-03", "raw_symbol": None, "instrument_id": 42,
-             "traded": 9, "cleared": 5, "verdict": "over"},
+             "traded": 9, "cleared": 5, "verdict": "over", "family": "bar_1m"},
         ]
     }  # fmt: skip
-    assert pa.over_sessions(doc) == ["2026-11-03 42 (traded 9, cleared 5)"]
+    assert pa.over_sessions(doc) == {"bar_1m": ["2026-11-03 42 (traded 9, cleared 5)"]}
 
 
 def test_a_missing_key_is_a_stop_not_a_default(

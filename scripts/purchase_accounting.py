@@ -102,27 +102,34 @@ def narration(rows: Sequence[FamilyRow]) -> list[str]:
     return lines
 
 
-def over_sessions(coverage: Mapping[str, Any]) -> list[str]:
-    """Names of the ``over`` sessions in a statistics ``coverage`` document."""
+def over_sessions(coverage: Mapping[str, Any]) -> dict[str, list[str]]:
+    """Names of the ``over`` sessions in a ``coverage`` document, by family.
+
+    A statistics document carries the checks of every volume family (the tick
+    tier and the bars), so the family keeps one family's sessions from being
+    reported under another's row.
+    """
+    named: dict[str, list[str]] = {}
     try:
-        return [
-            f"{v['session_date']} {v['raw_symbol'] or v['instrument_id']}"
-            f" (traded {v['traded']},"
-            f" cleared {v['cleared']})"
-            for v in coverage.get("volume_checks") or ()
-            if v["verdict"] == VolumeClass.OVER.value
-        ]
+        for v in coverage.get("volume_checks") or ():
+            if v["verdict"] == VolumeClass.OVER.value:
+                named.setdefault(v["family"], []).append(
+                    f"{v['session_date']} {v['raw_symbol'] or v['instrument_id']}"
+                    f" (traded {v['traded']}, cleared {v['cleared']})"
+                )
     except KeyError as exc:
         raise CutoverError(f"coverage volume check has no {exc} key") from exc
+    return named
 
 
 def over_failures(
-    rows: Sequence[FamilyRow], named: Mapping[str, Sequence[str]]
+    rows: Sequence[FamilyRow], named: Mapping[tuple[str, str], Sequence[str]]
 ) -> list[str]:
     """An ``over`` session is a defect (305 D5): fail, naming what coverage names."""
     return [
         f"{row.product} {row.label}: {row.cross_tier[VolumeClass.OVER.value]} sessions"
-        f" over in {TRADED_VS_CLEARED}: {', '.join(named.get(row.product, ())) or '?'}"
+        f" over in {TRADED_VS_CLEARED}:"
+        f" {', '.join(named.get((row.product, row.family), ())) or '?'}"
         for row in rows
         if row.cross_tier and row.cross_tier[VolumeClass.OVER.value]
     ]

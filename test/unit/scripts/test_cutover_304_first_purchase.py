@@ -399,7 +399,7 @@ def test_a_second_estimate_that_plans_a_request_fails(
     ev: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _settled(ev, monkeypatch)
-    planned = NOTHING | {"verdict": "allowed", "planned_usd": "1.2"}
+    planned = NOTHING | {"verdict": "estimate_only", "planned_usd": "1.2"}
     assert ev.final_failures(ev.Evidence(), BASELINE, planned)
 
 

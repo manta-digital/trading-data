@@ -1,0 +1,89 @@
+{
+  "run_id": "7248f3b2-1da9-4600-8690-e3e2b8f417b4",
+  "started_at": "2026-11-11T13:46:06.932415+00:00",
+  "phases": [
+    {
+      "name": "reconcile",
+      "outcome": "ok",
+      "duration_ms": 3,
+      "summary": {
+        "unknown_submits": {
+          "matched": 0,
+          "retryable": 0,
+          "exhausted": 0
+        },
+        "swept_expired": 0,
+        "polled": 0,
+        "delivered": 0,
+        "expired": 0,
+        "refused": 0,
+        "downloaded": 0,
+        "verified": 0,
+        "holed": 0,
+        "failed": 0,
+        "strays": [],
+        "in_flight": []
+      }
+    },
+    {
+      "name": "availability",
+      "outcome": "ok",
+      "duration_ms": 24218,
+      "summary": {
+        "GLBX.MDP3": {
+          "edge_end": "2026-11-11T05:46:07.171954+00:00",
+          "span": [
+            "2024-08-30",
+            "2025-01-01"
+          ],
+          "conditions": {
+            "available": 105,
+            "degraded": 1
+          },
+          "written": 0,
+          "reopened": 0
+        }
+      }
+    },
+    {
+      "name": "purchase",
+      "outcome": "ok",
+      "duration_ms": 57,
+      "summary": {
+        "wanted_days": {},
+        "pending_days": {},
+        "missing_days": {},
+        "requests": [],
+        "planned_usd": "0",
+        "trailing_30d_usd": "0",
+        "unheld_jobs": [],
+        "per_pass_ceiling_usd": "0.50",
+        "cap_30d_usd": "10",
+        "verdict": "nothing_to_buy",
+        "reasons": []
+      }
+    },
+    {
+      "name": "await",
+      "outcome": "ok",
+      "duration_ms": 0,
+      "summary": {
+        "skipped": "estimate-only"
+      }
+    },
+    {
+      "name": "definitions",
+      "outcome": "ok",
+      "duration_ms": 0,
+      "summary": {
+        "projected": 0,
+        "inserted": 0,
+        "noops": 0,
+        "failed": 0
+      }
+    }
+  ],
+  "outcome": "ok",
+  "duration_ms": 24280,
+  "exit_code": 0
+}
