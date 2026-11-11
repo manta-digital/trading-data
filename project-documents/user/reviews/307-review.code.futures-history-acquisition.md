@@ -8,7 +8,7 @@ rulesSource: project
 conventionsSource: AGENTS.md
 projectRules: [python.md, sql.md, testing.md]
 project: trading-data
-verdict: FAIL
+verdict: CONCERNS
 verdictSource: stated
 sourceDocument: project-documents/user/slices/307-slice.futures-history-acquisition.md
 aiModel: deepseek/deepseek-v4.1-flash
@@ -16,118 +16,103 @@ aiProfile: openrouter
 status: complete
 dateCreated: 20261111
 dateUpdated: 20261111
-reviewedSha: b5c3d781963789cef917771538a0b51a10bab29b
+reviewedSha: 697ad7ceb93ddbb73c05269c3f59af8c9bc1af81
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 41
+toolCallsMade: 34
 diffTruncated: false
 turns: 20
-promptTokens: 2104529
-cachedTokens: 1763712
-completionTokens: 72988
-reasoningTokens: 67270
-durationSeconds: 328.4
-costUsd: 0.093569
+promptTokens: 2143029
+cachedTokens: 1829248
+completionTokens: 85705
+reasoningTokens: 76029
+durationSeconds: 437.4
+costUsd: 0.097085
 costBasis: alias_pricing
 squadronVersion: 0.24.24
 categoriesNormalized: true
 findings:
   - id: F001
-    severity: fail
-    category: correctness
-    summary: "The estimate summary is read at the top level, but the command nests it under `phases[].summary`"
-    location: "scripts/cutover_304_first_purchase.py#fetch_estimate"
-  - id: F002
-    severity: fail
-    category: correctness
-    summary: "`judge_estimate` requires verdict `allowed`, but an `--estimate-only` run reports `estimate_only`"
-    location: "scripts/cutover_304_checks.py:242"
-  - id: F003
     severity: concern
     category: correctness
-    summary: "`over_sessions` drops the family, so the failure message attributes one family's over sessions to another"
-    location: "scripts/purchase_accounting.py#over_sessions"
-  - id: F004
-    severity: note
-    category: error-handling-observability
-    summary: "A naive `requested_at` raises `TypeError` where the sibling check raises `CutoverError`"
-    location: "scripts/cutover_304_checks.py#resubmit_origins"
-  - id: F005
-    severity: note
-    category: architectural-decay
-    summary: "`EXIT_USAGE` is now dead"
-    location: "scripts/cutover_304_first_purchase.py:79"
-  - id: F006
+    summary: "The derived 30-day ceiling ignores unheld provider jobs, which the guard counts — so the printed remedy can never clear the guard"
+    location: "scripts/cutover_304_checks.py#ceiling_command"
+  - id: F002
     severity: note
     category: documentation-drift
-    summary: "The module docstring still says the preflight names the ceiling command"
+    summary: "The module docstring's Steps list omits the two refusals the gate now adds to step 1"
     location: "scripts/cutover_304_first_purchase.py"
-  - id: F007
-    severity: pass
-    category: test-debt
-    summary: "Universe-driven reads, per-product calendars and the gated preflight are correct and tested"
+  - id: F003
+    severity: note
+    category: architectural-decay
+    summary: "The same \"every history want has an end\" invariant is re-implemented in three modules"
     location: "scripts/cutover_304_evidence.py#coverage_reads"
+  - id: F004
+    severity: note
+    category: architectural-decay
+    summary: "`cutover_304_checks.py` now runs to about 330 lines, past the ~300-line guidance the slice restates"
+    location: "scripts/cutover_304_checks.py"
+  - id: F005
+    severity: note
+    category: test-debt
+    summary: "No test drives `_steps` down the buy branch, so the wiring from a buyable estimate to `mt-run tick` is untested"
+    location: "test/unit/scripts/test_cutover_304_first_purchase.py"
+  - id: F006
+    severity: pass
+    category: correctness
+    summary: "The estimate handling now matches the real payload, and the 307 entry points write no state before the gates pass"
+    location: "scripts/cutover_304_first_purchase.py#_estimate_only"
 ---
 
 # Review: code — slice 307
 
-**Verdict:** FAIL
+**Verdict:** CONCERNS
 **Model:** deepseek/deepseek-v4.1-flash
 
 ## Findings
 
-### [FAIL] The estimate summary is read at the top level, but the command nests it under `phases[].summary`
+### [CONCERN] The derived 30-day ceiling ignores unheld provider jobs, which the guard counts — so the printed remedy can never clear the guard
 
-`fetch_estimate()` runs `sudo mt-run data tick pass --estimate-only --json` (`ESTIMATE_ARGS`) and returns `json.loads(result.stdout)` unchanged, and `judge()` hands that straight to `judge_estimate`. That verb renders through `print_pass` (`src/manta_trading/cli/commands/tick_pass_render.py`), which in `--json` mode prints `pass_to_dict(result, exit_code)` = `{**result.to_dict(), "exit_code": …}`; `PassResult.to_dict` (`src/manta_trading/data/tick/pass_contract.py`) emits `run_id`, `started_at`, `phases` (each `PhaseReport` as `{name, outcome, duration_ms, summary}`), `outcome`, `duration_ms`. The purchase figure therefore lives at `phases[i]["summary"]` — the `plan_summary` dict from `src/manta_trading/data/tick/purchase_plan.py:277-304`.
+`ceiling_values`/`ceiling_command` derive `--per-pass` from `planned` and `--cap-30d` from `planned + trailing`, and both refusal messages in `judge_estimate` tell the operator "the PM runs: {command}". But the guard's own 30-day sum is `trailing_total + unheld_total + planned_new` (`evaluate_spend` in `src/manta_trading/data/tick/spend_guard.py`: `over_30d = _over(trailing_total + unheld_total + planned_new, cap_30d)`), and `plan_summary` (`src/manta_trading/data/tick/purchase_plan.py`) carries `unheld_jobs` alongside `planned_usd`/`trailing_30d_usd` precisely because provider jobs no manifest row holds count toward the cap. `_fits_from`/`_breach_reasons` therefore name unheld jobs in `reasons`, while the remedy command leaves them out of the cap. When `unheld_jobs` is non-empty the PM can run the printed command and the full cutover stops again on the same 30-day check with the same command printed — a remedy that does not converge. The per-pass value is consistent (the guard compares the same marginal total to it); only the cap is short. Reading `planned_usd + trailing_30d_usd + unheld_usd` (the estimate already carries each job's `cost_usd`) would make the printed command the one that actually clears the guard.
 
-Every consumer reads it flat: `_check_scope` does `for key in summary["wanted_days"]` (`scripts/cutover_304_checks.py:196`), and `_estimate_only` does `Decimal(summary["planned_usd"])` (`scripts/cutover_304_first_purchase.py`). On a real payload the first access raises `KeyError`, which `main`'s `except (KeyError, ValueError)` reports as `FAILED: unexpected payload` and exit 1 — so neither `--estimate` (which never prints the PM's ceiling command) nor step 3 of the purchase can run. I found no unwrapping anywhere in `cutover_304_first_purchase.py`; the earlier cutover for the same command, `scripts/cutover_234_tick_wiring.py:178` → `purchase_wants` (`scripts/cutover_234_checks.py`), does unwrap it: `next((p for p in estimate["phases"] if p["name"] == "purchase"), None)`.
+### [NOTE] The module docstring's Steps list omits the two refusals the gate now adds to step 1
 
-The tests cannot catch this because every fixture is a hand-built flat dict (`_summary()` in `test/unit/scripts/test_cutover_304_checks.py`, `NOTHING`/`summary` in `test_cutover_304_first_purchase.py`). That is exactly the fixture-must-be-the-production-format rule in the project guidelines: no test in this diff passes a real rendering through the code that parses it. Unwrap the purchase phase (and fail with a named `CutoverError` when the phase is absent or `outcome != "ok"`), and shape at least one fixture from the real payload.
+The header was updated to say "the `--estimate` run prints the command that sets them" and step 1 now reads "ref exists and is on origin; env file has no plan and (not with `--estimate`) both ceilings", but the two refusals `run_gates` performs before the install — issue #69 must be `CLOSED` (D2) and the dataset edge must reach the latest want end (D1) — are not named anywhere in the Steps list, and `--gate-issue` is not mentioned in the usage block either (it reads `--slice <n> --gate-issue <n> [--estimate] <release-tag>` only in the invocation line, not in the steps). A reader following the steps would not know the cutover can stop on an open issue or a short edge before anything is installed. The tests assert that ordering (`test_an_open_gate_issue_stops_before_the_install_and_writes_nothing`), so this is a documentation gap, not a behavioural one.
 
-### [FAIL] `judge_estimate` requires verdict `allowed`, but an `--estimate-only` run reports `estimate_only`
+### [NOTE] The same "every history want has an end" invariant is re-implemented in three modules
 
-`VERDICT_ALLOWED = "allowed"`, and `judge_estimate` refuses unless `summary["verdict"] == VERDICT_ALLOWED`. The purchase step judges `fetch_estimate()`, and `ESTIMATE_ARGS` contains `--estimate-only`; under that flag `evaluate_spend` sets `status = VerdictStatus.ESTIMATE_ONLY` (`src/manta_trading/data/tick/spend_guard.py`), and `plan_summary` writes `"verdict": spend.status.value if spend else "nothing_to_buy"`. The repository's own test pins this: `test/unit/data/tick/test_tick_purchase_phase.py::test_estimate_only_reports_the_plan_and_submits_nothing` asserts `report.summary["verdict"] == "estimate_only"`.
+`coverage_reads` (`scripts/cutover_304_evidence.py`) and `latest_want_end` (`scripts/purchase_verdicts.py#latest_want_end`) each walk `TICK_UNIVERSE[*].history`, each raise `CutoverError` on a `None` end with nearly the same message, and `latest_want_end` adds a third variant of the "no wants" case. The invariant is one thing — `HistoryWant.end` is fixed for every configured want (`_HISTORY_WANTS` in `src/manta_trading/data/tick/universe.py`) — and the project rule is that a value used in conditionals is defined once. Both call sites are correct today; the cost is that a future change to the invariant has to be made in two places, and the two messages can drift. Having the checks module expose one `history_wants()` (or one `require_fixed_ends()`) that both readers consume would collapse it.
 
-So with any planned request the verdict is `estimate_only`, never `allowed`, and step 3 raises `estimate: verdict estimate_only: [...]` — the buy and ingest step (`sudo mt-run tick`) is unreachable. Note the asymmetry the same commit introduces: `check_ceilings=False` returns `Estimate.BUY` *before* the verdict check, so `--estimate` sidesteps this while the real run still trips over it. The verdict rule needs to accept the estimate-only outcome (the ceilings and the `nothing_to_buy` branch already carry the decision), and `VERDICT_ALLOWED` should either become the value the estimate actually reports or the check should be dropped as unrepresentable. Add a test whose verdict is `estimate_only`.
+### [NOTE] `cutover_304_checks.py` now runs to about 330 lines, past the ~300-line guidance the slice restates
 
-### [CONCERN] `over_sessions` drops the family, so the failure message attributes one family's over sessions to another
+The diff's final hunk header is `@@ -177,20 +288,42 @@`, i.e. the new `bar_job_dirs`/`run_session_check` block occupies lines 288–329, so the file ends near line 330 — about 10% past both the project's "~300 lines where practical" and this slice's Technical Requirement ("Each script stays within about 300 lines", which is why `purchase_verdicts.py` and `purchase_accounting.py` exist at all). The added material is cohesive (ceiling derivation, the resubmit machinery, the universe-derived product/calendar lookups), so this is a size note rather than a design complaint; splitting the resubmit helpers out alongside the new modules would restore the stated bound.
 
-`over_sessions` filters the statistics `coverage` document's `volume_checks` on `v["verdict"] == VolumeClass.OVER.value` only and names the session without its family, although the field is present (`volume_verdict_dict` in `src/manta_trading/data/tick/tick_coverage.py` emits `family` per verdict). That document's checks are produced by `_volume_checks` in `src/manta_trading/data/tick/tick_coverage_statistics.py`, which runs every wanted volume family — the tick tier *and* the bars — so the list mixes families. `_family_evidence` collects those names into one `named[product]` list and `over_failures` prints that same list under *each* row whose `cross_tier` over count is non-zero, keyed by `row.label`. An ES tbbo over-session is therefore reported as an ES `ohlcv-1m` over-session (and the identical list is repeated for both rows). Since an `over` is the defect this evidence exists to name, filter by `v["family"]` when collecting and pass the counts per family.
+### [NOTE] No test drives `_steps` down the buy branch, so the wiring from a buyable estimate to `mt-run tick` is untested
 
-### [NOTE] A naive `requested_at` raises `TypeError` where the sibling check raises `CutoverError`
+Every `_drive`/`_steps` invocation in this file passes a `nothing_to_buy` summary (`NOTHING`) or a `refused` one; the `--estimate` tests use a `refused` summary too. `run_passes` is tested directly, and `judge_estimate` returning `Estimate.BUY` for verdict `estimate_only` is tested in `test_cutover_304_checks.py`, but nothing exercises the `else` branch of `_steps` — `say("4/6 buy and ingest")` → `run_passes(_tick_once)` — through `_steps`. That branch is the one that spends money, and it is also where a wrong argument or a missing second-estimate call would hide. A summary with `verdict: "estimate_only"`, adequate ceilings and one planned request, asserting the call order contains `install`, `tick`, `collect`, would close it.
 
-`resubmit_origins` parses `requested_at` with `datetime.fromisoformat` and compares the result to `since` inside `min`/`_check_resubmit`, both timezone-aware. A value that parsed but carried no offset would fail with a raw `TypeError` from the comparison rather than the deliberate stop this module uses everywhere else; `check_dataset_edge`'s `_edge_of` (`scripts/purchase_verdicts.py`) guards exactly this case with "not a UTC instant". The current CLI renders `TIMESTAMPTZ` through `_cell` with its offset, so the risk is low — the `TypeError` would also surface as the top-level handler's `FAILED: unexpected payload`, not a traceback. Adding the same two-line guard would make the two readers consistent.
+### [PASS] The estimate handling now matches the real payload, and the 307 entry points write no state before the gates pass
 
-### [NOTE] `EXIT_USAGE` is now dead
-
-`EXIT_USAGE = 2` is no longer referenced after `main` switched to returning argparse's own exit code (`except SystemExit as exc: return int(exc.code or 0)`); the only other definition in the tree, `scripts/wal_segment_name.py`, uses its own. The module docstring already spells the `2` through argparse, and the test `test_no_argument_prints_usage_and_exits_two` pins the literal. Delete the constant.
-
-### [NOTE] The module docstring still says the preflight names the ceiling command
-
-The header says to run "with the PM's ceiling script already run (the preflight names its command if not)", but `_ceiling` now raises with `NO_CEILING_HINT` — "the PM sets the ceilings with the command the `--estimate` run prints" — so the preflight no longer names a command at all. Step 1's description ("env file has no plan and both ceilings") is likewise conditional on `--estimate` now skipping the ceiling checks. Point both at the `--estimate` run.
-
-### [PASS] Universe-driven reads, per-product calendars and the gated preflight are correct and tested
-
-Verified against the modules they call: `coverage_reads` reproduces the three hard-coded reads from `TICK_UNIVERSE` and treats a `None` end as a stop rather than a default; `calendar_for` delegates to `calendar_for_product`, whose `KeyError` carries the known-products message that is re-raised as `CutoverError` (`src/manta_trading/data/tick/constants.py`), so an unmapped product has no calendar; `product_of_symbols` parses the comma-joined string that `tick_debug_cmds._cell` actually renders, and `test_bar_job_dirs_read_the_rows_the_real_cli_renders` feeds a real `_cell` rendering through it; `run_session_check` passes the calendar it is given and keeps exit 1 vs exit 2 distinct; the gate and edge refusals run before the install and before any state is written, which the tests assert on the notes directory. Test coverage for the new pure functions is thorough, including the open-ended-want stop, the resubmit-origin tie-break, the ledger baseline that "predates 307", and the record-total delta.
+Verified against the producers, not the diff text: `purchase_summary` reads one `phases` entry named `purchase` with `outcome == "ok"`, which is the shape `PassResult.to_dict` emits (`src/manta_trading/data/tick/pass_contract.py`) and what the captured `test/unit/scripts/fixtures/pass_estimate_only.json` holds; a `skipped` or absent phase stops with a named `CutoverError` rather than a `KeyError` from the top-level handler. `judge_estimate` now accepts `estimate_only` (the only verdict `evaluate_spend` can report under `--estimate-only`) and still refuses anything else; the ceiling checks run only when `check_ceilings=True`, so `--estimate` prints the command for a short or unset ceiling instead of stopping. `_estimate_only` calls `preflight`, `check_plan_unset`, `check_checkout_database`, `run_gates`, then `fetch_estimate` and returns — no install, no pass, no start/baseline file, which `test_estimate_prints_the_command_and_buys_nothing` asserts by inspecting the notes directory. `calendar_for` delegates to `calendar_for_product` (whose `KeyError` message is re-raised as `CutoverError`, so an unmapped product has no default calendar), and `product_of_symbols` consumes the comma-joined rendering that `tick_debug_cmds._cell` actually produces, pinned by a test that runs a real `_cell` over the row.
 
 ### Run Digest
 
-- Response length: 8973 chars
+- Response length: 7685 chars
 - Response is newline-free: no
-- Tool calls made: 41
+- Tool calls made: 34
 - Tool calls failed: 0
 - Stop reason: stop
 - Output budget: 384000 tokens
 - System prompt: custom
 - Settings sources: n/a (non-SDK)
-- Reasoning characters: 253956
+- Reasoning characters: 304082
 - Effort: backend default
 - Turns: 20
-- Tokens — prompt / cached / cache write / completion / reasoning: 2104529 / 1763712 / not computed / 72988 / 67270
-- Duration: 328.4 s
-- Cost: $0.09 (alias_pricing)
+- Tokens — prompt / cached / cache write / completion / reasoning: 2143029 / 1829248 / not computed / 85705 / 76029
+- Duration: 437.4 s
+- Cost: $0.10 (alias_pricing)
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 7
+- Finding-shaped matches — whole response: 6
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 7
-- Finding-shaped matches — surviving validation: 7
+- Finding-shaped matches — in findings section: 6
+- Finding-shaped matches — surviving validation: 6
