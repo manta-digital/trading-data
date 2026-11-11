@@ -1235,7 +1235,7 @@ the PM sets the ceilings.
 11. **Surfaces.** `mt data tick status`, `mt data tick coverage --start D --end D`
     and `mt data overview` show the product with no code change.
 
-### Purchase slices (slice 304)
+### Purchase slices (slices 304, 307)
 
 A purchase slice buys history through the pass that already exists. The code
 change is one edit to `TICK_UNIVERSE`; the buying is a cutover script run after
@@ -1252,14 +1252,35 @@ the release.
    mode and owner kept), refuses a non-numeric or negative value or a missing
    key and writes nothing then, and prints the old and new values. It is
    deliberately absent from `deploy/sudoers.d/manta-ops`, so an agent cannot
-   raise a ceiling. Slice 307 reuses it with its own figures.
-3. **Cutover.** `uv run python scripts/cutover_304_first_purchase.py <tag>`
-   (agent work): preflight (no plan configured, both ceilings set; otherwise it
-   names the command above), install, free estimate, `sudo mt-run tick` while
-   it exits 6, evidence, checks. It stops before buying if the estimate exceeds
-   a ceiling or plans anything outside the universe's wants. It is re-runnable;
-   a re-run after a complete purchase finds nothing to buy and goes straight to
-   evidence.
+   raise a ceiling. The values are not chosen by hand: the `--estimate` run of
+   item 3 prints the command, with the planned figure rounded up to the next 5
+   (the 30-day value is trailing spend plus the planned figure, likewise). That
+   is the only root command the PM runs.
+3. **Cutover.** `uv run python scripts/cutover_304_first_purchase.py --slice
+   <n> --gate-issue <n> [--estimate] <tag>` (agent work; the file keeps 304's
+   name and is shared by every purchase slice). What it buys comes from
+   `TICK_UNIVERSE`; `--slice` names the state files
+   `{slice}-cutover-start.txt` and `{slice}-cutover-baseline.json` and the
+   narration log `cutover-{slice}-<tag>-<stamp>.log`, all under
+   `project-documents/user/notes/`. `--gate-issue` is required and has no skip:
+   the cutover stops unless that GitHub issue is closed (the invoice comparison
+   of the previous purchase), and unless the dataset edge `mt data tick status`
+   reports has reached the universe's latest want end. Both refusals come before
+   the install and before any state is written. Slice 307's run is
+   `uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue
+   69 <tag>`. Run it first with `--estimate`:
+   preflight and the free estimate only (buys nothing, writes no state), which
+   prints the planned figure and the PM's ceiling command, so unset ceilings are
+   not an error there. The full run: preflight (no plan configured, both ceilings
+   set; otherwise it says the PM sets them with the `--estimate` command),
+   install, free estimate, `sudo mt-run tick` while it exits 6, evidence,
+   checks. It stops before buying if the estimate exceeds a ceiling (naming the
+   command for that estimate's figures) or plans anything outside the universe's
+   wants; a resubmit is accepted only for a request made since the cutover
+   started. A request that fails retryably stops it non-zero until it delivers;
+   a retry-exhausted request is listed as `acquisition failed` with the
+   provider's error and does not fail the exit rule. It is re-runnable; a re-run
+   after a complete purchase finds nothing to buy and goes straight to evidence.
 4. **Reconciliation.** `uv run python scripts/reconcile_tick_spend.py --since
    <UTC instant> --cap-usd <amount>` prints each request's estimate, manifest
    actual and Databento's own charge, and exits non-zero on an unheld provider
@@ -1272,8 +1293,9 @@ the release.
    units ingested; every other session is classified in the evidence note.
    `mt data health` must exit as it did before the cutover.
 6. **Evidence.** The findings and figures go in
-   `project-documents/user/notes/<slice>-first-purchase-evidence.md`; the
-   narration of each run is a log beside it.
+   `project-documents/user/notes/<slice>-first-purchase-evidence.md` (307:
+   `307-history-acquisition-evidence.md`); the narration of each run is a log
+   beside it.
 
 ### Exit codes (the read verbs)
 
@@ -1344,6 +1366,9 @@ runs unchanged against a newer additive schema.
 
 ## Revision Log
 
+- 2026-11-09 (slice 307): "Purchase slices" now documents the cutover's
+  `--slice`, `--gate-issue` and `--estimate` arguments, the state and log file
+  names, and ceiling values taken from the estimate.
 - 2026-11-07 (slice 304): "Purchase slices" under the tick tier;
   `deploy/set-tick-spend-ceilings.sh`, `scripts/reconcile_tick_spend.py` and
   `scripts/cutover_304_first_purchase.py`; step 8 of "Adding a futures product"

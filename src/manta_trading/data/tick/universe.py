@@ -12,7 +12,7 @@ owns). ES's tier and range were set by slice 226's go/no-go.
 
 ``history`` (slice 302 D5, 303 D6) lists wants beyond the tick tier: ``ohlcv-1m``
 bars, ``statistics`` and the ``definition`` days they need. Slice 304 configures
-them for ES and GC: the first real purchase.
+them for ES and GC: 304 the first real purchase, 307 the rest of the history.
 """
 
 from __future__ import annotations
@@ -70,20 +70,25 @@ class TickUniverseEntry:
 # the spreads, measured before purchase at 6.6% of GC's tbbo rows; a product
 # drops its spreads only above a quarter of its rows.
 #
-# History (slice 304 D1): ``definition`` and ``statistics`` over the whole CME
-# dataset for both products, and one year of ES ``ohlcv-1m`` (2024, which
-# overlaps the held tbbo). Every end is a fixed date, never None: an open end
-# would buy the newest days on every later pass, spend nobody chose. With a
-# fixed end the purchase is bounded and a re-run plans nothing.
+# History (slice 304 D1, 307 D1): ``definition``, ``statistics`` and ``ohlcv-1m``
+# over the whole CME dataset for both products, one shared tuple so the
+# ranges are defined once. Slice 304 bought ES bars for 2024 only; the planner
+# drops covered days, so one want over the whole range does not buy them twice.
+# Every end is a fixed date, never None: an open end would buy the newest days
+# on every later pass, spend nobody chose. The end is a whole month, 2026-12-01,
+# because it is past by the time the purchase can run (the cutover checks the
+# dataset reaches it). With a fixed end the purchase is bounded and a re-run
+# plans nothing.
 # 2010-06-08, not the dataset start 2010-06-06: the calendars are populated from
 # 2010-06-06T22:00Z, and the planner and status read them from each want's start
 # day (coverage from the day before), so an earlier start raises
 # OutOfPopulatedRangeError. The first sessions (2010-06-07) are not bought.
 _HISTORY_START = date(2010, 6, 8)
-_HISTORY_END = date(2026, 11, 1)
-_DEFINITION_AND_STATISTICS = (
+_HISTORY_END = date(2026, 12, 1)
+_HISTORY_WANTS = (
     HistoryWant(TickSchema.DEFINITION, _HISTORY_START, _HISTORY_END),
     HistoryWant(TickSchema.STATISTICS, _HISTORY_START, _HISTORY_END),
+    HistoryWant(TickSchema.OHLCV_1M, _HISTORY_START, _HISTORY_END),
 )
 TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
     TickUniverseEntry(
@@ -93,10 +98,7 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
         tier=TickSchema.TBBO,
         start=date(2024, 11, 2),
         end=date(2025, 1, 1),
-        history=(
-            *_DEFINITION_AND_STATISTICS,
-            HistoryWant(TickSchema.OHLCV_1M, date(2024, 1, 1), date(2025, 1, 1)),
-        ),
+        history=_HISTORY_WANTS,
     ),
     TickUniverseEntry(
         "GC",
@@ -105,7 +107,7 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
         tier=TickSchema.TBBO,
         start=date(2024, 11, 2),
         end=date(2025, 1, 1),
-        history=_DEFINITION_AND_STATISTICS,
+        history=_HISTORY_WANTS,
     ),
 )
 

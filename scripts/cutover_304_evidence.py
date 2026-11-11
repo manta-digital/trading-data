@@ -21,24 +21,27 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import purchase_accounting as accounting  # noqa: E402
+import purchase_verdicts as verdicts  # noqa: E402
 from cutover_304_checks import (  # noqa: E402
     VERDICT_NOTHING,
     FindingClass,
     SessionCheck,
     bar_job_dirs,
+    calendar_for,
     classify_unfinished,
     classify_unit,
     run_session_check,
 )
 from cutover_common import CutoverError, log_text, run, say  # noqa: E402
 
+from manta_trading.data.tick.constants import TickSchema  # noqa: E402
+from manta_trading.data.tick.universe import TICK_UNIVERSE  # noqa: E402
+
 RECONCILE_SCRIPT = Path(__file__).resolve().parent / "reconcile_tick_spend.py"
 EXIT_OK, EXIT_PARTIAL = 0, 3  # ``mt data tick`` verbs: 3 = a verdict, not a failure
 RECONCILE_FAILED, RECONCILE_STOPPED = 1, 2
-PRODUCTS = ("ES", "GC")
-BAR_SCHEMA = "ohlcv-1m"
-BARS_START, BARS_END = "2024-01-01", "2025-01-01"
-STATISTICS_START, STATISTICS_END = "2010-06-08", "2026-11-01"
+PRODUCTS = tuple(entry.product for entry in TICK_UNIVERSE)
 COMPLETE = "complete"
 MISMATCH = "mismatch"
 INGESTED = "ingested"
@@ -66,8 +69,36 @@ def mt_json(args: Sequence[str], accepted: Iterable[int] = (EXIT_OK,)) -> Any:
         raise CutoverError(f"mt-run {command} printed no JSON: {exc}") from exc
 
 
+def coverage_reads() -> list[tuple[str, str, str, str]]:
+    """``(product, schema, start, end)`` for every history want but definitions."""
+    reads = []
+    for entry in TICK_UNIVERSE:
+        for want in entry.history:
+            if want.schema is TickSchema.DEFINITION:
+                continue
+            if want.end is None:
+                raise CutoverError(
+                    f"{entry.product} {want.schema.value} want has no end date"
+                )
+            reads.append(
+                (
+                    entry.product,
+                    want.schema.value,
+                    want.start.isoformat(),
+                    want.end.isoformat(),
+                )
+            )
+    return reads
+
+
 def health_exit_code() -> int:
     return mt_run(["data", "health"]).returncode
+
+
+def record_totals() -> dict[str, int]:
+    """Ledger records per product and family, from ``mt data accounting``."""
+    rows = accounting.accounting_rows(mt_json(["data", "accounting"]))
+    return accounting.record_totals(rows)
 
 
 def definition_counts() -> dict[str, int]:
@@ -169,7 +200,46 @@ def _unit_is_final(row: Mapping[str, Any]) -> bool:
     """Ingested, failed with a reason, or in a named D6 class (awaiting definitions)."""
     if row["state"] == INGESTED or row["failure_reason"]:
         return True
+    if verdicts.unit_is_retry_exhausted(row):
+        return True  # D5: a retry-exhausted unit holds its day
     return classify_unit(row) is FindingClass.AWAITING_DEFINITIONS
+
+
+def _family_evidence(
+    evidence: Evidence,
+    rows: Sequence[accounting.FamilyRow],
+    units: Sequence[Mapping[str, Any]],
+    exhausted: Sequence[verdicts.ExhaustedRequest],
+) -> None:
+    """Coverage over each wanted family's whole range: ledger, the not-caught-up
+    sessions (D6 item 3) and the ``over`` sessions (item 4)."""
+    named: dict[tuple[str, str], list[str]] = {}
+    for product, schema, first, last in coverage_reads():
+        args = ["data", "tick", "coverage", "--product", product, "--schema", schema]
+        doc = mt_json([*args, "--start", first, "--end", last], (EXIT_OK, EXIT_PARTIAL))
+        evidence.failures += ledger_failures(doc, schema)
+        log_text(
+            f"{product} {schema} sessions not complete:"
+            f" {dict(unfinished_sessions(doc))}"
+        )
+        caught_up = accounting.row_for(rows, product, schema).caught_up
+        report = verdicts.not_caught_up_report(
+            (product, schema, caught_up), doc, units, exhausted
+        )
+        for line in report.lines:
+            say(line)
+        evidence.failures += report.failures
+        for entry in doc["products"]:
+            for family, names in accounting.over_sessions(entry).items():
+                named.setdefault((product, family), []).extend(names)
+    evidence.failures += accounting.over_failures(rows, named)
+
+
+def _baseline_records(baseline: Mapping[str, Any]) -> Mapping[str, int]:
+    if "records" not in baseline:
+        raise CutoverError("the baseline holds no record totals; it predates 307")
+    records: Mapping[str, int] = baseline["records"]
+    return records
 
 
 def collect(start: str, cap: Decimal, baseline: Mapping[str, Any]) -> Evidence:
@@ -177,31 +247,29 @@ def collect(start: str, cap: Decimal, baseline: Mapping[str, Any]) -> Evidence:
     evidence = Evidence()
     say("reconciliation")
     _reconcile(start, cap, evidence)
-    say("status and coverage")
-    verdict_exits = (EXIT_OK, EXIT_PARTIAL)
-    mt_json(["data", "tick", "status"], verdict_exits)
-    coverage = [
-        ("ES", BAR_SCHEMA, BARS_START, BARS_END),
-        ("ES", "statistics", STATISTICS_START, STATISTICS_END),
-        ("GC", "statistics", STATISTICS_START, STATISTICS_END),
-    ]
-    for product, schema, first, last in coverage:
-        args = ["data", "tick", "coverage", "--product", product, "--schema", schema]
-        doc = mt_json([*args, "--start", first, "--end", last], verdict_exits)
-        evidence.failures += ledger_failures(doc, schema)
-        log_text(
-            f"{product} {schema} sessions not complete:"
-            f" {dict(unfinished_sessions(doc))}"
-        )
-    say("manifest counts, definitions, durations")
+    say("status, accounting and coverage")
+    mt_json(["data", "tick", "status"], (EXIT_OK, EXIT_PARTIAL))
     requests = mt_json(["data", "tick", "debug", "requests"])["rows"]
     units = mt_json(["data", "tick", "debug", "units"])["rows"]
+    exhausted = verdicts.retry_exhausted_requests(requests, units)
+    rows = accounting.accounting_rows(mt_json(["data", "accounting"]))
+    for line in accounting.narration(rows):
+        say(line)
+    _family_evidence(evidence, rows, units, exhausted)
+    evidence.failures += verdicts.retryable_failures(units)
+    for request in exhausted:
+        say(request.text())
+    say("manifest counts, definitions, durations")
     after = definition_counts()
     say(f"requests {len(requests)}, units {len(units)}")
     say(
         "tick_definition (before, after, delta):"
         f" {definition_delta(baseline['definitions'], after)}"
     )
+    delta = accounting.totals_delta(
+        _baseline_records(baseline), accounting.record_totals(rows)
+    )
+    say(f"ledger records (before, after, delta): {delta}")
     for line in pass_durations(mt_json(["data", "overview"])):
         say(line)
     evidence.unfinished = classify_unfinished(units)
@@ -214,14 +282,15 @@ def collect(start: str, cap: Decimal, baseline: Mapping[str, Any]) -> Evidence:
 
 
 def _session_placement(requests: Sequence[Mapping[str, Any]]) -> None:
-    dirs = bar_job_dirs(requests)
-    if not dirs:
+    dirs_by_product = bar_job_dirs(requests)
+    if not dirs_by_product:
         say("session placement: no ohlcv-1m job directories")
         return
-    outcome = run_session_check(dirs)
-    say(f"session placement: {outcome}")
-    if outcome is SessionCheck.FINDING:
-        say("records outside any session are a finding; see the output above")
+    for product, dirs in dirs_by_product.items():
+        outcome = run_session_check(dirs, calendar_for(product))
+        say(f"session placement {product}: {outcome}")
+        if outcome is SessionCheck.FINDING:
+            say(f"{product}: records outside any session are a finding; see above")
 
 
 def final_failures(

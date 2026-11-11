@@ -8,8 +8,8 @@ dependencies:
 - 305
 interfaces: []
 dateCreated: 20261108
-dateUpdated: 20261108
-status: not_started
+dateUpdated: 20261109
+status: complete
 turns: 31
 promptTokens: 2390385
 cachedTokens: 2287970
@@ -289,26 +289,28 @@ The architecture applies invoice reconciliation to every usage-billed request. 3
 
 ### Verification Walkthrough
 
-Step 1 is Phase 6. Steps 2 to 6 run in Phase 7, after the release and once issue #69 is closed. Step 3 is the only step that spends money: about $89, usage-billed. Commands marked *(new)* do not exist yet.
+Step 1 is Phase 6 and was run at implementation. Steps 2 to 6 run in Phase 7, after the release and once issue #69 is closed; they have not been run, because they need production at the release and spend money. Step 3 is the only step that spends money: about $89, usage-billed. The new arguments exist as of this slice.
 
 1. **Tests.**
    ```bash
    export MT_TIMESCALE_TEST_URL="$(grep '^MT_TIMESCALE_TEST_URL=' .env | cut -d= -f2- | tr -d '"')"
    uv run pytest test/unit/data/tick test/unit/scripts -q
+   uv run pytest test/integration/data -k tick -q
+   uv run python scripts/cutover_304_first_purchase.py --slice 307 --estimate v0.0.0; echo "exit=$?"
    ```
-   Expected: pass, including 304's cutover tests and the universe pin.
+   Expected (run 2026-11-09): `914 passed` for the first command; `577 passed, 115 deselected` for the second (about five minutes); the third prints a usage error `the following arguments are required: --gate-issue` and `exit=2`, and touches nothing. The 914 include 304's cutover tests and the universe pin.
 
 2. **Estimate and ceilings.**
    ```bash
-   uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue 69 --estimate v0.x.y   # (new arguments)
+   uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue 69 --estimate v0.x.y
    ```
-   Expected: preflight passes (issue #69 closed, dataset edge at or after 2026-12-01); about $89 planned over about 390 requests, only `ohlcv-1m`, `statistics` and `definition` for ES and GC; the PM's ceiling command printed, for example `--per-pass 90 --cap-30d 90`. The PM runs that one command.
+   Expected: preflight passes (issue #69 closed, dataset edge at or after 2026-12-01); about $89 planned over about 390 requests, only `ohlcv-1m`, `statistics` and `definition` for ES and GC; the PM's ceiling command printed, for example `--per-pass 90 --cap-30d 90`. The PM runs that one command. `--estimate` writes no state and does not stop on unset or short ceilings; it needs production already at the release carrying this slice, because the estimate reads the universe production runs. A `status` exit of 3 is a verdict, not a failure, and does not stop the edge check.
 
 3. **Purchase.**
    ```bash
-   uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue 69 v0.x.y   # (new arguments)
+   uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue 69 v0.x.y
    ```
-   Expected: the estimate is `allowed`; `sudo mt-run tick` ends 0, or 3 with failed units named; re-running resumes after exit 6 or a stop. The narration lands in `user/notes/cutover-307-<tag>-<stamp>.log`, and the evidence note is completed from it.
+   Expected: the estimate is `allowed`; `sudo mt-run tick` ends 0, or 3 with failed units named; re-running resumes after exit 6 or a stop. The narration lands in `project-documents/user/notes/cutover-307-<tag>-<stamp>.log`, and the evidence note is completed from it. It lists each family's accounting row, every not-caught-up session (the last statistics session is `publication after want end`), any retry-exhausted request as `acquisition failed`, and the `traded_vs_cleared` counts; an `over` session or a failed-retryable request makes it exit 1 (re-running resumes).
 
 4. **Reconcile.**
    ```bash
