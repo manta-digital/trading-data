@@ -77,7 +77,7 @@ trading-ui's requirements (issue #62) are met as accepted there. The human and a
 
 - `get_plan.contract_plan` / `product_plan` with `family=TICK_TIER`, and `GetPlan.segments` (`TickWindow`s, one per session and contract).
 - `futures_read.read_series`, `clip`, `RowCeilingExceeded`; `tick_access.tick_errors`; `serialization.send_timeseries` / `timeseries_200`; `admission.over_ceiling`.
-- `tick_reads._stream` (the named-cursor batch loop), renamed to the public `tick_reads.stream_rows` in step 2, with its caller `read_ticks` updated, so the second reader depends on a named contract and not a private symbol. `TICK_GET_FETCH_ROWS` (10,000).
+- `tick_reads._stream` (the named-cursor batch loop), already the public `tick_reads.stream_rows`, with its caller `read_ticks` updated. The named-cursor loop is extracted once more into `tick_reads.iter_batches`, which `stream_rows` and `read_tick_bars` both consume, because `read_tick_bars` must await a disconnect check before each fetch and push each batch off the loop. `TICK_GET_FETCH_ROWS` (10,000).
 - `tick_format.price_text`, `ts_text`.
 - `UNDEF_INT64`, moved from `data/tick/constants.py` to `data/tick/dbn_values.py` (D1).
 - `test/fixtures/databento/real/glbx-mdp3-20241203.tbbo.dbn.zst` and its derived `trades` twin.
@@ -96,11 +96,12 @@ api_server/routes/futures_tick_bars.py NEW  the two tick-bar routes (D4)
 api_server/routes/futures_series.py   /ticks build the columnar model (D6)
 api_server/routes/futures_params.py   TicksPerBarParam
 api_server/models/futures_ticks.py    NEW  columnar tick models + pivot (D6)
-api_server/models/futures.py          FuturesTickBarRecord, FuturesTickBarsResponse; TickRecord removed
+api_server/models/futures_tick_bars.py NEW  FuturesTickBarRecord, FuturesTickBarsResponse (D7)
+api_server/models/futures.py          `_envelope` made public as `plan_envelope`; TickRecord removed
 config/__init__.py, constants.py      MT_API_MAX_TICK_BAR_TRADES (D5)
 ```
 
-`futures.py` is at 274 lines, so the columnar models get their own file.
+`futures.py` is at 342 lines, so the new models get their own files.
 
 ### Data Flow
 
@@ -159,9 +160,9 @@ class TickBarCutter:
 - `push` returns the bar the Nth trade closes. When a trade's `session_date` differs from the open session's, the open bar is first emitted as that session's last bar (partial) and the count restarts at index 0. So the session rule lives in the module, not in its callers.
 - A bar closes at its Nth trade, so no bar is open after it. `close_session()` then returns `None`, and a session whose trade count is a multiple of N ends with a full, non-partial bar (D2).
 - `current` is for live: it shows the bar in progress without closing it. History never calls it.
-- A trade whose key `(ts_event, sequence, sequence_ordinal)` is not greater than the previous trade's, or whose session goes backwards, raises `TickBarInputError` (a `ValueError` subclass defined in `tick_bars.py`) naming both keys. Out-of-order input is a caller bug and is never reordered silently.
+- A trade whose key `(ts_event, sequence, sequence_ordinal)` is not greater than the previous trade's, or whose session goes backwards, raises `TickBarInputError` (a `ValueError` subclass defined in `tick_bars.py`) naming both keys (kept on the error as `keys`). Out-of-order input is a caller bug and is never reordered silently.
 - A trade with an undefined price (`UNDEF_INT64`) raises `TickBarInputError`. `tick_trade.price` is `NOT NULL` but the column can hold the sentinel, so in history this means a bad stored row.
-- **In the routes**, a `TickBarInputError` means the stored ticks break the cutter's contract. The tick-bar route catches only that exception, logs it at ERROR with `logger.exception` (window session, symbol, instrument and the error's keys), and answers 500 with the stable detail "stored ticks for session {date} of {symbol} cannot be cut into bars; see the server log". No bars are returned: the error aborts the snapshot read as any read failure does. An integration test inserts a sentinel-price trade into the fixture database and asserts the 500 and the ERROR log line.
+- **In the routes**, a `TickBarInputError` means the stored ticks break the cutter's contract. `read_tick_bars` wraps it in `TickBarWindowError` (defined in `tick_bar_reads.py`, carrying the window's session, symbol and instrument, with the original as `__cause__`), because the cutter does not know the window. The tick-bar route catches only that wrapper, logs it at ERROR with `logger.exception` (window session, symbol, instrument and the cause's keys), and answers 500 with the stable detail "stored ticks for session {date} of {symbol} cannot be cut into bars; see the server log". No bars are returned: the error aborts the snapshot read as any read failure does. An integration test inserts a sentinel-price trade into the fixture database and asserts the 500 and the ERROR log line.
 
 Rejected:
 
@@ -291,7 +292,7 @@ Nothing is bought.
 ### D10 — Abandoned, concurrent and early-stopped reads
 Status: decided
 
-- **Client disconnects.** `read_tick_bars` takes a `stop: Callable[[], Awaitable[bool]]` and awaits it before each fetch. The route binds it to `request.is_disconnected`, so the data layer never sees the HTTP request. On a disconnect the reader raises, and the request ends with no response. At most one batch already in the executor finishes (milliseconds, Special Considerations, "Event loop"), and no further batch is fetched or pushed.
+- **Client disconnects.** `read_tick_bars` takes a `stop: Callable[[], Awaitable[bool]]` and awaits it before each fetch. The route binds it to `request.is_disconnected`, so the data layer never sees the HTTP request. On a disconnect the reader raises `ReadAbandoned` (defined in `tick_bar_reads.py`), and the route answers with a bodiless status 499 and no ERROR log: the client is gone, so nothing is delivered. At most one batch already in the executor finishes (milliseconds, Special Considerations, "Event loop"), and no further batch is fetched or pushed.
 - **Release on every exit.** The cursor is opened with `async with conn.cursor(...)` and the read runs inside `async with conn.transaction()`, so a window stopped early at `until`, a cutter error, a disconnect or a cancellation all close the cursor, roll back the snapshot and return the connection to the pool through the `tick_connection` dependency. No path needs its own cleanup.
 - **Concurrent limit-sized requests.** Each request holds one tick pool connection for its whole read. When the pool is exhausted, checkout waits `TICK_API_CHECKOUT_TIMEOUT_SECONDS` and the existing mapping answers 503 (`PoolTimeout` is an `OperationalError`), never a hang. Executor threads are held only for one batch at a time, so the default executor is not tied up for the length of a request. No extra cap is added. The accepted limit is the architecture's point 9.
 - **Test (integration):** a read stopped early at `until`, and a read whose disconnect check returns true after the first batch, both leave the pool with every connection available again, and the disconnected read pushes no further batch.
@@ -325,7 +326,7 @@ Status: decided
 
 **Docs:** `reference.md` §6.1 gains the tick-bar rule (D2), admission (D5) and the columnar decoding rule with a short decoding example. §6.5/§6.7 are rewritten for the columnar body. New sections cover the two tick-bar routes. `agents.md` rewrites "Give me futures ticks" and adds "Give me futures tick bars", with `<!-- endpoint: -->` markers. `openapi.json` is regenerated by `scripts/dump_openapi.py`, and `check_api_docs.py` and `test_openapi_artifact.py` pass.
 
-**Settings:** `MT_API_MAX_TICK_BAR_TRADES` (positive integer, default `API_MAX_TICK_BAR_TRADES`), documented beside `MT_API_MAX_BARS_PER_REQUEST` in the reference and the operator runbook.
+**Settings:** `MT_API_MAX_TICK_BAR_TRADES` (positive integer, default `API_MAX_TICK_BAR_TRADES`), documented beside `MT_API_MAX_BARS_PER_REQUEST` in the reference and the README settings tables (the operator runbook has no API settings section).
 
 ## Integration Points
 
