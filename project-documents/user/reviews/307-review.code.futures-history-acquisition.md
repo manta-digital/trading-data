@@ -11,22 +11,22 @@ project: trading-data
 verdict: FAIL
 verdictSource: stated
 sourceDocument: project-documents/user/slices/307-slice.futures-history-acquisition.md
-aiModel: xiaomi/mimo-v2.6-pro
+aiModel: deepseek/deepseek-v4.1-flash
 aiProfile: openrouter
 status: complete
-dateCreated: 20261109
-dateUpdated: 20261109
-reviewedSha: 0eea0deb8e03312cb1350953c25929df3e1e6d71
+dateCreated: 20261111
+dateUpdated: 20261111
+reviewedSha: b5c3d781963789cef917771538a0b51a10bab29b
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 36
+toolCallsMade: 41
 diffTruncated: false
 turns: 20
-promptTokens: 1557495
-cachedTokens: 1345792
-completionTokens: 26893
-reasoningTokens: 23839
-durationSeconds: 539.0
-costUsd: 0.120871
+promptTokens: 2104529
+cachedTokens: 1763712
+completionTokens: 72988
+reasoningTokens: 67270
+durationSeconds: 328.4
+costUsd: 0.093569
 costBasis: alias_pricing
 squadronVersion: 0.24.24
 categoriesNormalized: true
@@ -34,85 +34,100 @@ findings:
   - id: F001
     severity: fail
     category: correctness
-    summary: "`product_of_symbols` never matches real `debug requests --json` rows"
-    location: "scripts/cutover_304_checks.py:281"
+    summary: "The estimate summary is read at the top level, but the command nests it under `phases[].summary`"
+    location: "scripts/cutover_304_first_purchase.py#fetch_estimate"
   - id: F002
-    severity: concern
-    category: architectural-decay
-    summary: "`calendar_for` duplicates `constants.calendar_for_product`"
-    location: "scripts/cutover_304_checks.py:270"
+    severity: fail
+    category: correctness
+    summary: "`judge_estimate` requires verdict `allowed`, but an `--estimate-only` run reports `estimate_only`"
+    location: "scripts/cutover_304_checks.py:242"
   - id: F003
     severity: concern
-    category: other
-    summary: "Unknown session buckets silently read as \"accounted for\""
-    location: "scripts/purchase_verdicts.py#_unaccounted"
+    category: correctness
+    summary: "`over_sessions` drops the family, so the failure message attributes one family's over sessions to another"
+    location: "scripts/purchase_accounting.py#over_sessions"
   - id: F004
     severity: note
-    category: documentation-drift
-    summary: "Comment counts \"four ranges\" where `_HISTORY_WANTS` defines three"
-    location: "src/manta_trading/data/tick/universe.py#_HISTORY_WANTS"
+    category: error-handling-observability
+    summary: "A naive `requested_at` raises `TypeError` where the sibling check raises `CutoverError`"
+    location: "scripts/cutover_304_checks.py#resubmit_origins"
   - id: F005
     severity: note
-    category: consistency-rot
-    summary: "`over_sessions` can narrate a `None` raw symbol"
-    location: "scripts/purchase_accounting.py#over_sessions"
+    category: architectural-decay
+    summary: "`EXIT_USAGE` is now dead"
+    location: "scripts/cutover_304_first_purchase.py:79"
   - id: F006
+    severity: note
+    category: documentation-drift
+    summary: "The module docstring still says the preflight names the ceiling command"
+    location: "scripts/cutover_304_first_purchase.py"
+  - id: F007
     severity: pass
-    category: other
-    summary: "Ceiling derivation and gate ordering verified against the real estimate contract"
-    location: "scripts/cutover_304_checks.py:83-99"
+    category: test-debt
+    summary: "Universe-driven reads, per-product calendars and the gated preflight are correct and tested"
+    location: "scripts/cutover_304_evidence.py#coverage_reads"
 ---
 
 # Review: code — slice 307
 
 **Verdict:** FAIL
-**Model:** xiaomi/mimo-v2.6-pro
+**Model:** deepseek/deepseek-v4.1-flash
 
 ## Findings
 
-### [FAIL] `product_of_symbols` never matches real `debug requests --json` rows
+### [FAIL] The estimate summary is read at the top level, but the command nests it under `phases[].summary`
 
-`tick_request.symbols` is `TEXT[]` (src/manta_trading/market/schema/migrations/tick.py:124), so psycopg returns a Python list — but `mt data tick debug requests --json` renders every value through `tick_debug_cmds._cell` (src/manta_trading/cli/commands/tick_debug_cmds.py:82–100), whose `isinstance(value, list)` branch turns a list into `",".join(...)`. The rows `evidence.collect()` reads from `mt_json(["data","tick","debug","requests"])["rows"]` therefore carry `"symbols": "ES.FUT"` — a **string**. `product_of_symbols` does `tuple(sorted(symbols)) == entry.symbols`; `sorted("ES.FUT")` iterates characters, so no universe entry can match and it raises `CutoverError: request symbols [...] match no universe product`. Both production consumers hit this on a normal run: `bar_job_dirs` (via `_session_placement`, called on every evidence pass — and 304's ES bars are `ohlcv-1m` requests with `provider_job_id`s) and `retry_exhausted_requests`. The cutover's step 5 would stop every real run with that error. Note also that `Sequence[str]` accepts `str` silently (`str` is a `Sequence[str]`), which is why type checking did not catch it. The new tests feed lists — `test/unit/scripts/test_cutover_304_checks.py::test_bar_job_dirs_*` and `test_purchase_verdicts._request` — i.e. the raw DB row shape, not the `_cell`-rendered JSON the code actually parses; per the project's parsing rule, the fixture must be built through the real `debug requests --json` output. Fix by normalizing in the consumer (split on `,`) and add a fixture that goes through `_cell`/the real CLI JSON.
+`fetch_estimate()` runs `sudo mt-run data tick pass --estimate-only --json` (`ESTIMATE_ARGS`) and returns `json.loads(result.stdout)` unchanged, and `judge()` hands that straight to `judge_estimate`. That verb renders through `print_pass` (`src/manta_trading/cli/commands/tick_pass_render.py`), which in `--json` mode prints `pass_to_dict(result, exit_code)` = `{**result.to_dict(), "exit_code": …}`; `PassResult.to_dict` (`src/manta_trading/data/tick/pass_contract.py`) emits `run_id`, `started_at`, `phases` (each `PhaseReport` as `{name, outcome, duration_ms, summary}`), `outcome`, `duration_ms`. The purchase figure therefore lives at `phases[i]["summary"]` — the `plan_summary` dict from `src/manta_trading/data/tick/purchase_plan.py:277-304`.
 
-### [CONCERN] `calendar_for` duplicates `constants.calendar_for_product`
+Every consumer reads it flat: `_check_scope` does `for key in summary["wanted_days"]` (`scripts/cutover_304_checks.py:196`), and `_estimate_only` does `Decimal(summary["planned_usd"])` (`scripts/cutover_304_first_purchase.py`). On a real payload the first access raises `KeyError`, which `main`'s `except (KeyError, ValueError)` reports as `FAILED: unexpected payload` and exit 1 — so neither `--estimate` (which never prints the PM's ceiling command) nor step 3 of the purchase can run. I found no unwrapping anywhere in `cutover_304_first_purchase.py`; the earlier cutover for the same command, `scripts/cutover_234_tick_wiring.py:178` → `purchase_wants` (`scripts/cutover_234_checks.py`), does unwrap it: `next((p for p in estimate["phases"] if p["name"] == "purchase"), None)`.
 
-`src/manta_trading/data/tick/constants.py:222` already defines `calendar_for_product(product)` — same `FUTURES_PRODUCT_CALENDAR` lookup, same "has no trading calendar (known: ...)" message (raising `KeyError`). The new `calendar_for` re-implements both. The script layer legitimately needs `CutoverError` instead of `KeyError`, but it should call `calendar_for_product` and translate the exception rather than duplicate the lookup and message (AGENTS.md: do not duplicate logic).
+The tests cannot catch this because every fixture is a hand-built flat dict (`_summary()` in `test/unit/scripts/test_cutover_304_checks.py`, `NOTHING`/`summary` in `test_cutover_304_first_purchase.py`). That is exactly the fixture-must-be-the-production-format rule in the project guidelines: no test in this diff passes a real rendering through the code that parses it. Unwrap the purchase phase (and fail with a named `CutoverError` when the phase is absent or `outcome != "ok"`), and shape at least one fixture from the real payload.
 
-### [CONCERN] Unknown session buckets silently read as "accounted for"
+### [FAIL] `judge_estimate` requires verdict `allowed`, but an `--estimate-only` run reports `estimate_only`
 
-`_unaccounted` covers exactly the nine current `TickSessionStatus` members across `_NEEDS_REASON`, `_NEVER_ACCOUNTED`, `_NEEDS_PUBLICATION` and `_LISTED_NEVER`, but its final `return bucket in _NEEDS_PUBLICATION and ...` returns `False` for any bucket outside all four sets — a future status would be listed in the report and never fail the exit rule, a silent fallback ("never use silent fallback values"). The sibling module `tick_status_render.py:49-52` guards exactly this class of drift with an assert over `set(TickSessionStatus)`; the same mechanical guard (or an explicit stop on an unknown bucket) belongs here.
+`VERDICT_ALLOWED = "allowed"`, and `judge_estimate` refuses unless `summary["verdict"] == VERDICT_ALLOWED`. The purchase step judges `fetch_estimate()`, and `ESTIMATE_ARGS` contains `--estimate-only`; under that flag `evaluate_spend` sets `status = VerdictStatus.ESTIMATE_ONLY` (`src/manta_trading/data/tick/spend_guard.py`), and `plan_summary` writes `"verdict": spend.status.value if spend else "nothing_to_buy"`. The repository's own test pins this: `test/unit/data/tick/test_tick_purchase_phase.py::test_estimate_only_reports_the_plan_and_submits_nothing` asserts `report.summary["verdict"] == "estimate_only"`.
 
-### [NOTE] Comment counts "four ranges" where `_HISTORY_WANTS` defines three
+So with any planned request the verdict is `estimate_only`, never `allowed`, and step 3 raises `estimate: verdict estimate_only: [...]` — the buy and ingest step (`sudo mt-run tick`) is unreachable. Note the asymmetry the same commit introduces: `check_ceilings=False` returns `Estimate.BUY` *before* the verdict check, so `--estimate` sidesteps this while the real run still trips over it. The verdict rule needs to accept the estimate-only outcome (the ceilings and the `nothing_to_buy` branch already carry the decision), and `VERDICT_ALLOWED` should either become the value the estimate actually reports or the check should be dropped as unrepresentable. Add a test whose verdict is `estimate_only`.
 
-The rewritten comment above `_HISTORY_WANTS` says "one shared tuple so the four ranges are defined once", but the tuple holds three wants (`definition`, `statistics`, `ohlcv-1m`) shared by the two entries. The stale count should read three (or "the ranges").
+### [CONCERN] `over_sessions` drops the family, so the failure message attributes one family's over sessions to another
 
-### [NOTE] `over_sessions` can narrate a `None` raw symbol
+`over_sessions` filters the statistics `coverage` document's `volume_checks` on `v["verdict"] == VolumeClass.OVER.value` only and names the session without its family, although the field is present (`volume_verdict_dict` in `src/manta_trading/data/tick/tick_coverage.py` emits `family` per verdict). That document's checks are produced by `_volume_checks` in `src/manta_trading/data/tick/tick_coverage_statistics.py`, which runs every wanted volume family — the tick tier *and* the bars — so the list mixes families. `_family_evidence` collects those names into one `named[product]` list and `over_failures` prints that same list under *each* row whose `cross_tier` over count is non-zero, keyed by `row.label`. An ES tbbo over-session is therefore reported as an ES `ohlcv-1m` over-session (and the identical list is repeated for both rows). Since an `over` is the defect this evidence exists to name, filter by `v["family"]` when collecting and pass the counts per family.
 
-`volume_verdict_dict` emits `raw_symbol` possibly `None` (see `tick_status_render._volume_lines`, which falls back with `v.raw_symbol or v.instrument_id`), but `over_sessions` interpolates `v['raw_symbol']` directly, so an `over` finding can print "… None (traded 9, cleared 5)". Use the same `raw_symbol or instrument_id` fallback the renderer uses.
+### [NOTE] A naive `requested_at` raises `TypeError` where the sibling check raises `CutoverError`
 
-### [PASS] Ceiling derivation and gate ordering verified against the real estimate contract
+`resubmit_origins` parses `requested_at` with `datetime.fromisoformat` and compares the result to `since` inside `min`/`_check_resubmit`, both timezone-aware. A value that parsed but carried no offset would fail with a raw `TypeError` from the comparison rather than the deliberate stop this module uses everywhere else; `check_dataset_edge`'s `_edge_of` (`scripts/purchase_verdicts.py`) guards exactly this case with "not a UTC instant". The current CLI renders `TIMESTAMPTZ` through `_cell` with its offset, so the risk is low — the `TypeError` would also surface as the top-level handler's `FAILED: unexpected payload`, not a traceback. Adding the same two-line guard would make the two readers consistent.
 
-`_round_up`/`ceiling_values` round up to the $5 step without raising an exact multiple (matches the parametrized tests), and `ceiling_command`'s `Decimal` math is exact. I verified the surrounding contracts outside the diff: `plan_summary` (src/manta_trading/data/tick/purchase_plan.py:277-304) always emits non-null `planned_usd`/`trailing_30d_usd`, so the unconditional `Decimal(summary["planned_usd"])` in `_estimate_only` cannot hit `None`; estimate `start`/`end` (`TickRequest.start: date.isoformat()`, provider.py:111-112) match `resubmit_origins`' keys (`_cell` renders `range_start`/`range_end` as date isoformat), so the resubmit matching keys align; and `run_gates` runs before `record_start_and_baselines` and `install_release` in both modes, with tests asserting no state writes and no install on refusal.
+### [NOTE] `EXIT_USAGE` is now dead
+
+`EXIT_USAGE = 2` is no longer referenced after `main` switched to returning argparse's own exit code (`except SystemExit as exc: return int(exc.code or 0)`); the only other definition in the tree, `scripts/wal_segment_name.py`, uses its own. The module docstring already spells the `2` through argparse, and the test `test_no_argument_prints_usage_and_exits_two` pins the literal. Delete the constant.
+
+### [NOTE] The module docstring still says the preflight names the ceiling command
+
+The header says to run "with the PM's ceiling script already run (the preflight names its command if not)", but `_ceiling` now raises with `NO_CEILING_HINT` — "the PM sets the ceilings with the command the `--estimate` run prints" — so the preflight no longer names a command at all. Step 1's description ("env file has no plan and both ceilings") is likewise conditional on `--estimate` now skipping the ceiling checks. Point both at the `--estimate` run.
+
+### [PASS] Universe-driven reads, per-product calendars and the gated preflight are correct and tested
+
+Verified against the modules they call: `coverage_reads` reproduces the three hard-coded reads from `TICK_UNIVERSE` and treats a `None` end as a stop rather than a default; `calendar_for` delegates to `calendar_for_product`, whose `KeyError` carries the known-products message that is re-raised as `CutoverError` (`src/manta_trading/data/tick/constants.py`), so an unmapped product has no calendar; `product_of_symbols` parses the comma-joined string that `tick_debug_cmds._cell` actually renders, and `test_bar_job_dirs_read_the_rows_the_real_cli_renders` feeds a real `_cell` rendering through it; `run_session_check` passes the calendar it is given and keeps exit 1 vs exit 2 distinct; the gate and edge refusals run before the install and before any state is written, which the tests assert on the notes directory. Test coverage for the new pure functions is thorough, including the open-ended-want stop, the resubmit-origin tie-break, the ledger baseline that "predates 307", and the record-total delta.
 
 ### Run Digest
 
-- Response length: 5472 chars
+- Response length: 8973 chars
 - Response is newline-free: no
-- Tool calls made: 36
+- Tool calls made: 41
 - Tool calls failed: 0
 - Stop reason: stop
-- Output budget: 131072 tokens
+- Output budget: 384000 tokens
 - System prompt: custom
 - Settings sources: n/a (non-SDK)
-- Reasoning characters: 88868
+- Reasoning characters: 253956
 - Effort: backend default
 - Turns: 20
-- Tokens — prompt / cached / cache write / completion / reasoning: 1557495 / 1345792 / not computed / 26893 / 23839
-- Duration: 539.0 s
-- Cost: $0.12 (alias_pricing)
+- Tokens — prompt / cached / cache write / completion / reasoning: 2104529 / 1763712 / not computed / 72988 / 67270
+- Duration: 328.4 s
+- Cost: $0.09 (alias_pricing)
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 6
+- Finding-shaped matches — whole response: 7
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 6
-- Finding-shaped matches — surviving validation: 6
+- Finding-shaped matches — in findings section: 7
+- Finding-shaped matches — surviving validation: 7
