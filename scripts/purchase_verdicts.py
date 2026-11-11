@@ -250,7 +250,9 @@ def _unaccounted(bucket: str, label: str | None, reasons: Sequence[str]) -> bool
         return True
     if bucket in _NEEDS_REASON:
         return not reasons and label != ACQUISITION_FAILED
-    return bucket in _NEEDS_PUBLICATION and label != PUBLICATION_AFTER_WANT_END
+    if bucket in _NEEDS_PUBLICATION:
+        return label != PUBLICATION_AFTER_WANT_END
+    raise CutoverError(f"session bucket {bucket!r} is not one the exit rule knows")
 
 
 def not_caught_up_report(

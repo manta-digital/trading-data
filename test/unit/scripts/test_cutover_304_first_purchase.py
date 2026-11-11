@@ -502,8 +502,8 @@ def test_session_placement_runs_once_per_product_with_its_calendar(
 
     monkeypatch.setattr(ev, "run_session_check", check)
     rows = [
-        {"schema": "ohlcv-1m", "provider_job_id": "J-ES", "symbols": ["ES.FUT"]},
-        {"schema": "ohlcv-1m", "provider_job_id": "J-GC", "symbols": ["GC.FUT"]},
+        {"schema": "ohlcv-1m", "provider_job_id": "J-ES", "symbols": "ES.FUT"},
+        {"schema": "ohlcv-1m", "provider_job_id": "J-GC", "symbols": "GC.FUT"},
     ]
     ev._session_placement(rows)
     constants = _load("cutover_304_checks")
@@ -722,7 +722,7 @@ def test_a_retry_exhausted_request_is_listed_and_its_units_are_final(
     request = {
         "request_id": 1,
         "schema": "ohlcv-1m",
-        "symbols": ["ES.FUT"],
+        "symbols": "ES.FUT",
         "range_start": "2026-11-01",
         "range_end": "2026-12-01",
         "provider_job_id": None,

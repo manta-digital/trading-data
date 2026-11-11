@@ -106,7 +106,8 @@ def over_sessions(coverage: Mapping[str, Any]) -> list[str]:
     """Names of the ``over`` sessions in a statistics ``coverage`` document."""
     try:
         return [
-            f"{v['session_date']} {v['raw_symbol']} (traded {v['traded']},"
+            f"{v['session_date']} {v['raw_symbol'] or v['instrument_id']}"
+            f" (traded {v['traded']},"
             f" cleared {v['cleared']})"
             for v in coverage.get("volume_checks") or ()
             if v["verdict"] == VolumeClass.OVER.value

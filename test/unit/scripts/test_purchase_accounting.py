@@ -93,6 +93,18 @@ def test_over_sessions_are_named_from_a_statistics_coverage_document(
     assert pa.over_sessions(doc) == ["2026-11-03 ESZ6 (traded 9, cleared 5)"]
 
 
+def test_an_over_session_without_a_raw_symbol_names_its_instrument(
+    pa: ModuleType,
+) -> None:
+    doc = {
+        "volume_checks": [
+            {"session_date": "2026-11-03", "raw_symbol": None, "instrument_id": 42,
+             "traded": 9, "cleared": 5, "verdict": "over"},
+        ]
+    }  # fmt: skip
+    assert pa.over_sessions(doc) == ["2026-11-03 42 (traded 9, cleared 5)"]
+
+
 def test_a_missing_key_is_a_stop_not_a_default(
     pa: ModuleType, cutover_error: type[Exception]
 ) -> None:

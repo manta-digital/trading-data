@@ -174,10 +174,17 @@ def test_latest_want_end_matches_the_real_universe(pv: ModuleType) -> None:
     assert pv.latest_want_end().tzinfo is UTC
 
 
+def test_an_unknown_session_bucket_is_a_stop(
+    pv: ModuleType, cutover_error: type[Exception]
+) -> None:
+    with pytest.raises(cutover_error, match="not one the exit rule knows"):
+        pv._unaccounted("brand-new-status", None, [])
+
+
 # -- D5: failed requests (3.1) and the not-caught-up list (4.1) ----------------------
 
 
-def _request(request_id: int, symbols: list[str], start: str, end: str) -> dict:
+def _request(request_id: int, symbols: str, start: str, end: str) -> dict:
     """A ``debug requests`` row, keyed as ``debug_reads._REQUESTS`` selects it."""
     return {
         "request_id": request_id,
@@ -226,7 +233,7 @@ def test_a_failed_retryable_request_fails_naming_it_and_exhausted_ones_do_not(
 def test_a_retry_exhausted_request_is_listed_with_its_error_and_label(
     pv: ModuleType,
 ) -> None:
-    requests = [_request(8, ["GC.FUT"], "2026-11-01", "2026-12-01")]
+    requests = [_request(8, "GC.FUT", "2026-11-01", "2026-12-01")]
     units = [
         _unit(3, 8, fetch_status="RETRY_EXHAUSTED", state="requested", reason="422 x"),
         _unit(4, 8, fetch_status="RETRY_EXHAUSTED", state="requested", reason="422 x"),
@@ -345,7 +352,7 @@ def test_edge_unknown_not_at_the_end_fails(pv: ModuleType) -> None:
 def test_a_session_inside_a_retry_exhausted_request_is_acquisition_failed(
     pv: ModuleType,
 ) -> None:
-    requests = [_request(8, ["ES.FUT"], "2026-11-01", "2026-12-01") | {"schema": STATS}]
+    requests = [_request(8, "ES.FUT", "2026-11-01", "2026-12-01") | {"schema": STATS}]
     units = [_unit(3, 8, fetch_status="RETRY_EXHAUSTED", state="requested", reason="x")]
     exhausted = pv.retry_exhausted_requests(requests, units)
     report = _report(

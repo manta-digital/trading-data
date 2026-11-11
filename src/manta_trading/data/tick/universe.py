@@ -71,7 +71,7 @@ class TickUniverseEntry:
 # drops its spreads only above a quarter of its rows.
 #
 # History (slice 304 D1, 307 D1): ``definition``, ``statistics`` and ``ohlcv-1m``
-# over the whole CME dataset for both products, one shared tuple so the four
+# over the whole CME dataset for both products, one shared tuple so the
 # ranges are defined once. Slice 304 bought ES bars for 2024 only; the planner
 # drops covered days, so one want over the whole range does not buy them twice.
 # Every end is a fixed date, never None: an open end would buy the newest days

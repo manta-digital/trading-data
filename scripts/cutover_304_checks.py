@@ -25,9 +25,9 @@ from cutover_common import (  # noqa: E402
 )
 
 from manta_trading.data.tick.constants import (  # noqa: E402
-    FUTURES_PRODUCT_CALENDAR,
     TickSchema,
     UnitState,
+    calendar_for_product,
 )
 from manta_trading.data.tick.ingest_checks import IngestCheck  # noqa: E402
 from manta_trading.data.tick.universe import TICK_UNIVERSE  # noqa: E402
@@ -270,20 +270,22 @@ def classify_unfinished(rows: Iterable[Mapping[str, Any]]) -> Counter[FindingCla
 def calendar_for(product: str) -> str:
     """The product's calendar id; a product with none is a stop, never a default."""
     try:
-        return FUTURES_PRODUCT_CALENDAR[product]
-    except KeyError:
-        known = ", ".join(sorted(FUTURES_PRODUCT_CALENDAR))
-        raise CutoverError(
-            f"product {product!r} has no trading calendar (known: {known})"
-        ) from None
+        return calendar_for_product(product)
+    except KeyError as exc:
+        raise CutoverError(exc.args[0]) from exc
 
 
-def product_of_symbols(symbols: Sequence[str]) -> str:
-    """The universe product whose symbols a request row carries."""
+def product_of_symbols(symbols: str) -> str:
+    """The universe product whose symbols a request row carries.
+
+    ``debug requests --json`` renders the symbols list as one comma-joined
+    string (``tick_debug_cmds._cell``), so that is the shape consumed here.
+    """
+    parsed = tuple(sorted(s.strip() for s in symbols.split(",")))
     for entry in TICK_UNIVERSE:
-        if tuple(sorted(symbols)) == entry.symbols:
+        if parsed == tuple(sorted(entry.symbols)):
             return entry.product
-    raise CutoverError(f"request symbols {list(symbols)} match no universe product")
+    raise CutoverError(f"request symbols {symbols!r} match no universe product")
 
 
 def bar_job_dirs(request_rows: Sequence[Mapping[str, Any]]) -> dict[str, list[Path]]:

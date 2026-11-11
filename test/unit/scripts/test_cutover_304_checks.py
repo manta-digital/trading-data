@@ -269,18 +269,18 @@ def test_only_unfinished_units_are_counted(checks: ModuleType) -> None:
 
 def test_bar_job_dirs_come_from_the_ohlcv_requests_only(checks: ModuleType) -> None:
     rows = [
-        {"schema": "ohlcv-1m", "provider_job_id": "GLBX-1", "symbols": ["ES.FUT"]},
-        {"schema": "ohlcv-1m", "provider_job_id": None, "symbols": ["ES.FUT"]},
-        {"schema": "statistics", "provider_job_id": "GLBX-2", "symbols": ["ES.FUT"]},
+        {"schema": "ohlcv-1m", "provider_job_id": "GLBX-1", "symbols": "ES.FUT"},
+        {"schema": "ohlcv-1m", "provider_job_id": None, "symbols": "ES.FUT"},
+        {"schema": "statistics", "provider_job_id": "GLBX-2", "symbols": "ES.FUT"},
     ]
     assert checks.bar_job_dirs(rows) == {"ES": [checks.ARCHIVE_ROOT / "GLBX-1"]}
 
 
 def test_bar_job_dirs_group_by_product(checks: ModuleType) -> None:
     rows = [
-        {"schema": "ohlcv-1m", "provider_job_id": "GLBX-2", "symbols": ["GC.FUT"]},
-        {"schema": "ohlcv-1m", "provider_job_id": "GLBX-1", "symbols": ["ES.FUT"]},
-        {"schema": "ohlcv-1m", "provider_job_id": "GLBX-3", "symbols": ["GC.FUT"]},
+        {"schema": "ohlcv-1m", "provider_job_id": "GLBX-2", "symbols": "GC.FUT"},
+        {"schema": "ohlcv-1m", "provider_job_id": "GLBX-1", "symbols": "ES.FUT"},
+        {"schema": "ohlcv-1m", "provider_job_id": "GLBX-3", "symbols": "GC.FUT"},
     ]
     root = checks.ARCHIVE_ROOT
     assert checks.bar_job_dirs(rows) == {
@@ -292,9 +292,19 @@ def test_bar_job_dirs_group_by_product(checks: ModuleType) -> None:
 def test_bar_job_dirs_refuse_symbols_outside_the_universe(
     checks: ModuleType, cutover_error: type[Exception]
 ) -> None:
-    rows = [{"schema": "ohlcv-1m", "provider_job_id": "J", "symbols": ["ZZ.FUT"]}]
+    rows = [{"schema": "ohlcv-1m", "provider_job_id": "J", "symbols": "ZZ.FUT"}]
     with pytest.raises(cutover_error, match="ZZ.FUT"):
         checks.bar_job_dirs(rows)
+
+
+def test_bar_job_dirs_read_the_rows_the_real_cli_renders(
+    checks: ModuleType,
+) -> None:
+    """``debug requests --json`` renders ``symbols`` through ``_cell``."""
+    cell = importlib.import_module("manta_trading.cli.commands.tick_debug_cmds")._cell
+    row = {"schema": "ohlcv-1m", "provider_job_id": "J", "symbols": ["ES.FUT"]}
+    rendered = {k: cell(k, v) for k, v in row.items()}
+    assert checks.bar_job_dirs([rendered]) == {"ES": [checks.ARCHIVE_ROOT / "J"]}
 
 
 def test_each_product_has_its_own_calendar(checks: ModuleType) -> None:
