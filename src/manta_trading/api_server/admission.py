@@ -19,6 +19,7 @@ from starlette import status as http_status
 __all__ = [
     "NARROW_FILTER",
     "NARROW_TICKS",
+    "NARROW_TICK_BARS",
     "NARROW_WINDOW",
     "admit_rows",
     "not_found",
@@ -34,6 +35,10 @@ NARROW_WINDOW = "narrow start/end"
 NARROW_TICKS = "narrow start/end or from/until"
 """Remedy for futures ticks: a session can hold more than the ceiling, so the
 instant bounds are the way through it (231 TD3)."""
+
+NARROW_TICK_BARS = "raise ticks_per_bar, or narrow start/end or from/until"
+"""Remedy for futures tick bars over the row ceiling: fewer, larger bars, or
+a shorter span (308 D5)."""
 
 
 def admit_rows(count: int, max_rows: int, *, remedy: str) -> None:

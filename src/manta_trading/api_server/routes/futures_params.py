@@ -98,10 +98,28 @@ FromParam = Annotated[
     datetime | None,
     Query(
         alias="from",
-        description="Ticks only: first instant, inclusive (UTC; naive is UTC).",
+        description=(
+            "Ticks and tick bars only: first instant, inclusive (UTC; naive is"
+            " UTC). Tick bars are selected by open_time."
+        ),
     ),
 ]
 UntilParam = Annotated[
     datetime | None,
-    Query(description="Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC)."),
+    Query(
+        description=(
+            "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is"
+            " UTC). Tick bars are selected by open_time."
+        )
+    ),
+]
+TicksPerBarParam = Annotated[
+    int,
+    Query(
+        ge=1,
+        description=(
+            "Trades per bar, any positive integer. The count restarts at each"
+            " session open; a session's last bar may be partial."
+        ),
+    ),
 ]

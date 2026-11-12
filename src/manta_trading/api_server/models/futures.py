@@ -127,7 +127,7 @@ class FuturesBarRecord(BaseModel):
     volume: int
 
 
-def _envelope(plan: GetPlan) -> dict[str, Any]:
+def plan_envelope(plan: GetPlan) -> dict[str, Any]:
     """The plan's facts, shared by both time-series responses."""
     return {
         "target": FuturesTarget.from_plan(plan),
@@ -200,7 +200,7 @@ class FuturesTicksResponse(BaseModel):
     ) -> FuturesTicksResponse:
         # Through the alias, as ``_pass_line`` does: ``from`` is a keyword.
         return cls(
-            **_envelope(plan)
+            **plan_envelope(plan)
             | {
                 "from": bounds[0],
                 "until": bounds[1],
@@ -234,7 +234,7 @@ class FuturesBarsResponse(BaseModel):
         cls, plan: GetPlan, granularity: str, rows: Sequence[Row]
     ) -> FuturesBarsResponse:
         return cls(
-            **_envelope(plan),
+            **plan_envelope(plan),
             granularity=granularity,
             source=BAR_SOURCE[Granularity(granularity)].value,
             count=len(rows),

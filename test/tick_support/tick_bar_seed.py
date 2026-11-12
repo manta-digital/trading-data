@@ -4,8 +4,9 @@ On top of ``seed_september_roll``: ``FIRST_COUNT`` records in session
 2024-09-18 (one a second from 14:00 UTC, every ``REPEAT_EVERY``th trade
 repeated as an ordinal-1 record sharing its ``(ts_event, sequence)``, sides
 cycling ``B``/``A``/``N``, a quote on even trades) and ``SECOND_COUNT`` in
-2024-09-19. The ledger's record counts for both are set to match, so admission
-sums equal what the reads return.
+2024-09-19, plus ``ROLL_COUNT`` ESU4 trades in 2024-09-17, the session before
+``v.0`` rolls to ESZ4. The ledger's record counts are set to match, so
+admission sums equal what the reads return.
 """
 
 from __future__ import annotations
@@ -13,17 +14,20 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import psycopg
-from tick_support.roll_seed import ESZ4, SeededRoll, seed_september_roll
+from tick_support.roll_seed import ESU4, ESZ4, SeededRoll, seed_september_roll
 from tick_support.ticks import Tick, seed_ticks
 
 from manta_trading.data.tick.ingest_records import utc_ns
 
 FIRST, SECOND = date(2024, 9, 18), date(2024, 9, 19)
+#: The last ESU4 session under ``v.0``; ESZ4 serves from ``FIRST``.
+BEFORE_ROLL = date(2024, 9, 17)
 FIRST_TRADES, SECOND_TRADES = 230, 40
 REPEAT_EVERY = 20
 #: Records per session: the repeats are separate trades.
 FIRST_COUNT = FIRST_TRADES + len(range(0, FIRST_TRADES, REPEAT_EVERY))
 SECOND_COUNT = SECOND_TRADES
+ROLL_COUNT = 25
 BASE_PRICE = 5_650_000_000_000
 TICK = 250_000_000
 _SIDES = ("B", "A", "N")
@@ -52,19 +56,16 @@ def _ticks(session: date, trades: int, repeat_every: int | None) -> list[Tick]:
 def seed_tick_bar_sessions(url: str) -> SeededRoll:
     roll = seed_september_roll(url)
     plan = (
-        (FIRST, _ticks(FIRST, FIRST_TRADES, REPEAT_EVERY)),
-        (SECOND, _ticks(SECOND, SECOND_TRADES, None)),
+        (BEFORE_ROLL, ESU4.instrument_id, _ticks(BEFORE_ROLL, ROLL_COUNT, None)),
+        (FIRST, ESZ4.instrument_id, _ticks(FIRST, FIRST_TRADES, REPEAT_EVERY)),
+        (SECOND, ESZ4.instrument_id, _ticks(SECOND, SECOND_TRADES, None)),
     )
-    for session, ticks in plan:
-        seed_ticks(url, roll.units[session], ESZ4.instrument_id, ticks)
-        set_ledger_count(url, roll, session, len(ticks))
+    for session, instrument_id, ticks in plan:
+        seed_ticks(url, roll.units[session], instrument_id, ticks)
+        with psycopg.connect(url, autocommit=True) as conn:
+            conn.execute(
+                "UPDATE tick_ingest_ledger SET record_count = %s"
+                " WHERE unit_id = %s AND instrument_id = %s AND session_date = %s",
+                (len(ticks), roll.units[session], instrument_id, session),
+            )
     return roll
-
-
-def set_ledger_count(url: str, roll: SeededRoll, session: date, count: int) -> None:
-    with psycopg.connect(url, autocommit=True) as conn:
-        conn.execute(
-            "UPDATE tick_ingest_ledger SET record_count = %s"
-            " WHERE unit_id = %s AND instrument_id = %s AND session_date = %s",
-            (count, roll.units[session], ESZ4.instrument_id, session),
-        )

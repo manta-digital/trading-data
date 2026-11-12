@@ -284,71 +284,72 @@ revision_number: 2
 
 ## 4. Tick-bar models, parameter and routes (D1 route error, D4, D5, D7, D10)
 
-- [ ] **4.1 Add the tick-bar models and parameter**
-  - [ ] In `routes/futures_params.py` add `TicksPerBarParam`: required integer,
+- [x] **4.1 Add the tick-bar models and parameter**
+  - [x] In `routes/futures_params.py` add `TicksPerBarParam`: required integer,
     `ge=1`, no upper bound, declared like the other params there.
-  - [ ] In `models/futures.py`, rename the private `_envelope(plan)` to
+  - [x] In `models/futures.py`, rename the private `_envelope(plan)` to
     `plan_envelope` (it returns `target, start, end, definitions_as_of,
     segments, unresolved, incomplete`) and update its callers. New response
     models call it as `FuturesBarsResponse.from_plan` does; none re-builds those
     fields. `futures.py` is 342 lines: add nothing else to it.
-  - [ ] New `models/futures_tick_bars.py`: `FuturesTickBarRecord` (fields as in
+  - [x] New `models/futures_tick_bars.py`: `FuturesTickBarRecord` (fields as in
     the design's API contract; prices through `price_text`, times through
     `ts_text`) and `FuturesTickBarsResponse` (`target, ticks_per_bar, start, end,
     from, until, definitions_as_of, segments, unresolved, incomplete, count,
     bars`). `from_` with alias `from`, `populate_by_name` and `serialize_by_alias`
     as `FuturesTicksResponse` has. No `source` field.
-  - [ ] The build runs in the executor like the other model builds.
+  - [x] The build runs in the executor like the other model builds.
 
-- [ ] **4.2 Test: model**
-  - [ ] `test/unit/api_server/test_futures_tick_bar_models.py`: a `TickBar` with
+- [x] **4.2 Test: model**
+  - [x] `test/unit/api_server/test_futures_tick_bar_models.py`: a `TickBar` with
     known integers yields the expected decimal strings and nine-digit times;
     `None` quotes stay `None`; `from` serialises under that name.
 
-- [ ] **4.3 Implement `routes/futures_tick_bars.py`**
-  - [ ] `GET /api/v1/futures/contracts/{symbol}/tick-bars` and
+- [x] **4.3 Implement `routes/futures_tick_bars.py`**
+  - [x] `GET /api/v1/futures/contracts/{symbol}/tick-bars` and
     `GET /api/v1/futures/products/{product}/tick-bars`; parameters
     `ticks_per_bar, start, end, from, until, rule` (product), `format`, typed as
     the `/ticks` routes in `futures_series.py`.
-  - [ ] Plans with `family=TICK_TIER` through the plan helpers
+  - [x] Plans with `family=TICK_TIER` through the plan helpers
     `futures_series.py` already has; import them, do not copy them.
-  - [ ] Calls `read_series` with `admit` bound to the admission check, the limit
+  - [x] Calls `read_series` with `admit` bound to the admission check, the limit
     from `get_max_tick_bar_trades`, the bar ceiling from `get_max_bars` with the
     remedy "raise ticks_per_bar, or narrow start/end or from/until", the bounds,
     and `stop = request.is_disconnected`.
-  - [ ] `RowCeilingExceeded` maps through `admission.over_ceiling`; the admission
+  - [x] `RowCeilingExceeded` maps through `admission.over_ceiling`; the admission
     error is 422; `tick_errors` maps 404/422/503/504 as on every futures route.
-  - [ ] Catches `TickBarWindowError` only: `logger.exception` at ERROR with the
+  - [x] Catches `TickBarWindowError` only: `logger.exception` at ERROR with the
     error's session, symbol, instrument and its cause's `keys`, then 500 with
     "stored ticks for session {date} of {symbol} cannot be cut into bars; see the
     server log".
-  - [ ] Catches `ReadAbandoned`: returns a bodiless `Response(status_code=499)`
+  - [x] Catches `ReadAbandoned`: returns a bodiless `Response(status_code=499)`
     and logs nothing at ERROR (the client has already gone).
-  - [ ] Response via `send_timeseries` / `timeseries_200`, with the 200 schema
+  - [x] Response via `send_timeseries` / `timeseries_200`, with the 200 schema
     published in OpenAPI (do not hide it with `response_class=Response`).
-  - [ ] Include the router in `app.py` beside `futures_series`.
+  - [x] Include the router in `app.py` beside `futures_series`.
+  - Note: the plan helpers in `futures_series.py` are now public (`contract_plan_for`, `product_plan_for`) and imported; the remedy text is `admission.NARROW_TICK_BARS`; the `from`/`until` parameter descriptions now say they apply to tick bars too (by `open_time`). `docs/api/openapi.json` was regenerated here and `test_openapi_artifact.py` updated (27 paths, two more msgpack routes) so that test stays green; `test_api_docs.py::test_gate_passes_on_the_committed_tree` fails until task 6 adds the reference/agents sections for the two new paths.
 
-- [ ] **4.4 Test: routes (integration)**
-  - [ ] `test/integration/api_server/test_futures_tick_bars.py`, seeded as
+- [x] **4.4 Test: routes (integration)**
+  - [x] `test/integration/api_server/test_futures_tick_bars.py`, seeded as
     `test_futures_series.py`.
-  - [ ] Contract route: 200 with every D2 field; `(session_date, index)` strictly
+  - [x] Contract route: 200 with every D2 field; `(session_date, index)` strictly
     ascending; `count == len(bars)`; non-partial bars have `trade_count ==
     ticks_per_bar`; N above the session's trades gives one partial bar; N equal
     to it gives one full bar.
-  - [ ] `ticks_per_bar` 0, -1, `abc` and missing: 422.
-  - [ ] `from`/`until` bars equal the unrestricted bars filtered by `open_time`.
-  - [ ] Unknown contract 404; bad range 422; tick database down 503 (reuse the
+  - [x] `ticks_per_bar` 0, -1, `abc` and missing: 422.
+  - [x] `from`/`until` bars equal the unrestricted bars filtered by `open_time`.
+  - [x] Unknown contract 404; bad range 422; tick database down 503 (reuse the
     `/ticks` tests' fixtures).
-  - [ ] Product route over `seed_september_roll`: one contract per session and
+  - [x] Product route over `seed_september_roll`: one contract per session and
     the count restarts at index 0 after the roll; unknown product 404; bad `rule`
     422; a session not load-complete is in `incomplete` and its bars are returned.
-  - [ ] Admission: with a small trade limit a larger request is 422 before any
+  - [x] Admission: with a small trade limit a larger request is 422 before any
     tick is read, quoting count and limit. With a small
     `MT_API_MAX_BARS_PER_REQUEST` and `ticks_per_bar=1` the request is 422 with the
     remedy text.
-  - [ ] A sentinel-price trade: 500 with the stable detail and one ERROR record in
+  - [x] A sentinel-price trade: 500 with the stable detail and one ERROR record in
     `caplog` holding session, symbol, instrument and both keys.
-  - [ ] A `stop` that turns true after the first batch (patch what the route
+  - [x] A `stop` that turns true after the first batch (patch what the route
     binds) answers 499 and logs no ERROR.
 
 **Commit**: `feat: add the tick-bar models and the contract and product tick-bar routes`

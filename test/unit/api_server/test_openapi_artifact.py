@@ -114,13 +114,16 @@ PUBLISHED_SCHEMA_PATHS = (
     "/api/v1/futures/contracts/{symbol}/bars",
     "/api/v1/futures/products/{product}/ticks",
     "/api/v1/futures/products/{product}/bars",
+    "/api/v1/futures/contracts/{symbol}/tick-bars",
+    "/api/v1/futures/products/{product}/tick-bars",
 )
 """The routes that offer ``format=msgpack`` and so declare two media types on
-one status (the four futures time series since 231)."""
+one status (the four futures time series since 231, the two tick-bar routes
+since 308)."""
 
 PUBLISHED_MEDIA_TYPES = ("application/json", "application/x-msgpack")
 
-EXPECTED_ARTIFACT_PATH_COUNT = 25
+EXPECTED_ARTIFACT_PATH_COUNT = 27
 
 
 def _committed_artifact() -> dict[str, Any]:
