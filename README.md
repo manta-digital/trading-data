@@ -165,6 +165,7 @@ data is acquired; the preflight needs only the key.
 | Variable | Default | Description |
 |---|---|---|
 | `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Rows-per-response ceiling: equity bars, Kalshi candles and trades, and scoped Kalshi catalog lists |
+| `MT_API_MAX_TICK_BAR_TRADES` | `2000000` | Stored trades one futures tick-bar request may scan, counted from the ledger before any tick is read |
 | `MT_API_STATEMENT_TIMEOUT` | `20s` | Per-connection `statement_timeout` on the API's pools |
 
 ### Backup / offsite
@@ -816,6 +817,7 @@ Interactive docs are served at `/docs` while the server runs.
 | Variable | Default | Effect |
 |---|---|---|
 | `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Rows-per-response ceiling: equity bars, Kalshi candles and trades, and scoped Kalshi catalog lists. Bars estimate from the window; Kalshi paths count exactly. The `BARS` name is historical and is not renamed. |
+| `MT_API_MAX_TICK_BAR_TRADES` | `2000000` | Stored trades one futures tick-bar request may scan, summed from the ingest ledger over the whole sessions it overlaps before any tick is read; over it is a `422`. The bars returned still count against `MT_API_MAX_BARS_PER_REQUEST`. |
 | `MT_API_STATEMENT_TIMEOUT` | `20s` | Per-connection `statement_timeout` on all three pools the API opens. A query that exceeds it becomes a `504`. |
 
 Both are read once at startup; changing either requires a server restart. Note

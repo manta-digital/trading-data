@@ -417,49 +417,50 @@ revision_number: 2
 
 ## 6. Docs, OpenAPI and CHANGELOG
 
-- [ ] **6.1 `docs/api/reference.md`**
-  - [ ] §6.1 gains: the tick-bar rule in prose (index, open/close time, OHLC by
+- [x] **6.1 `docs/api/reference.md`**
+  - [x] §6.1 gains: the tick-bar rule in prose (index, open/close time, OHLC by
     key order, volume, `trade_count`, buy/sell volume with side `N` in `volume`
     only, bid/ask of the last trade, `partial` only for a session's last bar with
     fewer than N trades), the incomplete-session note, admission (trades scanned,
     then bars returned; the setting `MT_API_MAX_TICK_BAR_TRADES` beside
     `MT_API_MAX_BARS_PER_REQUEST`), and the columnar decoding rule with a short
     example.
-  - [ ] §6.5 and §6.7 rewritten for the columnar body.
-  - [ ] New sections for the two tick-bar routes appended after §6.8; no
+  - [x] §6.5 and §6.7 rewritten for the columnar body.
+  - [x] New sections for the two tick-bar routes appended after §6.8; no
     renumbering.
 
-- [ ] **6.2 `docs/api/agents.md`**
-  - [ ] Rewrite "Give me futures ticks" and add "Give me futures tick bars",
+- [x] **6.2 `docs/api/agents.md`**
+  - [x] Rewrite "Give me futures ticks" and add "Give me futures tick bars",
     each with `<!-- endpoint: -->` markers as the file's other sections have.
 
-- [ ] **6.3 README settings tables**
-  - [ ] Add a `MT_API_MAX_TICK_BAR_TRADES` row (default `2000000`, what it
+- [x] **6.3 README settings tables**
+  - [x] Add a `MT_API_MAX_TICK_BAR_TRADES` row (default `2000000`, what it
     bounds) beside the `MT_API_MAX_BARS_PER_REQUEST` row in both `README.md`
     tables (near lines 167 and 818).
 
-- [ ] **6.4 Regenerate OpenAPI**
-  - [ ] `uv run python scripts/dump_openapi.py`; `docs/api/openapi.json` shows
+- [x] **6.4 Regenerate OpenAPI**
+  - [x] `uv run python scripts/dump_openapi.py`; `docs/api/openapi.json` shows
     `FuturesTickBarsResponse` and the columnar `FuturesTicksResponse`, with the
     200 schemas of all four tick routes.
 
-- [ ] **6.5 CHANGELOG**
-  - [ ] Unreleased entry listing the two tick-bar routes, the columnar `/ticks`
+- [x] **6.5 CHANGELOG**
+  - [x] Unreleased entry listing the two tick-bar routes, the columnar `/ticks`
     body (marked breaking), the dropped `bid_ct`/`ask_ct`, the new setting.
 
-- [ ] **6.6 Test: docs gates and full pass**
-  - [ ] `uv run python scripts/check_api_docs.py` passes; `test_api_docs.py`,
+- [x] **6.6 Test: docs gates and full pass**
+  - [x] `uv run python scripts/check_api_docs.py` passes; `test_api_docs.py`,
     `test_openapi_artifact.py` and `test_api_docs_examples.py` pass (fix any
     example the old row body broke).
-  - [ ] The unit tier and the `test/integration/api_server` and
+  - [x] The unit tier and the `test/integration/api_server` and
     `test/integration/data` tick tests pass.
-  - [ ] `grep -rnEi "row_number|ntile|width_bucket" src/manta_trading/data/tick
+  - [x] `grep -rnEi "row_number|ntile|width_bucket" src/manta_trading/data/tick
     src/manta_trading/api_server` finds nothing. Read every `grep -rni "group by"`
     hit in the same directories: none may select from `tick_trade` (success
     criterion 8). Every new source file is under about 300 lines.
-  - [ ] The compact-size claim (about 10 B/tick gzipped) is not gated by a test.
+  - [x] The compact-size claim (about 10 B/tick gzipped) is not gated by a test.
     It is checked by hand in the design's Verification Walkthrough step 6, in
     Phase 7 with the measurement in #75.
+  - Note: `check_api_docs.py --check` passes; `test_api_docs.py` and `test_openapi_artifact.py` pass. Pre-existing on `main`, not this slice: `test_api_docs_examples.py::test_every_curl_block_is_followed_by_a_capture_date[reference.md]` (the Kalshi search example has no capture date) and `test_tick_status_cli.py::test_an_unreachable_tick_database_exits_4` ×2 (reads the developer `.env`); both re-run on `main` in a temporary worktree with the same result. The only `GROUP BY` over `tick_trade` is `bar_parity`'s time-bucket parity (306), not a count grouping. The CHANGELOG makes no byte-size claim; that is measured in walkthrough step 6 (Phase 7, #75).
 
 **Commit**: `docs: document tick bars and columnar ticks, regenerate OpenAPI, update changelog`
 
