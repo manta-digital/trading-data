@@ -63,7 +63,11 @@ def started_app(monkeypatch: pytest.MonkeyPatch) -> Any:
 
     def _start(**env: str) -> tuple[Any, Any, Any, Any]:
         monkeypatch.setenv("MT_TIMESCALE_DB_URL", _DB_URL)
-        for key in ("MT_API_MAX_BARS_PER_REQUEST", "MT_API_STATEMENT_TIMEOUT"):
+        for key in (
+            "MT_API_MAX_BARS_PER_REQUEST",
+            "MT_API_MAX_TICK_BAR_TRADES",
+            "MT_API_STATEMENT_TIMEOUT",
+        ):
             monkeypatch.delenv(key, raising=False)
         for key, value in env.items():
             monkeypatch.setenv(key, value)
@@ -116,9 +120,12 @@ def test_statement_timeout_override_reaches_the_pools(started_app: Any) -> None:
 
 def test_policy_values_are_resolved_once_onto_app_state(started_app: Any) -> None:
     app, _pool_cls, _minute_cls, _daily_cls = started_app(
-        MT_API_MAX_BARS_PER_REQUEST="1234", MT_API_STATEMENT_TIMEOUT="7s"
+        MT_API_MAX_BARS_PER_REQUEST="1234",
+        MT_API_STATEMENT_TIMEOUT="7s",
+        MT_API_MAX_TICK_BAR_TRADES="4321",
     )
     assert app.state.max_bars_per_request == 1234
+    assert app.state.max_tick_bar_trades == 4321
     assert app.state.statement_timeout == "7s"
 
 

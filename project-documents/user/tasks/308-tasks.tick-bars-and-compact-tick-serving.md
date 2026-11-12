@@ -185,93 +185,96 @@ revision_number: 2
 
 ## 3. History reader, admit hook and setting (D3, D5, D10)
 
-- [ ] **3.1 Extract `iter_batches` in `tick_reads.py`**
-  - [ ] `iter_batches(conn, query, params)`: an async generator holding the
+- [x] **3.1 Extract `iter_batches` in `tick_reads.py`**
+  - [x] `iter_batches(conn, query, params)`: an async generator holding the
     named-cursor loop that `stream_rows` has today (cursor in `async with`,
     `fetchmany(TICK_GET_FETCH_ROWS)`, yield each batch).
-  - [ ] `stream_rows` becomes a loop over `iter_batches` under
+  - [x] `stream_rows` becomes a loop over `iter_batches` under
     `contextlib.aclosing`, with the same signature, behavior and return value.
-  - [ ] Existing tests that exercise `read_ticks` and its CLI pass unchanged
+  - [x] Existing tests that exercise `read_ticks` and its CLI pass unchanged
     (`test_tick_get_cli.py`, `test_futures_series.py`).
 
-- [ ] **3.2 Implement `read_tick_bars`**
-  - [ ] First, in `data/tick/tick_bar_reads.py`, define the trade SELECT once:
+- [x] **3.2 Implement `read_tick_bars`**
+  - [x] First, in `data/tick/tick_bar_reads.py`, define the trade SELECT once:
     columns in `Trade` order (`ts_event, sequence, sequence_ordinal`, the
     window's `session_date` as a parameter, `price, size, side, bid_px_00,
     ask_px_00`), `WHERE` from `tick_reads.WINDOW_WHERE`, `ORDER BY ts_event,
     sequence, sequence_ordinal`.
-  - [ ] Signature `read_tick_bars(conn, window, ticks_per_bar, bounds, on_batch,
+  - [x] Signature `read_tick_bars(conn, window, ticks_per_bar, bounds, on_batch,
     stop)`, `stop: Callable[[], Awaitable[bool]]`, `bounds` = `(from_ns,
     until_ns)`. Binding the last four with `functools.partial` gives a
     `ReadWindow`, so `read_series` drives it like `read_ticks`.
-  - [ ] Iterates `iter_batches` under `aclosing`; `read_series` already holds the
+  - [x] Iterates `iter_batches` under `aclosing`; `read_series` already holds the
     transaction, so no second one is opened. Scans from the session open; `from`
     never clips the scan.
-  - [ ] Awaits `stop()` before pulling each batch, the first included. If true,
+  - [x] Awaits `stop()` before pulling each batch, the first included. If true,
     raises `ReadAbandoned`; no further batch is fetched or pushed.
-  - [ ] Pushes each batch through a fresh `TickBarCutter` in
+  - [x] Pushes each batch through a fresh `TickBarCutter` in
     `loop.run_in_executor(None, ...)`, awaited before the next fetch. The
     executor function builds trades with `Trade._make` and returns the closed
     bars and a `done` flag.
-  - [ ] The `until` stop uses a plain counter, not `current()`: the window is one
+  - [x] The `until` stop uses a plain counter, not `current()`: the window is one
     session, so the trade at position `i` (0-based) opens a bar exactly when
     `i % ticks_per_bar == 0`. If that trade's `ts_event >= until_ns`, set `done`
     and stop pushing. A bar opened before `until` is completed with later trades.
     On `done`, leave the loop; `aclosing` closes the cursor.
-  - [ ] Keeps bars whose `open_time` is in `[from, until)` and passes them to
+  - [x] Keeps bars whose `open_time` is in `[from, until)` and passes them to
     `on_batch` with `raw_symbol` and `instrument_id` from the window. After the
     loop, `close_session()`'s bar goes through the same rule.
-  - [ ] Defines `TickBarWindowError(Exception)` carrying `session_date`,
+  - [x] Defines `TickBarWindowError(Exception)` carrying `session_date`,
     `raw_symbol`, `instrument_id`. The executor call catches `TickBarInputError`
     and raises `TickBarWindowError ... from` it, so the route logs the window and
     the original `keys` without parsing messages. No other exception is caught.
+  - Note: signature is `read_tick_bars(conn, window, on_batch, *, ticks_per_bar, bounds, stop)`: `functools.partial` cannot bind `on_batch`, which `read_series` passes positionally, so the three bound parameters are keyword-only. The route calls `read_series` with no bounds so windows arrive unclipped; the reader applies `[from, until)` itself via `overlapping` (built on `clip`, which moved from `futures_read` to `tick_reads` so the data layer can use it; `futures_read` re-imports it).
 
-- [ ] **3.3 Test: reader (integration, tick test cluster)**
-  - [ ] `test/integration/api_server/test_tick_bar_reads.py`. Seed with
+- [x] **3.3 Test: reader (integration, tick test cluster)**
+  - [x] `test/integration/api_server/test_tick_bar_reads.py`. Seed with
     `seed_ticks` as `test_futures_series.py` does, plus a session with enough
     trades for several bars. Call `read_tick_bars` directly in a snapshot.
-  - [ ] Bars over one window equal the cutter run on the same stored trades read
+  - [x] Bars over one window equal the cutter run on the same stored trades read
     with `read_ticks`.
-  - [ ] Window independence: for several random `from`/`until` pairs (fixed
+  - [x] Window independence: for several random `from`/`until` pairs (fixed
     seed), the bars equal the full read's bars filtered by `open_time` in
     `[from, until)`, including indices.
-  - [ ] A read stopped at `until` fetches fewer batches than the full read:
+  - [x] A read stopped at `until` fetches fewer batches than the full read:
     monkeypatch `tick_reads.TICK_GET_FETCH_ROWS` small and count `fetchmany`
     calls. Every pool connection is available afterwards.
-  - [ ] A `stop` that returns true after the first batch raises `ReadAbandoned`,
+  - [x] A `stop` that returns true after the first batch raises `ReadAbandoned`,
     pushes no further batch, and leaves every pool connection available.
-  - [ ] A sentinel-price trade raises `TickBarWindowError` whose `__cause__` is a
+  - [x] A sentinel-price trade raises `TickBarWindowError` whose `__cause__` is a
     `TickBarInputError`, and leaves the pool intact.
+  - Note: pool checks check out every connection with a timeout and assert each is idle; `get_stats()` races psycopg_pool's background return worker when a `reset` callback is set.
 
-- [ ] **3.4 Add the `admit` hook to `read_series`**
-  - [ ] `admit: Callable[[Conn, GetPlan], Awaitable[None]] | None = None`, called
+- [x] **3.4 Add the `admit` hook to `read_series`**
+  - [x] `admit: Callable[[Conn, GetPlan], Awaitable[None]] | None = None`, called
     after `plan_for` and before the first window, inside the snapshot. `/ticks`
     and `/bars` pass none. One-line docstring entry.
 
-- [ ] **3.5 Implement the trade-scan admission check**
-  - [ ] In `tick_bar_reads.py`: sums `status_reads.ledger_totals` record counts
+- [x] **3.5 Implement the trade-scan admission check**
+  - [x] In `tick_bar_reads.py`: sums `status_reads.ledger_totals` record counts
     over the windows `clip` selects for `[from, until)`. Read the real signature
     of `ledger_totals` and the call at `tick_coverage.py:137` first.
-  - [ ] Raises an admission error carrying the sum and the limit; the route maps
+  - [x] Raises an admission error carrying the sum and the limit; the route maps
     it to 422 with "the request scans {n:,} trades, over the {limit:,} trade
     limit; narrow start/end" (D5).
+  - Note: `ledger_totals` needs the product's request shape, and a contract plan carried no product, so `ContractTarget` gained a required `product` field (set by `contract_plan`); the API `target` body is unchanged. The admission is `trade_admission(bounds, limit)` raising `TradeScanExceeded`; a window with no ledger row counts 0.
 
-- [ ] **3.6 Add the setting and constant**
-  - [ ] `API_MAX_TICK_BAR_TRADES: Final[int] = 2_000_000` in
+- [x] **3.6 Add the setting and constant**
+  - [x] `API_MAX_TICK_BAR_TRADES: Final[int] = 2_000_000` in
     `manta_trading/constants.py` beside `API_MAX_BARS_PER_REQUEST`, with a comment
     that the default is lowered if the Phase 7 measurement (issue #75) misses 10 s.
-  - [ ] `config/__init__.py`: `api_max_tick_bar_trades: int = Field(default=
+  - [x] `config/__init__.py`: `api_max_tick_bar_trades: int = Field(default=
     API_MAX_TICK_BAR_TRADES, gt=0)` (env `MT_API_MAX_TICK_BAR_TRADES`).
-  - [ ] `app.py` lifespan sets `app.state.max_tick_bar_trades`; `deps.py` gains
+  - [x] `app.py` lifespan sets `app.state.max_tick_bar_trades`; `deps.py` gains
     `get_max_tick_bar_trades` in the shape of `get_max_bars`.
 
-- [ ] **3.7 Test: hook, admission and setting**
-  - [ ] `test/unit/api_server/test_tick_bar_settings.py`: default equals the
+- [x] **3.7 Test: hook, admission and setting**
+  - [x] `test/unit/api_server/test_tick_bar_settings.py`: default equals the
     constant; `0` and a negative value fail validation; a positive override is read.
-  - [ ] In `test_futures_read.py`: `admit` runs once, after the plan and before
+  - [x] In `test_futures_read.py`: `admit` runs once, after the plan and before
     any window read; with `None` behavior is unchanged; an exception from `admit`
     reads no window.
-  - [ ] In `test_tick_bar_reads.py`: the admission sum equals the rows
+  - [x] In `test_tick_bar_reads.py`: the admission sum equals the rows
     `read_ticks` returns for the same windows, and windows outside `[from,
     until)` are not counted; over the limit it raises before any cursor opens.
 

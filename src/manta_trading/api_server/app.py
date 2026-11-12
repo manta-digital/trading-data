@@ -94,6 +94,7 @@ async def lifespan(
     # Changing an override requires a restart — the same contract as
     # MT_TIMESCALE_DB_URL — so no request pays for re-reading the environment.
     app.state.max_bars_per_request = settings.api_max_bars_per_request
+    app.state.max_tick_bar_trades = settings.api_max_tick_bar_trades
     app.state.statement_timeout = settings.api_statement_timeout
     # The operations routes read `minute_firing_days` and `eodhd_api_key` from
     # here rather than re-instantiating Settings per request — the same

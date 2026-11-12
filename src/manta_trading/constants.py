@@ -1398,6 +1398,17 @@ and coarser effectively unbounded for normal use. Operator-settable via
 commitment.
 """
 
+API_MAX_TICK_BAR_TRADES: Final[int] = 2_000_000
+"""Default ceiling on the stored trades one tick-bar request may scan (308 D5).
+
+A tick-bar request is admitted on its work, which the ingest ledger gives
+exactly before anything is read; the bars it returns stay bounded by
+:data:`API_MAX_BARS_PER_REQUEST` while cutting. 2,000,000 is about five median
+ES sessions or about 24 GC sessions. It is lowered if the Phase 7 measurement
+at the limit (issue #75) misses the 10 s bound. Operator-settable via
+``MT_API_MAX_TICK_BAR_TRADES``.
+"""
+
 INTRADAY_MINUTES_PER_TRADING_DAY: Final[int] = 960
 """Minutes of intraday coverage in a dense trading day, measured (not assumed).
 

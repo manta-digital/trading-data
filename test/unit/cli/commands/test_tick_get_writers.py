@@ -43,7 +43,7 @@ PRODUCT = GetPlan(
     (Incomplete(D18, TickSessionStatus.AWAITING_INGEST),),
     date(2024, 8, 30),
 )
-CONTRACT = GetPlan(ContractTarget("ESZ4", 183748), D16, D18, (), (), (), (), None)
+CONTRACT = GetPlan(ContractTarget("ESZ4", 183748, "ES"), D16, D18, (), (), (), (), None)
 #: A trades-tier row (BBO null) and a tbbo row with an undefined ask.
 TICK_ROWS = [
     (TS, D16, "ESZ4", 183748, PX, 2, "A", None, None, None, None, None, None, 9),
@@ -203,7 +203,9 @@ def test_partial_text_replaces_the_footer() -> None:
 
 
 def test_nothing_held_says_so_in_the_header() -> None:
-    plan = GetPlan(ContractTarget("ESZ9", 42004134), None, None, (), (), (), (), None)
+    plan = GetPlan(
+        ContractTarget("ESZ9", 42004134, "ES"), None, None, (), (), (), (), None
+    )
 
     out, _ = _run(TICK_GET_TICKS, plan, [], "text")
 

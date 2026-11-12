@@ -193,7 +193,7 @@ The ADR's rule, made exact:
 ### D3 — History runs the module in a loop
 Status: decided
 
-`tick_bar_reads.read_tick_bars(conn, window, ticks_per_bar, bounds, on_batch)` has the `ReadWindow` shape once `ticks_per_bar` and `bounds` are bound, so `read_series` drives it like `read_ticks`.
+`tick_bar_reads.read_tick_bars(conn, window, on_batch, *, ticks_per_bar, bounds, stop)` has the `ReadWindow` shape once its keyword-only parameters are bound, so `read_series` drives it like `read_ticks`. The route passes `read_series` no bounds, so windows arrive unclipped and the reader applies `[from, until)` itself (Phase 6: `partial` cannot bind `on_batch`, and `clip` would cut the session open the scan needs).
 
 - One statement per window over the full session `[open_ns, close_ns]`, on the key prefix `(instrument_id, ts_event)`, through `tick_reads.stream_rows`. It selects only the trade columns in `Trade` order (the window's session date as a parameter), so each fetched row becomes a `Trade` with `Trade._make`.
 - A fresh `TickBarCutter` per window. Every fetched batch is pushed through; bars whose `open_time` is in `[from, until)` go to `on_batch`. `close_session()` ends the window.

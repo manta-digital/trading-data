@@ -12,43 +12,29 @@ price or a time (the models do) or maps an error (``tick_errors`` does).
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import replace
 
 import psycopg
 
 from manta_trading.data.tick.get_plan import GetPlan
 from manta_trading.data.tick.manifest_reads import Conn
-from manta_trading.data.tick.tick_reads import OnBatch, Row, TickWindow
+from manta_trading.data.tick.tick_reads import (
+    Bounds,
+    OnBatch,
+    Row,
+    TickWindow,
+    clip,
+)
 
 #: Builds the plan on the read's own connection, inside its snapshot.
 PlanFor = Callable[[Conn], Awaitable[GetPlan]]
 #: Reads one window: ``read_ticks``, or ``read_provider_bars`` bound to a granularity.
 ReadWindow = Callable[[Conn, TickWindow, OnBatch], Awaitable[int]]
-#: Half-open instant bounds in epoch ns, ``[from, until)``; ``None`` = open.
-Bounds = tuple[int | None, int | None]
+#: Admits the request on its plan before any window is read (308 D5).
+Admit = Callable[[Conn, GetPlan], Awaitable[None]]
 
 
 class RowCeilingExceeded(Exception):
     """The read passed the row ceiling; the route answers ``422``."""
-
-
-def clip(windows: Sequence[TickWindow], bounds: Bounds) -> tuple[TickWindow, ...]:
-    """Each window cut to ``[from, until)``; windows left empty are dropped.
-
-    Windows are closed (``open_ns <= ts <= close_ns``), so ``until`` becomes
-    ``until − 1``. Consecutive bounds ``[a, b)``, ``[b, c)`` therefore page
-    through a session with no overlap and no gap (TD3).
-    """
-    from_ns, until_ns = bounds
-    clipped = []
-    for window in windows:
-        open_ns = window.open_ns if from_ns is None else max(window.open_ns, from_ns)
-        close_ns = (
-            window.close_ns if until_ns is None else min(window.close_ns, until_ns - 1)
-        )
-        if open_ns <= close_ns:
-            clipped.append(replace(window, open_ns=open_ns, close_ns=close_ns))
-    return tuple(clipped)
 
 
 def _collector(rows: list[Row], ceiling: int) -> OnBatch:
@@ -66,8 +52,12 @@ async def read_series(
     read: ReadWindow,
     ceiling: int,
     bounds: Bounds = (None, None),
+    admit: Admit | None = None,
 ) -> tuple[GetPlan, list[Row]]:
     """The plan and its rows, in plan order, from one snapshot (TD6).
+
+    ``admit``, when given, runs after the plan and before the first window, in
+    the same snapshot; whatever it raises propagates and no window is read.
 
     Raises:
         RowCeilingExceeded: more than ``ceiling`` rows; the transaction rolls
@@ -79,6 +69,8 @@ async def read_series(
     await conn.set_read_only(True)
     async with conn.transaction():
         plan = await plan_for(conn)
+        if admit is not None:
+            await admit(conn, plan)
         for window in clip(plan.segments, bounds):
             await read(conn, window, on_batch)
     return plan, rows

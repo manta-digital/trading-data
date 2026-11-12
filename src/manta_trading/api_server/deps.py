@@ -52,6 +52,15 @@ def get_max_bars(request: Request) -> int:
     return request.app.state.max_bars_per_request  # type: ignore[no-any-return]
 
 
+def get_max_tick_bar_trades(request: Request) -> int:
+    """Return the configured ceiling on trades one tick-bar request scans (308 D5).
+
+    Same shape as :func:`get_max_bars`: ``MT_API_MAX_TICK_BAR_TRADES``, resolved
+    once in the lifespan hook and held on ``app.state``.
+    """
+    return request.app.state.max_tick_bar_trades  # type: ignore[no-any-return]
+
+
 def get_kalshi_trades_excluded(request: Request) -> frozenset[str]:
     """Return the Kalshi categories excluded from the trades tape (188 D5).
 
