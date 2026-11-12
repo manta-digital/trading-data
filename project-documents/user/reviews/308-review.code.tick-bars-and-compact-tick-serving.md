@@ -14,17 +14,18 @@ aiProfile: openrouter
 status: complete
 dateCreated: 20261112
 dateUpdated: 20261112
-reviewedSha: 013a6674a37625a84eb14c1c84f069fcd1f58d74
+reviewedSha: 6f698533b09e9d17c3d84d7df4bf64940e240a7c
+revision_number: 1
 toolsGiven: [read_file, list_files, grep]
 toolCallsMade: 36
 diffTruncated: false
 turns: 20
-promptTokens: 2347621
-cachedTokens: 1952000
-completionTokens: 96955
-reasoningTokens: 92052
-durationSeconds: 629.0
-costUsd: 0.113533
+promptTokens: 2585978
+cachedTokens: 2208256
+completionTokens: 95143
+reasoningTokens: 90840
+durationSeconds: 592.9
+costUsd: 0.113078
 costBasis: alias_pricing
 runId: run-20261112-p6-3080c8dd
 squadronVersion: 0.24.26
@@ -32,43 +33,23 @@ categoriesNormalized: true
 findings:
   - id: F001
     severity: concern
-    category: documentation-drift
-    summary: "The remedy vocabulary grew a fourth entry; the reference still enumerates three"
-    location: "docs/api/reference.md"
+    category: consistency-rot
+    summary: "The generated note's frontmatter does not match the project's note conventions"
+    location: "scripts/measure_tick_bars.py#report"
   - id: F002
-    severity: concern
-    category: consistency-rot
-    summary: "The D9 latency/starvation measurement is implemented twice, with divergent bounds"
-    location: "scripts/measure_tick_bars.py#judge"
-  - id: F003
-    severity: concern
-    category: type-contract-debt
-    summary: "`read_tick_bars` requires an unclipped window but never checks it, and a clipped window silently renumbers every bar"
-    location: "src/manta_trading/data/tick/tick_bar_reads.py#read_tick_bars"
-  - id: F004
-    severity: concern
-    category: other
-    summary: "`scripts/measure_tick_bars.py` accepts numeric arguments that produce a traceback instead of a usage error"
-    location: "scripts/measure_tick_bars.py#_args"
-  - id: F005
-    severity: concern
-    category: consistency-rot
-    summary: "The script test mutates `sys.path` where the established pattern loads the script by path"
-    location: "test/unit/test_measure_tick_bars.py#measure"
-  - id: F006
-    severity: note
-    category: other
-    summary: "`judge` computes an overlap signal it never judges on"
-    location: "scripts/measure_tick_bars.py#measure"
-  - id: F007
     severity: note
     category: documentation-drift
-    summary: "The reference promises a server log line for the `499` that the route deliberately does not write"
-    location: "docs/api/reference.md"
-  - id: F008
+    summary: "`docs/api/reference.md` still says \"Seventeen read-only HTTP routes\" for a 27-path surface"
+    location: "docs/api/reference.md:12"
+  - id: F003
+    severity: note
+    category: error-handling-observability
+    summary: "The note is written to a cwd-relative path after the production request has been spent"
+    location: "scripts/measure_tick_bars.py#main"
+  - id: F004
     severity: pass
     category: other
-    summary: "The cutter is tested against an independent oracle on real data, and admission is tested before the read"
+    summary: "The rule lives in one importable unit, is pinned by an isolation test, and is checked against an independent oracle"
     location: "test/unit/data/tick/test_tick_bars.py"
 ---
 
@@ -76,109 +57,73 @@ findings:
 
 **Verdict:** CONCERNS
 **Model:** deepseek/deepseek-v4.1-flash
-**Evidence:** 36 successful tool call(s) of 36 made; 162981 of 162981 diff characters reached the model
+**Evidence:** 35 successful tool call(s) of 36 made; 166165 of 166165 diff characters reached the model
 
 ## Findings
 
-### [CONCERN] The remedy vocabulary grew a fourth entry; the reference still enumerates three
+### [CONCERN] The generated note's frontmatter does not match the project's note conventions
 
-`admission.py` now defines `NARROW_TICK_BARS = "raise ticks_per_bar, or narrow start/end or from/until"` (`src/manta_trading/api_server/admission.py:39`, exported in `__all__`) alongside the three existing remedies. But `docs/api/reference.md` §2.7 still introduces the set as "one of three fixed remedies, defined once in `admission.py`" and lists only `narrow the filter`, `narrow start/end` and `narrow start/end or from/until`. A client that discovers the tick-bar `422` (whose text ends in the new remedy) is told by §2.7 that this string is not part of the vocabulary. §6.1 and §6.9 do quote the new remedy inline, so the omission is confined to the summary that claims to be the single enumeration. Add the fourth bullet and change "three" to "four".
+`report()` writes the note's YAML frontmatter as `docType: note` / `project` / `slice` / `dateCreated: {today}` / `dateUpdated: {today}`, where `today` is `datetime.now(UTC).date().isoformat()` (ISO, with dashes). Every existing note in `project-documents/user/notes/` that I inspected differs on three of these: `306-bar-parity.md` and `305-manifest-scale-measurement.md` both use `docType: notes` (plural), compact `YYYYMMDD` dates (`dateCreated: 20261109`), and carry `layer: project` plus `status:`; 305 also orders the keys differently. Because this script's entire deliverable is that file, and AGENTS.md requires "YAML frontmatter as specified in `file-naming-conventions.md`" on every markdown file, the template is the one place to get this right. I could not read the conventions document (the path I checked does not exist at `project-documents/ai-project-guide/project-guides/file-naming-conventions.md`), so I cannot assert `docType: note` is invalid versus merely divergent — but it diverges from every sibling note, and a document index keyed on `docType` or a date parser expecting compact dates would treat the generated note differently from the committed ones. Match the sibling shape (`docType: notes`, compact dates, `layer`, `status`).
 
-### [CONCERN] The D9 latency/starvation measurement is implemented twice, with divergent bounds
+### [NOTE] `docs/api/reference.md` still says "Seventeen read-only HTTP routes" for a 27-path surface
 
-`scripts/measure_tick_bars.py` contains a full idle-probe → concurrent-request → concurrent-probe harness: `measure()` (seven idle probes, `PROBE_DELAY_S = 0.2`, up to `PROBES = 7` busy probes), `judge()` (`BOUND_S = 10.0`, `STARVATION_MARGIN_S = 0.25`) and `Timing`. `test/load/test_308_tick_bars_nfr.py` re-implements the same loop and the same judgement independently, with its own `PROBES`, its own `0.2` sleep literal, its own `STARVATION_MARGIN_S = 0.25` and a different request bound (`TICK_BARS_BOUND_S = 5.0`). The script's own docstring points at the load test as the source of the 0.25 s evidence, so the two are meant to be the same check. Two copies of a threshold that must agree is precisely the failure mode the project's "define comparison values once" rule targets: lowering one margin leaves the other silently asserting the old one. Either have the load test import `measure`/`judge` from the script, or move the harness into one test-support module both consume. The two different *request* bounds are defensible (production limit vs. the proxy session) and should be named as such where they are defined.
+The opening line reads "Seventeen read-only HTTP routes over the equity bar store, …". The document now carries 27 `<!-- endpoint: -->` markers (I counted them in the section headers), and `test/unit/api_server/test_openapi_artifact.py` pins `EXPECTED_ARTIFACT_PATH_COUNT = 27` after this slice's two additions. This drift predates the slice (the count was already 25 before §6.9/§6.10 were added), so it is not introduced here — but this slice edits §2.7, §6.1, §6.9 and §6.10 of the same file and could correct the sentence in passing. Drop the number, or count it as part of the gate.
 
-### [CONCERN] `read_tick_bars` requires an unclipped window but never checks it, and a clipped window silently renumbers every bar
+### [NOTE] The note is written to a cwd-relative path after the production request has been spent
 
-The reader's contract is stated only in prose ("`window` must be unclipped; one that misses the bounds is not read"). Its `_WindowCut` derives the bar boundary from `self.position % n`, and `TickBarCutter` starts `index` at 0 for the first trade it sees, so the whole `index`/`partial`/open-time guarantee in `docs/api/reference.md` §6.1 holds only if the window begins at the session open. Today that holds because the tick-bar route calls `read_series(conn, plan_for, read, max_rows, admit=admit)` with no `bounds` (`routes/futures_tick_bars.py:_read`), so `read_series`'s `clip(plan.segments, bounds)` passes every window through untouched. Nothing enforces it: `read_series` takes `bounds` and `clip`s with it, and `read_tick_bars` only tests *overlap* via `overlapping([window], bounds)`, so a future caller that does pass `bounds` would get windows pre-clipped at `from`, the cutter would number bars from that instant, and the response would be wrong while every total still balanced. The `row_cells`-style "one place states the rule" idiom used elsewhere would be a cheap guard here — reject (or assert on) a window whose `open_ns` is not the session open, rather than relying on the caller's restraint. A docstring is not a contract the code enforces.
+`NOTE = Path("project-documents/user/notes/308-tick-bar-measurement.md")` is resolved against the current working directory, and `main` calls `NOTE.write_text(note)` only after `_run` has read the ledger and issued the (expensive, production, up-to-2,000,000-trade) request. The module docstring says to run "from the dev checkout root", but nothing enforces it: run from anywhere else and the operator gets a `FileNotFoundError` traceback after the measurement has already been paid for, with the numbers only in the process's dead locals. Anchor the path to the script (`Path(__file__).resolve().parents[1] / NOTE`) or create the parent directory first, so the failure mode is a startup error rather than a post-request one.
 
-### [CONCERN] `scripts/measure_tick_bars.py` accepts numeric arguments that produce a traceback instead of a usage error
+### [PASS] The rule lives in one importable unit, is pinned by an isolation test, and is checked against an independent oracle
 
-`_args` declares `--ticks-per-bar` and `--limit` as bare `type=int` with no lower bound. `--limit 0` makes `pick_range`'s band `low = 0.0` return the first row immediately, and `report()` then evaluates `ledger_sum / args.limit` — a `ZeroDivisionError` raised *after* the ledger read and the production request, from inside `asyncio.run(_run(args))`, so the operator gets a traceback and no note rather than the "no run lands in the band" message `pick_range` was written to give. `--ticks-per-bar 0` fails similarly in `check_totals`'s `math.ceil(row.records / ticks_per_bar)` (or is bounced by the server as a `422`, surfaced as `SystemExit` from `measure`). This script is meant to be run once, by hand, against production (issue #75), which is exactly when a crash after the expensive work is most costly. Validate both up front (`type=int` plus an explicit `>= 1` check, matching `TicksPerBarParam`'s `ge=1` and `Settings.api_max_tick_bar_trades`' `gt=0`), so a typo costs a usage message, not a rerun.
-
-### [CONCERN] The script test mutates `sys.path` where the established pattern loads the script by path
-
-The `measure` fixture does `sys.path.insert(0, str(SCRIPTS))` at module scope and then `importlib.import_module("measure_tick_bars")`. `test/unit/api_server/test_openapi_artifact.py` loads the sibling script the other way — `importlib.util.spec_from_file_location` — with a comment that says exactly why: "`scripts/` is not an installed package, and making it one to satisfy a test would change what this project ships." The module-scoped fixture leaves `scripts/` on `sys.path` for the rest of the session, so a later `import x` in an unrelated test can now resolve against `scripts/`. Follow the existing pattern, or better, extract the two tested functions (`pick_range`, `check_totals`, `judge`) into an importable module and let the script be a thin `main`.
-
-### [NOTE] `judge` computes an overlap signal it never judges on
-
-`Timing.overlapped` is set in `measure()` as `not request.done()` *after* the probe loop and is only echoed into the note by `report()`. `judge()` never reads it, and its two real conditions partially contradict it: it fails a run with no busy probes at all ("the request finished before any concurrent probe") even when `overlapped` is true, and passes a run whose request finished a millisecond before the last probe. Either make `overlapped` a judged condition (a request that never overlapped proves nothing about starvation) or drop the field, so the note cannot print a "still running" claim beside a `FAIL`. Separately, `report()`'s `(request still running after the probes: …)` reads as a verdict on a check that does not exist.
-
-### [NOTE] The reference promises a server log line for the `499` that the route deliberately does not write
-
-§6.9 ends with "A client that disconnects mid-read gets nothing (the server logs status `499`)." The route does the opposite on purpose: `_tick_bars` catches `ReadAbandoned` and returns `Response(status_code=CLIENT_CLOSED_REQUEST)` with a comment stating this is "not an error to log (D10)", and no `_logger` call exists on that path (the only logging in the module is `_uncuttable`'s). Whatever the ASGI access log records, the application writes no line tying the `499` to the abandoned session. Reword to "the response carries status `499`; it is not logged as an error" so the sentence matches the code and so an operator does not go looking for an ERROR record that will not be there.
-
-### [PASS] The cutter is tested against an independent oracle on real data, and admission is tested before the read
-
-The testing on this slice follows the project's test-with standard rather than test-after, and it tests behaviour rather than implementation: `test/unit/data/tick/tick_bar_oracle.py` re-derives the rule "the obvious way" (sort by key, group by session, slice by N, summarise) from the committed 2024-12-03 `tbbo` cut and its derived `trades` twin, asserting the fixture's premise (`SESSION_COUNTS`, `BEFORE_CLOSE`/`AFTER_OPEN`) so a changed fixture fails loudly; `test_tick_bars_isolation.py` runs a fresh `-I` interpreter and asserts neither `psycopg` nor `tick.constants` loads, which is the criterion-8 boundary made mechanical; and `test_over_the_trade_limit_is_422_before_any_tick_is_read` spies on `read_tick_bars` and asserts `reads == []` on the refusal and `len(reads) == 1` once the limit is raised, which is the admission-before-reading guarantee asserted where it can actually break. The reader is additionally checked for early stop by counting `fetchmany` calls and for connection health via `_all_available`, so the abandoned-read path is shown not to leak pool connections.
+`tick_bars.py` keeps to the standard library plus the new `dbn_values.py` (which is why `UNDEF_INT64` moved out of `constants.py`), and `test_tick_bars_isolation.py` makes that mechanical: a fresh `python -I` subprocess asserts that neither `psycopg` nor `manta_trading.data.tick.constants` is in `sys.modules` after import. The rule itself is checked against `tick_bar_oracle.py`, a deliberately naive re-derivation (sort by key, `groupby` session, slice by N, summarise) over the committed 2024-12-03 `tbbo` cut and its derived `trades` twin, with the fixture's premise (`SESSION_COUNTS`, `BEFORE_CLOSE`/`AFTER_OPEN`) asserted so a changed fixture fails loudly instead of silently passing. The behavioural guarantees the docs promise are each covered by their own test: `n == session count` is one full bar and `n` above it one partial (`test_n_equal_to_a_session_count_is_one_full_bar`, `test_n_above_every_session_count_is_one_partial_bar_each`); repeated `(ts_event, sequence)` records stay separate trades (`test_repeated_ts_sequence_records_are_separate_trades`); `buy_volume + sell_volume + side-N volume == volume`; and `test_trades_twin_matches_tbbo_without_quotes` pins the trades-tier null-quote behaviour. Admission is tested where it can actually break — `test_admission_over_the_limit_refuses_before_any_read` uses a recording reader and asserts `reads == []` on refusal, and `test_the_cutoff`-style checks in `test_until_stops_the_scan_early` count `fetchmany` calls and then verify every pooled connection is back to `IDLE`, so the early-stop path is shown not to leak a cursor or a checkout.
 
 ### Run Digest
 
-- Response length: 9426 chars
+- Response length: 5845 chars
 - Response is newline-free: no
 - Tool calls made: 36
-- Tool calls failed: 0
+- Tool calls failed: 1
 - Stop reason: stop
 - Output budget: 384000 tokens
 - System prompt: custom
 - Settings sources: n/a (non-SDK)
-- Reasoning characters: 343318
+- Reasoning characters: 336761
 - Effort: backend default
 - Turns: 20
-- Tokens — prompt / cached / cache write / completion / reasoning: 2347621 / 1952000 / not computed / 96955 / 92052
-- Duration: 629.0 s
+- Tokens — prompt / cached / cache write / completion / reasoning: 2585978 / 2208256 / not computed / 95143 / 90840
+- Duration: 592.9 s
 - Cost: $0.11 (alias_pricing)
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 8
+- Finding-shaped matches — whole response: 4
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 8
-- Finding-shaped matches — surviving validation: 8
+- Finding-shaped matches — in findings section: 4
+- Finding-shaped matches — surviving validation: 4
 
 ### Raw Response
 
 ## Summary
 
-The slice is well-built: the cutter is a single standard-library implementation pinned by an isolation test and an independent oracle, admission happens on the ledger before any tick is read, and the CPU-heavy pivots are pushed off the event loop. I found no correctness defect in the request path. The concerns are documentation drift in the remedy vocabulary, a measurement harness implemented twice with divergent constants, one unenforced reader contract that would silently corrupt bar indices if it were ever violated, and two script/test hygiene issues.
+This slice is in good shape and the previous review's substantive findings are resolved in the code now under review: `read_tick_bars` enforces its "whole session" contract via `TickWindow.clipped` (`clip` sets `clipped=window.clipped or narrowed`), the D9 measurement harness is defined once in `scripts/measure_tick_bars.py` and imported by `test/load/test_308_tick_bars_nfr.py` (`SCRIPT = measure_script()`), the script validates its numeric flags with `_positive`, and `docs/api/reference.md` §2.7 now enumerates four remedies while §6.9 correctly says the `499` is not logged as an error. I verified the early-stop logic in `_WindowCut.push` is sound (`position % n == 0` means the previous bar has just closed, so stopping there never truncates an open bar and "a bar opened before `until` is completed with the trades after it" holds). One new consistency issue in the generated note's frontmatter, plus two smaller notes.
 
 ## Findings
 
-### [CONCERN] The remedy vocabulary grew a fourth entry; the reference still enumerates three
-category: documentation-drift
-location: docs/api/reference.md
-`admission.py` now defines `NARROW_TICK_BARS = "raise ticks_per_bar, or narrow start/end or from/until"` (`src/manta_trading/api_server/admission.py:39`, exported in `__all__`) alongside the three existing remedies. But `docs/api/reference.md` §2.7 still introduces the set as "one of three fixed remedies, defined once in `admission.py`" and lists only `narrow the filter`, `narrow start/end` and `narrow start/end or from/until`. A client that discovers the tick-bar `422` (whose text ends in the new remedy) is told by §2.7 that this string is not part of the vocabulary. §6.1 and §6.9 do quote the new remedy inline, so the omission is confined to the summary that claims to be the single enumeration. Add the fourth bullet and change "three" to "four".
-
-### [CONCERN] The D9 latency/starvation measurement is implemented twice, with divergent bounds
+### [CONCERN] The generated note's frontmatter does not match the project's note conventions
 category: consistency-rot
-location: scripts/measure_tick_bars.py#judge
-`scripts/measure_tick_bars.py` contains a full idle-probe → concurrent-request → concurrent-probe harness: `measure()` (seven idle probes, `PROBE_DELAY_S = 0.2`, up to `PROBES = 7` busy probes), `judge()` (`BOUND_S = 10.0`, `STARVATION_MARGIN_S = 0.25`) and `Timing`. `test/load/test_308_tick_bars_nfr.py` re-implements the same loop and the same judgement independently, with its own `PROBES`, its own `0.2` sleep literal, its own `STARVATION_MARGIN_S = 0.25` and a different request bound (`TICK_BARS_BOUND_S = 5.0`). The script's own docstring points at the load test as the source of the 0.25 s evidence, so the two are meant to be the same check. Two copies of a threshold that must agree is precisely the failure mode the project's "define comparison values once" rule targets: lowering one margin leaves the other silently asserting the old one. Either have the load test import `measure`/`judge` from the script, or move the harness into one test-support module both consume. The two different *request* bounds are defensible (production limit vs. the proxy session) and should be named as such where they are defined.
+location: scripts/measure_tick_bars.py#report
+`report()` writes the note's YAML frontmatter as `docType: note` / `project` / `slice` / `dateCreated: {today}` / `dateUpdated: {today}`, where `today` is `datetime.now(UTC).date().isoformat()` (ISO, with dashes). Every existing note in `project-documents/user/notes/` that I inspected differs on three of these: `306-bar-parity.md` and `305-manifest-scale-measurement.md` both use `docType: notes` (plural), compact `YYYYMMDD` dates (`dateCreated: 20261109`), and carry `layer: project` plus `status:`; 305 also orders the keys differently. Because this script's entire deliverable is that file, and AGENTS.md requires "YAML frontmatter as specified in `file-naming-conventions.md`" on every markdown file, the template is the one place to get this right. I could not read the conventions document (the path I checked does not exist at `project-documents/ai-project-guide/project-guides/file-naming-conventions.md`), so I cannot assert `docType: note` is invalid versus merely divergent — but it diverges from every sibling note, and a document index keyed on `docType` or a date parser expecting compact dates would treat the generated note differently from the committed ones. Match the sibling shape (`docType: notes`, compact dates, `layer`, `status`).
 
-### [CONCERN] `read_tick_bars` requires an unclipped window but never checks it, and a clipped window silently renumbers every bar
-category: type-contract-debt
-location: src/manta_trading/data/tick/tick_bar_reads.py#read_tick_bars
-The reader's contract is stated only in prose ("`window` must be unclipped; one that misses the bounds is not read"). Its `_WindowCut` derives the bar boundary from `self.position % n`, and `TickBarCutter` starts `index` at 0 for the first trade it sees, so the whole `index`/`partial`/open-time guarantee in `docs/api/reference.md` §6.1 holds only if the window begins at the session open. Today that holds because the tick-bar route calls `read_series(conn, plan_for, read, max_rows, admit=admit)` with no `bounds` (`routes/futures_tick_bars.py:_read`), so `read_series`'s `clip(plan.segments, bounds)` passes every window through untouched. Nothing enforces it: `read_series` takes `bounds` and `clip`s with it, and `read_tick_bars` only tests *overlap* via `overlapping([window], bounds)`, so a future caller that does pass `bounds` would get windows pre-clipped at `from`, the cutter would number bars from that instant, and the response would be wrong while every total still balanced. The `row_cells`-style "one place states the rule" idiom used elsewhere would be a cheap guard here — reject (or assert on) a window whose `open_ns` is not the session open, rather than relying on the caller's restraint. A docstring is not a contract the code enforces.
-
-### [CONCERN] `scripts/measure_tick_bars.py` accepts numeric arguments that produce a traceback instead of a usage error
-category: other
-location: scripts/measure_tick_bars.py#_args
-`_args` declares `--ticks-per-bar` and `--limit` as bare `type=int` with no lower bound. `--limit 0` makes `pick_range`'s band `low = 0.0` return the first row immediately, and `report()` then evaluates `ledger_sum / args.limit` — a `ZeroDivisionError` raised *after* the ledger read and the production request, from inside `asyncio.run(_run(args))`, so the operator gets a traceback and no note rather than the "no run lands in the band" message `pick_range` was written to give. `--ticks-per-bar 0` fails similarly in `check_totals`'s `math.ceil(row.records / ticks_per_bar)` (or is bounced by the server as a `422`, surfaced as `SystemExit` from `measure`). This script is meant to be run once, by hand, against production (issue #75), which is exactly when a crash after the expensive work is most costly. Validate both up front (`type=int` plus an explicit `>= 1` check, matching `TicksPerBarParam`'s `ge=1` and `Settings.api_max_tick_bar_trades`' `gt=0`), so a typo costs a usage message, not a rerun.
-
-### [CONCERN] The script test mutates `sys.path` where the established pattern loads the script by path
-category: consistency-rot
-location: test/unit/test_measure_tick_bars.py#measure
-The `measure` fixture does `sys.path.insert(0, str(SCRIPTS))` at module scope and then `importlib.import_module("measure_tick_bars")`. `test/unit/api_server/test_openapi_artifact.py` loads the sibling script the other way — `importlib.util.spec_from_file_location` — with a comment that says exactly why: "`scripts/` is not an installed package, and making it one to satisfy a test would change what this project ships." The module-scoped fixture leaves `scripts/` on `sys.path` for the rest of the session, so a later `import x` in an unrelated test can now resolve against `scripts/`. Follow the existing pattern, or better, extract the two tested functions (`pick_range`, `check_totals`, `judge`) into an importable module and let the script be a thin `main`.
-
-### [NOTE] `judge` computes an overlap signal it never judges on
-category: other
-location: scripts/measure_tick_bars.py#measure
-`Timing.overlapped` is set in `measure()` as `not request.done()` *after* the probe loop and is only echoed into the note by `report()`. `judge()` never reads it, and its two real conditions partially contradict it: it fails a run with no busy probes at all ("the request finished before any concurrent probe") even when `overlapped` is true, and passes a run whose request finished a millisecond before the last probe. Either make `overlapped` a judged condition (a request that never overlapped proves nothing about starvation) or drop the field, so the note cannot print a "still running" claim beside a `FAIL`. Separately, `report()`'s `(request still running after the probes: …)` reads as a verdict on a check that does not exist.
-
-### [NOTE] The reference promises a server log line for the `499` that the route deliberately does not write
+### [NOTE] `docs/api/reference.md` still says "Seventeen read-only HTTP routes" for a 27-path surface
 category: documentation-drift
-location: docs/api/reference.md
-§6.9 ends with "A client that disconnects mid-read gets nothing (the server logs status `499`)." The route does the opposite on purpose: `_tick_bars` catches `ReadAbandoned` and returns `Response(status_code=CLIENT_CLOSED_REQUEST)` with a comment stating this is "not an error to log (D10)", and no `_logger` call exists on that path (the only logging in the module is `_uncuttable`'s). Whatever the ASGI access log records, the application writes no line tying the `499` to the abandoned session. Reword to "the response carries status `499`; it is not logged as an error" so the sentence matches the code and so an operator does not go looking for an ERROR record that will not be there.
+location: docs/api/reference.md:12
+The opening line reads "Seventeen read-only HTTP routes over the equity bar store, …". The document now carries 27 `<!-- endpoint: -->` markers (I counted them in the section headers), and `test/unit/api_server/test_openapi_artifact.py` pins `EXPECTED_ARTIFACT_PATH_COUNT = 27` after this slice's two additions. This drift predates the slice (the count was already 25 before §6.9/§6.10 were added), so it is not introduced here — but this slice edits §2.7, §6.1, §6.9 and §6.10 of the same file and could correct the sentence in passing. Drop the number, or count it as part of the gate.
 
-### [PASS] The cutter is tested against an independent oracle on real data, and admission is tested before the read
+### [NOTE] The note is written to a cwd-relative path after the production request has been spent
+category: error-handling-observability
+location: scripts/measure_tick_bars.py#main
+`NOTE = Path("project-documents/user/notes/308-tick-bar-measurement.md")` is resolved against the current working directory, and `main` calls `NOTE.write_text(note)` only after `_run` has read the ledger and issued the (expensive, production, up-to-2,000,000-trade) request. The module docstring says to run "from the dev checkout root", but nothing enforces it: run from anywhere else and the operator gets a `FileNotFoundError` traceback after the measurement has already been paid for, with the numbers only in the process's dead locals. Anchor the path to the script (`Path(__file__).resolve().parents[1] / NOTE`) or create the parent directory first, so the failure mode is a startup error rather than a post-request one.
+
+### [PASS] The rule lives in one importable unit, is pinned by an isolation test, and is checked against an independent oracle
 category: other
 location: test/unit/data/tick/test_tick_bars.py
-The testing on this slice follows the project's test-with standard rather than test-after, and it tests behaviour rather than implementation: `test/unit/data/tick/tick_bar_oracle.py` re-derives the rule "the obvious way" (sort by key, group by session, slice by N, summarise) from the committed 2024-12-03 `tbbo` cut and its derived `trades` twin, asserting the fixture's premise (`SESSION_COUNTS`, `BEFORE_CLOSE`/`AFTER_OPEN`) so a changed fixture fails loudly; `test_tick_bars_isolation.py` runs a fresh `-I` interpreter and asserts neither `psycopg` nor `tick.constants` loads, which is the criterion-8 boundary made mechanical; and `test_over_the_trade_limit_is_422_before_any_tick_is_read` spies on `read_tick_bars` and asserts `reads == []` on the refusal and `len(reads) == 1` once the limit is raised, which is the admission-before-reading guarantee asserted where it can actually break. The reader is additionally checked for early stop by counting `fetchmany` calls and for connection health via `_all_available`, so the abandoned-read path is shown not to leak pool connections.
+`tick_bars.py` keeps to the standard library plus the new `dbn_values.py` (which is why `UNDEF_INT64` moved out of `constants.py`), and `test_tick_bars_isolation.py` makes that mechanical: a fresh `python -I` subprocess asserts that neither `psycopg` nor `manta_trading.data.tick.constants` is in `sys.modules` after import. The rule itself is checked against `tick_bar_oracle.py`, a deliberately naive re-derivation (sort by key, `groupby` session, slice by N, summarise) over the committed 2024-12-03 `tbbo` cut and its derived `trades` twin, with the fixture's premise (`SESSION_COUNTS`, `BEFORE_CLOSE`/`AFTER_OPEN`) asserted so a changed fixture fails loudly instead of silently passing. The behavioural guarantees the docs promise are each covered by their own test: `n == session count` is one full bar and `n` above it one partial (`test_n_equal_to_a_session_count_is_one_full_bar`, `test_n_above_every_session_count_is_one_partial_bar_each`); repeated `(ts_event, sequence)` records stay separate trades (`test_repeated_ts_sequence_records_are_separate_trades`); `buy_volume + sell_volume + side-N volume == volume`; and `test_trades_twin_matches_tbbo_without_quotes` pins the trades-tier null-quote behaviour. Admission is tested where it can actually break — `test_admission_over_the_limit_refuses_before_any_read` uses a recording reader and asserts `reads == []` on refusal, and `test_the_cutoff`-style checks in `test_until_stops_the_scan_early` count `fetchmany` calls and then verify every pooled connection is back to `IDLE`, so the early-stop path is shown not to leak a cursor or a checkout.
