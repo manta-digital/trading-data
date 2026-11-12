@@ -26,6 +26,7 @@ from manta_trading.data.tick.constants import (
     UnitState,
 )
 from manta_trading.data.tick.databento.dbn_file import DbnFileReader
+from manta_trading.data.tick.dbn_values import UNDEF_INT64
 from manta_trading.data.tick.definitions import project_definitions
 from manta_trading.data.tick.manifest_reads import units_of_request
 from manta_trading.data.tick.run_context import TickRun
@@ -37,7 +38,6 @@ NS_PER_DAY = 86_400 * 1_000_000_000
 ACTIVATION = int(datetime(2024, 6, 1, tzinfo=UTC).timestamp()) * 1_000_000_000
 EXPIRATION = ACTIVATION + 90 * NS_PER_DAY
 UNDEF_TS = 2**64 - 1
-UNDEF_INT64 = 2**63 - 1
 
 ESZ4: dict[str, Any] = {
     "instrument_id": 42_035_063,

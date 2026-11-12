@@ -14,7 +14,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from manta_trading.data.tick.constants import TICK_PRICE_SCALE, UNDEF_INT64
+from manta_trading.data.tick.constants import TICK_PRICE_SCALE
+from manta_trading.data.tick.dbn_values import UNDEF_INT64
 from manta_trading.data.tick.tick_reads import (
     BAR_PRICE_COLUMNS,
     TICK_PRICE_COLUMNS,

@@ -12,8 +12,8 @@ projectState: Slice design committed and reviewed. After 306 the futures bars ro
   (`TickRecord`, 14 columns). `tick_reads.stream_rows` is already public. No tick-bar
   code exists.
 dateCreated: 20261111
-dateUpdated: 20261111
-status: not_started
+dateUpdated: 20261112
+status: in_progress
 turns: 26
 promptTokens: 2105367
 cachedTokens: 1975630
@@ -76,38 +76,38 @@ revision_number: 2
 
 ## 1. Preconditions and the shared DBN values (D1)
 
-- [ ] **1.1 Confirm 306 is merged**
-  - [ ] `git log main --oneline` shows the 306 merge, and
+- [x] **1.1 Confirm 306 is merged**
+  - [x] `git log main --oneline` shows the 306 merge, and
     `grep -n "def verdicts_for" src/manta_trading/data/tick/*.py` finds it.
-  - [ ] `contract_plan` and `product_plan` accept a `family` argument
+  - [x] `contract_plan` and `product_plan` accept a `family` argument
     (`src/manta_trading/data/tick/get_plan.py`).
-  - [ ] `tick_reads.stream_rows` is public and `read_ticks` calls it (the design's
+  - [x] `tick_reads.stream_rows` is public and `read_ticks` calls it (the design's
     `_stream` rename is already done).
-  - [ ] If any item fails, write a line starting `BLOCKED:` under this task,
+  - [x] If any item fails, write a line starting `BLOCKED:` under this task,
     leave it unchecked and stop.
 
-- [ ] **1.2 Create `data/tick/dbn_values.py`**
-  - [ ] Standard library only. It defines `UNDEF_INT64` (`2**63 - 1`),
+- [x] **1.2 Create `data/tick/dbn_values.py`**
+  - [x] Standard library only. It defines `UNDEF_INT64` (`2**63 - 1`),
     `TRADE_SIDE_BUY = "B"` and `TRADE_SIDE_SELL = "A"`.
-  - [ ] Docstring says why it exists: `constants.py` imports
+  - [x] Docstring says why it exists: `constants.py` imports
     `manta_trading.constants` and calendar seeds, so the cutter cannot import it.
 
-- [ ] **1.3 Move `UNDEF_INT64` out of `constants.py`**
-  - [ ] `data/tick/constants.py` imports it from `dbn_values`; its own uses (near
+- [x] **1.3 Move `UNDEF_INT64` out of `constants.py`**
+  - [x] `data/tick/constants.py` imports it from `dbn_values`; its own uses (near
     lines 302-303) still work.
-  - [ ] `tick_format.py` imports it from `dbn_values`; `constants.py` imports it
+  - [x] `tick_format.py` imports it from `dbn_values`; `constants.py` imports it
     for its own uses.
-  - [ ] `test/integration/data/test_tick_definitions.py:40` defines its own
+  - [x] `test/integration/data/test_tick_definitions.py:40` defines its own
     `UNDEF_INT64`; replace it with an import from `dbn_values`. Then `grep -rn
     "UNDEF_INT64 =" src test` finds exactly one definition.
-  - [ ] Existing `test/unit/data/tick` tests (constants, tick_format) pass.
+  - [x] Existing `test/unit/data/tick` tests (constants, tick_format) pass.
 
 ---
 
 ## 2. The rollup module (D1, D2)
 
-- [ ] **2.1 Test support: the oracle and the real fixture trades**
-  - [ ] Add `test/unit/data/tick/tick_bar_oracle.py` (helper, not a test file).
+- [x] **2.1 Test support: the oracle and the real fixture trades**
+  - [x] Add `test/unit/data/tick/tick_bar_oracle.py` (helper, not a test file).
     It decodes `test/fixtures/databento/real/glbx-mdp3-20241203.tbbo.dbn.zst`
     and `glbx-mdp3-20241203.trades.dbn.zst` with `DbnFileReader`
     (`data/tick/databento/dbn_file.py`; see `test/unit/data/tick/test_dbn_file.py`
@@ -117,62 +117,64 @@ revision_number: 2
     each `ts_event`, as the ingest does. The design says this instrument has
     1,000 contiguous trades each side of the daily break (the end of session
     2024-12-03 and the start of 2024-12-04).
-  - [ ] The oracle is independent of the cutter: sort trades by
+  - [x] The oracle is independent of the cutter: sort trades by
     `(ts_event, sequence, sequence_ordinal)`, split per `session_date`, chunk by
     N with list slicing, summarise each chunk into the D2 fields.
-  - [ ] The helper asserts its own premise (1,000 trades each side of the break),
+  - [x] The helper asserts its own premise (1,000 trades each side of the break),
     so a changed fixture fails loudly.
+  - Note: measured premise differs from the design wording: the fixture cut holds 1,000 records of all instruments each side of the break; ESZ4 (183748) has 982 trades before the 12-03 close and 997 after the 12-04 open, 1,968 / 1,491 per session. The oracle asserts these; the slice design D9 is corrected.
 
-- [ ] **2.2 Implement `TickBarInputError`, `Trade`, `TickBar`**
-  - [ ] `data/tick/tick_bars.py`, imports only the standard library and
+- [x] **2.2 Implement `TickBarInputError`, `Trade`, `TickBar`**
+  - [x] `data/tick/tick_bars.py`, imports only the standard library and
     `dbn_values`.
-  - [ ] `TickBarInputError(ValueError)` with a `keys` attribute holding the
+  - [x] `TickBarInputError(ValueError)` with a `keys` attribute holding the
     offending key tuples (previous and current), also named in the message.
-  - [ ] `Trade` is a `NamedTuple` in D1's field order: `ts_event, sequence,
+  - [x] `Trade` is a `NamedTuple` in D1's field order: `ts_event, sequence,
     sequence_ordinal, session_date, price, size, side, bid_px, ask_px`.
-  - [ ] `TickBar` is a frozen dataclass or NamedTuple with the D2 fields:
+  - [x] `TickBar` is a frozen dataclass or NamedTuple with the D2 fields:
     `session_date, index, open_time, close_time, open, high, low, close, volume,
     trade_count, buy_volume, sell_volume, bid_px, ask_px, partial`. Times and
     prices are integers; formatting is the model's job.
+  - Note: `TickBar` is a frozen slotted dataclass; as a NamedTuple its `index` field shadows `tuple.index` (mypy error).
 
-- [ ] **2.3 Implement `TickBarCutter`**
-  - [ ] `__init__(ticks_per_bar)` raises `ValueError` unless `>= 1`.
-  - [ ] `push(trade)` returns 0, 1 or 2 bars: the bar the Nth trade closes; or,
+- [x] **2.3 Implement `TickBarCutter`**
+  - [x] `__init__(ticks_per_bar)` raises `ValueError` unless `>= 1`.
+  - [x] `push(trade)` returns 0, 1 or 2 bars: the bar the Nth trade closes; or,
     when `trade.session_date` differs from the open session's, the open bar first
     emitted with `partial=True` and the count restarted at index 0 (the new trade
     then starts or closes a bar).
-  - [ ] A bar closes at its Nth trade; no bar is open after it.
-  - [ ] `current()` returns the open bar with `partial=True` without closing it,
+  - [x] A bar closes at its Nth trade; no bar is open after it.
+  - [x] `current()` returns the open bar with `partial=True` without closing it,
     or `None`. `close_session()` returns the open bar as final with
     `partial=True`, or `None` (a session whose count is a multiple of N ends full).
-  - [ ] Raises `TickBarInputError` when a trade's key `(ts_event, sequence,
+  - [x] Raises `TickBarInputError` when a trade's key `(ts_event, sequence,
     sequence_ordinal)` is not greater than the previous one, its session goes
     backwards, or its price is `UNDEF_INT64`.
-  - [ ] Side `B` adds to `buy_volume`, `A` to `sell_volume`, `N` to `volume`
+  - [x] Side `B` adds to `buy_volume`, `A` to `sell_volume`, `N` to `volume`
     only. `bid_px`/`ask_px` are the last trade's values (may be `None`).
-  - [ ] One trade record is one trade: records sharing `(ts_event, sequence)`
+  - [x] One trade record is one trade: records sharing `(ts_event, sequence)`
     with different `sequence_ordinal` are separate.
 
-- [ ] **2.4 Test: cutter against the oracle**
-  - [ ] `test/unit/data/tick/test_tick_bars.py`, over the `tbbo` cut and its
+- [x] **2.4 Test: cutter against the oracle**
+  - [x] `test/unit/data/tick/test_tick_bars.py`, over the `tbbo` cut and its
     `trades` twin where noted.
-  - [ ] N = 1; a prime N leaving a partial bar; N equal to a session's count
+  - [x] N = 1; a prime N leaving a partial bar; N equal to a session's count
     (one full, non-partial bar); N greater than it (one partial bar). Every
     field is compared with the oracle.
-  - [ ] Count restarts at index 0 at the 2024-12-04 open; the last bar of
+  - [x] Count restarts at index 0 at the 2024-12-04 open; the last bar of
     2024-12-03 is partial exactly when its count is not a multiple of N.
-  - [ ] Repeated `(ts_event, sequence)` records count as separate trades.
-  - [ ] `buy_volume + sell_volume + side-N volume == volume` for every bar.
-  - [ ] `trades` twin: OHLCV, counts and sides equal the `tbbo` result;
+  - [x] Repeated `(ts_event, sequence)` records count as separate trades.
+  - [x] `buy_volume + sell_volume + side-N volume == volume` for every bar.
+  - [x] `trades` twin: OHLCV, counts and sides equal the `tbbo` result;
     `bid_px`/`ask_px` are `None`.
-  - [ ] `current()` mid-stream does not change the final output;
+  - [x] `current()` mid-stream does not change the final output;
     `close_session()` returns `None` after a full bar and on a second call.
-  - [ ] Equal key, lower key, session going backwards and `UNDEF_INT64` price
+  - [x] Equal key, lower key, session going backwards and `UNDEF_INT64` price
     each raise `TickBarInputError` with both keys in `keys`;
     `TickBarCutter(0)` and `(-3)` raise `ValueError`.
 
-- [ ] **2.5 Test: module isolation**
-  - [ ] `test_tick_bars_isolation.py`: a fresh interpreter (`subprocess`,
+- [x] **2.5 Test: module isolation**
+  - [x] `test_tick_bars_isolation.py`: a fresh interpreter (`subprocess`,
     `python -I -c`) imports `manta_trading.data.tick.tick_bars` and reports
     whether `psycopg` and `manta_trading.data.tick.constants` are in
     `sys.modules`. Assert neither is.
