@@ -47,7 +47,7 @@ revision_number: 2
   - two tick-bar routes (contract, product) with `FuturesTickBarsResponse`;
   - columnar `/ticks` bodies (`models/futures_ticks.py`), `TickRecord` removed;
   - `reference.md`, `agents.md`, `openapi.json`, CHANGELOG;
-  - a load-tier test for the 10 s and 100 ms bounds, and the measurement script
+  - a load-tier test for the 10 s and 250 ms bounds, and the measurement script
     for success criterion 12.
 - Not here: live cutting (280), a CLI form of tick bars, time bars from ticks,
   any purchase or migration, the #72 rename. Running the measurement script
@@ -468,44 +468,49 @@ revision_number: 2
 
 ## 7. Load test and measurement script
 
-- [ ] **7.1 `test/load/test_308_tick_bars_nfr.py`**
-  - [ ] Follows `test_231_futures_api_nfr.py`: the archived 2024-12-18 `tbbo` day
+- [x] **7.1 `test/load/test_308_tick_bars_nfr.py`**
+  - [x] Follows `test_231_futures_api_nfr.py`: the archived 2024-12-18 `tbbo` day
     (889,373 records, 687,287-tick ESZ4 session) ingested through the real pass,
     the app built with `create_app(db_url=…, tick_db_url=…)` on test-cluster
     databases only, and a gate command in the docstring. CI runs no test job, so,
     as for every other load test, the gate is the manual
     `MT_RUN_LOAD_TESTS=1` command; no CI wiring is added.
-  - [ ] The `busiest` fixture is module-local to test_231. Move it to
+  - [x] The `busiest` fixture is module-local to test_231. Move it to
     `test/load/conftest.py` and use it from both files; do not copy it.
-  - [ ] Test 1: product ES `tick-bars` at `ticks_per_bar=1000` over that day, with
+  - [x] Test 1: product ES `tick-bars` at `ticks_per_bar=1000` over that day, with
     the app's trade limit set above the day's count, completes under the
     bound (never above 10 s). This scans 889,373 records, about 44% of the
     2,000,000 default limit, so it is a proxy: the limit-level bound is checked
     only by the Phase 7 measurement (#75). `Σ trade_count` equals the ledger record count and
     `count` equals `Σ ceil(nᵢ / 1000)` per session.
-  - [ ] Test 2: while that request runs, `GET /api/v1/futures/products` answers
-    within 100 ms of its idle median (several probes).
-  - [ ] Run it five times (`MT_RUN_LOAD_TESTS=1 uv run python
+  - [x] Test 2: while that request runs, `GET /api/v1/futures/products` answers
+    within 250 ms of its idle median (several probes). The slice's 100 ms was
+    inside the noise of the idle probe itself (see `STARVATION_MARGIN_S`).
+  - [x] Run it five times (`MT_RUN_LOAD_TESTS=1 uv run python
     scripts/run_tests.py load -- test/load/test_308_tick_bars_nfr.py`). Set the
     bound to about twice the median, and record the five timings, the median and
     the date in the docstring beside it. If the median is already over 10 s, the
     scan is too slow for the default: lower `API_MAX_TICK_BAR_TRADES` and re-run.
+  - RESOLVED (Test 2): measured, not starvation. Idle `/products` is 43-131 ms and cutting adds 50-90 ms (GIL sharing); a shorter `sys.setswitchinterval` did not help. The margin is 250 ms (`STARVATION_MARGIN_S`, evidence in its comment). Test 1 uses `rule=c.1`: `c.0` serves ESZ4, only 170,970 trades that day. Record the five Test 1 timings from the test's five samples.
+  - Note: Test 1 scans 661,950 ESH5 session trades (not the design's 687,287 ESZ4).
 
-- [ ] **7.2 `scripts/measure_tick_bars.py`, with its tests**
-  - [ ] A small script for the Phase 7 step of success criterion 12 (run against
+- [x] **7.2 `scripts/measure_tick_bars.py`, with its tests**
+  - [x] A small script for the Phase 7 step of success criterion 12 (run against
     production after release, tracked by #75; not run in Phase 6). Inputs: base
     URL, product, `ticks_per_bar`, the trade limit, and the JSON of `mt data tick
     coverage --product P --start … --end … --json` (read `tick_coverage.py` for
     its keys first).
-  - [ ] `pick_range(rows, limit)`: the run of consecutive sessions whose record
+  - [x] `pick_range(rows, limit)`: the run of consecutive sessions whose record
     counts sum to 95-100% of `limit`; raises when none exists.
-  - [ ] `check_totals(bars, rows)`: per session `Σ trade_count` equals the ledger's
+  - [x] `check_totals(bars, rows)`: per session `Σ trade_count` equals the ledger's
     record count, `Σ volume` its volume, and the bar count equals `Σ ceil(nᵢ / N)`.
-  - [ ] Times the request, probes `GET /api/v1/futures/products` idle and during
+  - [x] Times the request, probes `GET /api/v1/futures/products` idle and during
     it, and writes `user/notes/308-tick-bar-measurement.md` (range, ledger sum,
     timings, checks).
-  - [ ] `test/unit/test_measure_tick_bars.py` with synthetic ledger rows:
+  - [x] `test/unit/test_measure_tick_bars.py` with synthetic ledger rows:
     `pick_range` returns a run in the band and raises when none exists;
     `check_totals` accepts matching totals and names the session on a mismatch.
+  - RESOLVED (inputs): do not use `mt data tick coverage --json`; it sums every instrument of the product and has no tick-tier volume. The script builds the plan the route builds: `product_plan(conn, (tick_url, calendar_url), entry, parsed_rule, start, end, SchemaFamily.TICK_TIER)` (see `futures_series.product_plan_for`) gives the exact (instrument, session) windows; `status_reads.ledger_totals` and `ledger_volumes` give each window's record count and volume. Run it with `sudo mt-run` on the host, URLs from settings (never `os.environ`). `pick_range` and `check_totals` take rows of `(session_date, instrument_id, records, volume)` from those. The base URL, product, rule, `ticks_per_bar` and limit stay arguments.
+  - Note: `deploy/mt-run` runs only the `mt` CLI, so the script runs from the dev checkout with `uv run` and reads URLs from `Settings`, as `reconcile_tick_spend.py` does; `--limit` is an argument.
 
 **Commit**: `test: add the tick-bar load test and measurement script`

@@ -35,17 +35,15 @@ import time
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 import httpx
 import psycopg
 import pytest
 from tick_support.bulk_ticks import MinuteRoll, seed_minute_roll
-from tick_support.ingest import ingest_inputs, run_ingest_phase
 from tick_support.roll_seed import ESZ4
-from tick_support.tier_units import seed_tier_unit
 
+from load.busiest_day import BUSIEST_DAY
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.models.futures_ticks import (
     FuturesTickBlock,
@@ -53,9 +51,7 @@ from manta_trading.api_server.models.futures_ticks import (
     block_fields,
 )
 from manta_trading.constants import API_MAX_BARS_PER_REQUEST
-from manta_trading.data.tick.constants import TickSchema
 from manta_trading.data.tick.get_plan import GetPlan, contract_plan
-from manta_trading.data.tick.pass_contract import TickOutcome
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_reads import Row, read_ticks
 
@@ -67,13 +63,6 @@ pytestmark = [
     pytest.mark.timeout(1800),
 ]
 
-ARCHIVE = Path("/data/tick-archive")
-BUSIEST_DAY = date(2024, 12, 18)
-BUSIEST_TIER = ARCHIVE / "GLBX-20250123-XT4GD5UM6C" / "glbx-mdp3-20241218.tbbo.dbn.zst"
-BUSIEST_DEFINITIONS = (
-    ARCHIVE / "GLBX-20260930-HVGRLYKHRN" / "glbx-mdp3-20241218.definition.dbn.zst"
-)
-BUSIEST_RECORDS = 889_373
 #: The roll seed: sessions dated [ROLL_SEED_FIRST, ROLL_END); the read starts a
 #: week later so the volume rule's lag sessions are held.
 ROLL_SEED_FIRST, ROLL_READ_FIRST, ROLL_END = (
@@ -130,28 +119,6 @@ async def _median(
 def _report(name: str, median: float, samples: Sequence[float], bound: float) -> str:
     shown = ", ".join(f"{s:.3f}" for s in samples)
     return f"{name}: median {median:.3f} s (runs {shown}); bound {bound:.3f} s"
-
-
-@pytest.fixture
-async def busiest(migrated_tick_db: str, prod_shaped_db: str, tmp_path: Path) -> str:
-    """The 2024-12-18 tbbo day, ingested for real."""
-    for path in (BUSIEST_TIER, BUSIEST_DEFINITIONS):
-        assert path.is_file(), f"archived day missing: {path}"
-    seeded = await seed_tier_unit(
-        migrated_tick_db,
-        tmp_path,
-        TickSchema.TBBO,
-        BUSIEST_DAY,
-        job_id=BUSIEST_TIER.parent.name,
-        tier_file=BUSIEST_TIER,
-        definition_file=BUSIEST_DEFINITIONS,
-    )
-    assert seeded.record_count == BUSIEST_RECORDS
-    report = await run_ingest_phase(
-        migrated_tick_db, tmp_path, ingest_inputs(migrated_tick_db, prod_shaped_db)
-    )
-    assert report.outcome is TickOutcome.OK, report.error
-    return migrated_tick_db
 
 
 @pytest.fixture

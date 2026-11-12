@@ -287,7 +287,7 @@ Nothing is bought.
 - **Window independence:** for random `from`/`until` cuts, the returned bars equal the full read's bars filtered by `open_time`.
 - **Integration (tick test cluster):** both routes over the ingested fixture, admission refusals at a small configured trade limit, and the bar ceiling.
 - **Columnar round trip:** decoding a block (prefix-summing `ts_event` from `ts_base`, scaling prices) reproduces `read_ticks`' rows exactly, for a `tbbo` and a `trades` block, through JSON and msgpack.
-- **Production (Phase 7, after release):** one ES request at the trade limit at N = 1000. Its range is chosen from the ledger, not from a session count: the run of consecutive ES 2024 sessions whose record counts (`mt data tick coverage --json`) sum to between 95% and 100% of the configured limit. The sum is recorded with the timing. The request completes in under 10 s, the bound 306 D10 uses. For every session, `Σ trade_count` equals the ledger's record count and `Σ volume` its volume; `count` equals `Σ ceil(nᵢ / 1000)`. While that request runs, a concurrent `GET /api/v1/futures/products` answers within 100 ms of its time measured idle, which shows the loop is not starved. The result is recorded in `user/notes/308-tick-bar-measurement.md`.
+- **Production (Phase 7, after release):** one ES request at the trade limit at N = 1000. Its range is chosen from the ledger, not from a session count: the run of consecutive ES 2024 sessions whose record counts (the plan's windows with `ledger_totals`, as `scripts/measure_tick_bars.py` reads them; `mt data tick coverage --json` sums every instrument so it cannot) sum to between 95% and 100% of the configured limit. The sum is recorded with the timing. The request completes in under 10 s, the bound 306 D10 uses. For every session, `Σ trade_count` equals the ledger's record count and `Σ volume` its volume; `count` equals `Σ ceil(nᵢ / 1000)`. While that request runs, a concurrent `GET /api/v1/futures/products` answers within 250 ms of its time measured idle (the test-cluster measurement of 2026-11-12 put the idle probe's own spread near 80 ms and cutting's GIL share at 50-90 ms; 100 ms was inside that noise), which shows the loop is not starved. The result is recorded in `user/notes/308-tick-bar-measurement.md`.
 
 ### D10 — Abandoned, concurrent and early-stopped reads
 Status: decided
@@ -396,7 +396,7 @@ The routes exist after Phase 6. The production steps run after the release, agai
    sudo mt-run data tick coverage --product ES --start 2024-09-03 --end 2025-01-01 --json
    # pick START/END: consecutive sessions whose record counts sum to 95–100% of the trade limit
    time curl -s --compressed -o /tmp/tb.json "localhost:8100/api/v1/futures/products/ES/tick-bars?ticks_per_bar=1000&start=$START&end=$END"
-   # meanwhile, in a second shell: time curl -s -o /dev/null localhost:8100/api/v1/futures/products  (within 100 ms of idle)
+   # meanwhile, in a second shell: time curl -s -o /dev/null localhost:8100/api/v1/futures/products  (within 250 ms of idle)
    # under 10 s; the ledger sum and the timing are recorded in user/notes/308-tick-bar-measurement.md
    ```
 6. **Compact ticks.**
