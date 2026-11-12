@@ -1903,9 +1903,166 @@
         "title": "FuturesTickBarsResponse",
         "type": "object"
       },
-      "FuturesTicksResponse": {
-        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/ticks``.\n\n``end`` is exclusive (session dates). ``from``/``until`` echo the instant\nbounds, half-open, null when not given.",
+      "FuturesTickBlock": {
+        "description": "One window's ticks, columnar (D6). Every column holds ``count`` values;\nthe quote columns hold ``None`` on trades-tier ticks and are never omitted.",
         "properties": {
+          "ask_px": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Ask Px",
+            "type": "array"
+          },
+          "ask_sz": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Ask Sz",
+            "type": "array"
+          },
+          "bid_px": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Bid Px",
+            "type": "array"
+          },
+          "bid_sz": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Bid Sz",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "price": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Price",
+            "type": "array"
+          },
+          "raw_symbol": {
+            "title": "Raw Symbol",
+            "type": "string"
+          },
+          "sequence": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sequence",
+            "type": "array"
+          },
+          "sequence_ordinal": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sequence Ordinal",
+            "type": "array"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          },
+          "side": {
+            "description": "One character per tick: B, A or N.",
+            "title": "Side",
+            "type": "string"
+          },
+          "size": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Size",
+            "type": "array"
+          },
+          "ts_base": {
+            "description": "The first tick's ts_event, epoch ns as text.",
+            "title": "Ts Base",
+            "type": "string"
+          },
+          "ts_event": {
+            "description": "Delta in ns from the previous tick; the first is 0.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ts Event",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_date",
+          "raw_symbol",
+          "instrument_id",
+          "count",
+          "ts_base",
+          "ts_event",
+          "sequence",
+          "sequence_ordinal",
+          "price",
+          "size",
+          "side",
+          "bid_px",
+          "ask_px",
+          "bid_sz",
+          "ask_sz"
+        ],
+        "title": "FuturesTickBlock",
+        "type": "object"
+      },
+      "FuturesTicksResponse": {
+        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/ticks``.\n\n``end`` is exclusive (session dates). ``from``/``until`` echo the instant\nbounds, half-open, null when not given. ``count`` is the ticks over all\nblocks.",
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/FuturesTickBlock"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
           "count": {
             "title": "Count",
             "type": "integer"
@@ -1953,6 +2110,11 @@
             "title": "Incomplete",
             "type": "array"
           },
+          "price_scale": {
+            "description": "A price is its integer \u00d7 10^-price_scale (DBN fixed point).",
+            "title": "Price Scale",
+            "type": "integer"
+          },
           "segments": {
             "items": {
               "$ref": "#/components/schemas/SegmentRecord"
@@ -1974,13 +2136,6 @@
           },
           "target": {
             "$ref": "#/components/schemas/FuturesTarget"
-          },
-          "ticks": {
-            "items": {
-              "$ref": "#/components/schemas/TickRecord"
-            },
-            "title": "Ticks",
-            "type": "array"
           },
           "unresolved": {
             "items": {
@@ -2013,7 +2168,8 @@
           "unresolved",
           "incomplete",
           "count",
-          "ticks"
+          "price_scale",
+          "blocks"
         ],
         "title": "FuturesTicksResponse",
         "type": "object"
@@ -3992,135 +4148,6 @@
         ],
         "title": "TickLineState",
         "type": "string"
-      },
-      "TickRecord": {
-        "description": "One tick (``/futures/.../ticks``): ``TICK_COLUMNS`` in order. The BBO\nfields are null on trades-tier rows.",
-        "properties": {
-          "ask_ct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ask Ct"
-          },
-          "ask_px": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ask Px"
-          },
-          "ask_sz": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ask Sz"
-          },
-          "bid_ct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bid Ct"
-          },
-          "bid_px": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bid Px"
-          },
-          "bid_sz": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bid Sz"
-          },
-          "instrument_id": {
-            "title": "Instrument Id",
-            "type": "integer"
-          },
-          "price": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Price"
-          },
-          "raw_symbol": {
-            "title": "Raw Symbol",
-            "type": "string"
-          },
-          "sequence": {
-            "title": "Sequence",
-            "type": "integer"
-          },
-          "session_date": {
-            "format": "date",
-            "title": "Session Date",
-            "type": "string"
-          },
-          "side": {
-            "title": "Side",
-            "type": "string"
-          },
-          "size": {
-            "title": "Size",
-            "type": "integer"
-          },
-          "ts_event": {
-            "title": "Ts Event",
-            "type": "string"
-          }
-        },
-        "required": [
-          "ts_event",
-          "session_date",
-          "raw_symbol",
-          "instrument_id",
-          "price",
-          "size",
-          "side",
-          "bid_px",
-          "ask_px",
-          "bid_sz",
-          "ask_sz",
-          "bid_ct",
-          "ask_ct",
-          "sequence"
-        ],
-        "title": "TickRecord",
-        "type": "object"
       },
       "TickSessionStatus": {
         "description": "A session's status, declared worst first (TD9's table order).",

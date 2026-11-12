@@ -47,17 +47,17 @@ from tick_support.roll_seed import ESZ4
 from tick_support.tier_units import seed_tier_unit
 
 from manta_trading.api_server.app import create_app
-from manta_trading.api_server.models.futures import (
+from manta_trading.api_server.models.futures_ticks import (
+    FuturesTickBlock,
     FuturesTicksResponse,
-    TickRecord,
+    block_fields,
 )
 from manta_trading.constants import API_MAX_BARS_PER_REQUEST
 from manta_trading.data.tick.constants import TickSchema
 from manta_trading.data.tick.get_plan import GetPlan, contract_plan
 from manta_trading.data.tick.pass_contract import TickOutcome
 from manta_trading.data.tick.schema_families import SchemaFamily
-from manta_trading.data.tick.tick_format import cell_value
-from manta_trading.data.tick.tick_reads import TICK_COLUMNS, Row, read_ticks
+from manta_trading.data.tick.tick_reads import Row, read_ticks
 
 pytestmark = [
     pytest.mark.skipif(
@@ -290,15 +290,11 @@ async def _ceiling_rows(
 
 
 def _constructed(plan: GetPlan, rows: list[Row]) -> FuturesTicksResponse:
-    """The alternative TD5 first proposed: rows built without validation."""
+    """The alternative TD5 first proposed: the body built without validation
+    (the columnar blocks of 308 D6, pivoted the same way)."""
     built = FuturesTicksResponse.from_plan(plan, [], (None, None))
-    ticks = [
-        TickRecord.model_construct(
-            **{n: cell_value(n, v) for n, v in zip(TICK_COLUMNS, r, strict=True)}
-        )
-        for r in rows
-    ]
-    return built.model_copy(update={"ticks": ticks, "count": len(ticks)})
+    blocks = [FuturesTickBlock.model_construct(**f) for f in block_fields(rows)]
+    return built.model_copy(update={"blocks": blocks, "count": len(rows)})
 
 
 def _timed(build: Any) -> float:

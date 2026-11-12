@@ -24,7 +24,8 @@ from manta_trading.data.tick.tick_reads import (
 )
 
 _NS_PER_SECOND = 1_000_000_000
-_DIGITS = len(str(TICK_PRICE_SCALE)) - 1  # the scale's power of ten
+#: The scale's power of ten: a price is its stored integer × 10^-PRICE_DIGITS.
+PRICE_DIGITS = len(str(TICK_PRICE_SCALE)) - 1
 
 
 def price_text(raw: int) -> str | None:
@@ -34,7 +35,7 @@ def price_text(raw: int) -> str | None:
     """
     if raw == UNDEF_INT64:
         return None
-    return format(Decimal(raw).scaleb(-_DIGITS).normalize(), "f")
+    return format(Decimal(raw).scaleb(-PRICE_DIGITS).normalize(), "f")
 
 
 def ts_text(ns: int) -> str:

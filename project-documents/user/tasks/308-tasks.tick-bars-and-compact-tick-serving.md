@@ -358,56 +358,58 @@ revision_number: 2
 
 ## 5. Columnar ticks (D6)
 
-- [ ] **5.1 Return `sequence_ordinal` from the tick read**
-  - [ ] Add `sequence_ordinal` to `tick_reads._TICKS`' select list and to
+- [x] **5.1 Return `sequence_ordinal` from the tick read**
+  - [x] Add `sequence_ordinal` to `tick_reads._TICKS`' select list and to
     `TICK_COLUMNS`. `ORDER BY` unchanged.
-  - [ ] `mt data tick get ticks` keeps its row output; update its tests only if
+  - [x] `mt data tick get ticks` keeps its row output; update its tests only if
     the extra column shows there.
 
-- [ ] **5.2 Implement `models/futures_ticks.py`**
-  - [ ] `TickBlock`: `session_date, raw_symbol, instrument_id, count, ts_base`
+- [x] **5.2 Implement `models/futures_ticks.py`**
+  - [x] `TickBlock`: `session_date, raw_symbol, instrument_id, count, ts_base`
     (decimal string), `ts_event` (each the delta from the previous tick, first 0), `sequence`,
     `sequence_ordinal`, `price`, `size`, `side` (one character per tick),
     `bid_px`, `ask_px`, `bid_sz`, `ask_sz` (`None` where absent).
-  - [ ] `TickBlocks.from_rows(rows)`: consecutive rows of one (session,
+  - [x] `TickBlocks.from_rows(rows)`: consecutive rows of one (session,
     instrument) make one block; columns pivoted; `ts_base` is the block's first
     `ts_event`, and `ts_event[i]` is the delta from tick `i - 1` (D6), so a prefix
     sum from `ts_base` restores every timestamp; an undefined price becomes `None`; `bid_ct`/`ask_ct` dropped.
-  - [ ] `FuturesTicksResponse` (columnar, moved here from `futures.py`): built
+  - [x] `FuturesTicksResponse` (columnar, moved here from `futures.py`): built
     with `plan_envelope`, plus `price_scale` (from `TICK_PRICE_SCALE`, not
     retyped) and `blocks`, one per non-empty window in plan order. The pivot runs
     in the executor.
+  - Note: the block model is `FuturesTickBlock`, not `TickBlock`: `models/futures.py` already has the status `TickBlock` (an OpenAPI component), and two models of one name would rename both components. `FuturesTickBlock.from_rows` builds the blocks; the pivot is `block_fields(rows)` so the 231 load test's construct-without-validation path reuses it. `price_scale` is `tick_format.PRICE_DIGITS` (derived from `TICK_PRICE_SCALE`).
 
-- [ ] **5.3 Test: pivot and round trip (unit)**
-  - [ ] `test/unit/api_server/test_futures_ticks_models.py`: two windows make two
+- [x] **5.3 Test: pivot and round trip (unit)**
+  - [x] `test/unit/api_server/test_futures_ticks_models.py`: two windows make two
     blocks, two rows of one window make one; `ts_base` is a string, deltas are
     never negative, `ts_event[0]` is 0; a `ts_event` above 2**53 survives; the
     side string's length equals `count`; bid/ask columns are `None` for
     `trades`-tier rows and a block never drops a column; an undefined price is
     `None`.
-  - [ ] A test-side decoder (prefix-sum from `ts_base`, scale prices) reproduces
+  - [x] A test-side decoder (prefix-sum from `ts_base`, scale prices) reproduces
     the input rows exactly, `sequence_ordinal` included, for a `tbbo` and a
     `trades` block.
 
-- [ ] **5.4 Switch both `/ticks` routes and remove the row model**
-  - [ ] `routes/futures_series.py` builds the columnar response; parameters,
+- [x] **5.4 Switch both `/ticks` routes and remove the row model**
+  - [x] `routes/futures_series.py` builds the columnar response; parameters,
     plan, row ceiling, paging and error mapping unchanged.
-  - [ ] Remove `TickRecord`, its `_records` use and dead helpers from
+  - [x] Remove `TickRecord`, its `_records` use and dead helpers from
     `models/futures.py`. `grep -rn TickRecord src test docs` finds nothing.
 
-- [ ] **5.5 Test: `/ticks` routes (integration) and the 231 load test**
-  - [ ] Update the `/ticks` cases in `test_futures_series.py` (and any test
+- [x] **5.5 Test: `/ticks` routes (integration) and the 231 load test**
+  - [x] Update the `/ticks` cases in `test_futures_series.py` (and any test
     reading `ticks[...]`) to the columnar body; segments, unresolved, incomplete,
     `count`, `from`/`until` paging, the row ceiling and error mapping still pass.
     New columnar cases go in `test_futures_ticks_columnar.py` if the file would
     pass ~450 lines.
-  - [ ] Both routes: decoding the blocks through JSON and msgpack reproduces
+  - [x] Both routes: decoding the blocks through JSON and msgpack reproduces
     `read_ticks`' rows exactly. The `mt data tick get --json` comparisons still
     pass.
-  - [ ] `test/load/test_231_futures_api_nfr.py` builds `FuturesTicksResponse` rows
+  - [x] `test/load/test_231_futures_api_nfr.py` builds `FuturesTicksResponse` rows
     in `_constructed` and `test_model_construct_versus_validation`: update them
     to the columnar model (the load tier is not run here; `ruff` and mypy must
     pass on it).
+  - Note: a shared decoder lives in `test/tick_support/columnar.py`. The CLI comparison decodes the body and formats it with `row_cells`, minus `bid_ct`/`ask_ct`. The 231 load test is updated but not run; its `validated < 1.2 * constructed` assertion was measured on row records and may need re-measuring on the columnar body. `docs/api/openapi.json` regenerated; `test_api_docs.py::test_gate_passes_on_the_committed_tree` still fails until task 6.
 
 **Commit**: `feat: serve /ticks as columnar blocks, drop bid_ct and ask_ct from the wire`
 

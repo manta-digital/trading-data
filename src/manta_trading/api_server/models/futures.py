@@ -1,12 +1,14 @@
-"""Response models for the futures time series and the status tick block (231).
+"""Response models for the futures bars, the shared plan envelope and the
+status tick block (231).
 
-TD5: every price is exact text from ``price_text`` (``None`` when undefined)
-and every nanosecond time is text from ``ts_text``; no field carries epoch
-nanoseconds, which exceed 2^53. Row field names are ``TICK_COLUMNS`` and
-``BAR_COLUMNS`` in order (pinned by a test). Rows are validated: measured on
-75,000 ticks (2026-10-13), validating and dumping took 1.19 s against 1.45 s
-for ``model_construct``, whose dump path is slower.
-Catalog models live in ``futures_catalog.py``.
+TD5: every bar price is exact text from ``price_text`` (``None`` when
+undefined) and every bar time is text from ``ts_text``; no field carries epoch
+nanoseconds, which exceed 2^53. Bar field names are ``BAR_COLUMNS`` in order
+(pinned by a test). Rows are validated: measured on 75,000 ticks (2026-10-13),
+validating and dumping took 1.19 s against 1.45 s for ``model_construct``,
+whose dump path is slower. The columnar ticks live in ``futures_ticks.py``
+(308), tick bars in ``futures_tick_bars.py``, catalog models in
+``futures_catalog.py``.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ from manta_trading.data.tick.tick_accounting import (
     tier_line,
 )
 from manta_trading.data.tick.tick_format import cell_value
-from manta_trading.data.tick.tick_reads import BAR_COLUMNS, TICK_COLUMNS, Row
+from manta_trading.data.tick.tick_reads import BAR_COLUMNS, Row
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
 
@@ -92,26 +94,6 @@ class IncompleteRecord(BaseModel):
     status: TickSessionStatus
 
 
-class TickRecord(BaseModel):
-    """One tick (``/futures/.../ticks``): ``TICK_COLUMNS`` in order. The BBO
-    fields are null on trades-tier rows."""
-
-    ts_event: str
-    session_date: date
-    raw_symbol: str
-    instrument_id: int
-    price: str | None
-    size: int
-    side: str
-    bid_px: str | None
-    ask_px: str | None
-    bid_sz: int | None
-    ask_sz: int | None
-    bid_ct: int | None
-    ask_ct: int | None
-    sequence: int
-
-
 class FuturesBarRecord(BaseModel):
     """One session-bounded bar (``/futures/.../bars``): ``BAR_COLUMNS`` in
     order. ``time`` is the bucket start; ``1d`` is the whole session."""
@@ -128,7 +110,7 @@ class FuturesBarRecord(BaseModel):
 
 
 def plan_envelope(plan: GetPlan) -> dict[str, Any]:
-    """The plan's facts, shared by both time-series responses."""
+    """The plan's facts, shared by every futures time-series response."""
     return {
         "target": FuturesTarget.from_plan(plan),
         "start": plan.start,
@@ -167,47 +149,6 @@ def _records[M: BaseModel](
         )
         for row in rows
     ]
-
-
-class FuturesTicksResponse(BaseModel):
-    """``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/ticks``.
-
-    ``end`` is exclusive (session dates). ``from``/``until`` echo the instant
-    bounds, half-open, null when not given.
-    """
-
-    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
-
-    target: FuturesTarget
-    start: date | None
-    end: date | None
-    # ``from`` is a Python keyword: the field is ``from_``, the wire name its alias.
-    from_: datetime | None = Field(alias="from")
-    until: datetime | None
-    definitions_as_of: date | None
-    segments: list[SegmentRecord]
-    unresolved: list[UnresolvedRecord]
-    incomplete: list[IncompleteRecord]
-    count: int
-    ticks: list[TickRecord]
-
-    @classmethod
-    def from_plan(
-        cls,
-        plan: GetPlan,
-        rows: Sequence[Row],
-        bounds: tuple[datetime | None, datetime | None],
-    ) -> FuturesTicksResponse:
-        # Through the alias, as ``_pass_line`` does: ``from`` is a keyword.
-        return cls(
-            **plan_envelope(plan)
-            | {
-                "from": bounds[0],
-                "until": bounds[1],
-                "count": len(rows),
-                "ticks": _records(TickRecord, TICK_COLUMNS, rows),
-            }
-        )
 
 
 class FuturesBarsResponse(BaseModel):

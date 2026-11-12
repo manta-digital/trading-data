@@ -26,6 +26,7 @@ from manta_trading.data.tick.constants import TICK_GET_FETCH_ROWS
 from manta_trading.data.tick.manifest_reads import Conn
 
 #: TD5's tick row, in order. The BBO columns are null on trades-tier rows.
+#: ``sequence_ordinal`` completes the stream key (308 D6).
 TICK_COLUMNS = (
     "ts_event",
     "session_date",
@@ -41,6 +42,7 @@ TICK_COLUMNS = (
     "bid_ct",
     "ask_ct",
     "sequence",
+    "sequence_ordinal",
 )
 #: TD5's bar row, in order. ``time`` is the bucket start, in ns.
 BAR_COLUMNS = (
@@ -113,7 +115,7 @@ WINDOW_WHERE = sql.SQL(
 )
 _TICKS = sql.SQL(
     "SELECT ts_event, {window}, price, size, side, bid_px_00, ask_px_00,"
-    " bid_sz_00, ask_sz_00, bid_ct_00, ask_ct_00, sequence"
+    " bid_sz_00, ask_sz_00, bid_ct_00, ask_ct_00, sequence, sequence_ordinal"
     " FROM tick_trade WHERE {where}"
     " ORDER BY ts_event, sequence, sequence_ordinal"
 )

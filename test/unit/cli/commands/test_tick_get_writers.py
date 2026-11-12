@@ -46,8 +46,8 @@ PRODUCT = GetPlan(
 CONTRACT = GetPlan(ContractTarget("ESZ4", 183748, "ES"), D16, D18, (), (), (), (), None)
 #: A trades-tier row (BBO null) and a tbbo row with an undefined ask.
 TICK_ROWS = [
-    (TS, D16, "ESZ4", 183748, PX, 2, "A", None, None, None, None, None, None, 9),
-    (TS + 1, D16, "ESZ4", 183748, PX, 1, "B", PX, UNDEF_INT64, 3, 0, 1, 0, 10),
+    (TS, D16, "ESZ4", 183748, PX, 2, "A", None, None, None, None, None, None, 9, 0),
+    (TS + 1, D16, "ESZ4", 183748, PX, 1, "B", PX, UNDEF_INT64, 3, 0, 1, 0, 10, 1),
 ]
 #: What a bar size's output names as its source (306 D8).
 BAR_SOURCE_TEXT = "ohlcv-1m"

@@ -9,7 +9,9 @@ with ``end`` exclusive; ticks also take half-open ``[from, until)`` instants.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime
+from functools import partial
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -26,10 +28,8 @@ from manta_trading.api_server.futures_read import (
     RowCeilingExceeded,
     read_series,
 )
-from manta_trading.api_server.models.futures import (
-    FuturesBarsResponse,
-    FuturesTicksResponse,
-)
+from manta_trading.api_server.models.futures import FuturesBarsResponse
+from manta_trading.api_server.models.futures_ticks import FuturesTicksResponse
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
     TICK_UNAVAILABLE_RESPONSE,
@@ -149,7 +149,11 @@ async def _ticks(
     plan, rows = await _serve(
         request, conn, plan_for, read_ticks, (limit, NARROW_TICKS), bounds.ns()
     )
-    model = FuturesTicksResponse.from_plan(plan, rows, (bounds.lower, bounds.upper))
+    build = partial(
+        FuturesTicksResponse.from_plan, plan, rows, (bounds.lower, bounds.upper)
+    )
+    # The pivot touches every tick: off the loop, as the encode is (308 D6).
+    model = await asyncio.get_running_loop().run_in_executor(None, build)
     return await send_timeseries(request, model, fmt)
 
 
