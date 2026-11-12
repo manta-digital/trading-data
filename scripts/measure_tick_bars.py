@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import math
+import os
 import statistics
 import sys
 import time
@@ -76,7 +77,11 @@ MIN_BUSY_PROBES = 3
 PROBE_DELAY_S = 0.2
 REQUEST_TIMEOUT_S = 120.0
 PRODUCTS_PATH = "/api/v1/futures/products"
-NOTE = Path("project-documents/user/notes/308-tick-bar-measurement.md")
+#: Under the checkout this script lives in, whatever the working directory.
+NOTE = (
+    Path(__file__).resolve().parents[1]
+    / "project-documents/user/notes/308-tick-bar-measurement.md"
+)
 
 
 @dataclass(frozen=True)
@@ -256,15 +261,15 @@ def report(
     failures: Sequence[str],
 ) -> str:
     """The note's markdown."""
-    today = datetime.now(UTC).date().isoformat()
+    today = datetime.now(UTC).strftime("%Y%m%d")
     ledger_sum = sum(row.records for row in picked)
     checks = "\n".join(f"- FAIL: {f}" for f in failures) or "- every check passed"
     return f"""---
-docType: note
-slice: tick-bars-and-compact-tick-serving
+docType: notes
 project: trading-data
 dateCreated: {today}
 dateUpdated: {today}
+status: complete
 ---
 
 # 308 tick-bar measurement (criterion 12)
@@ -336,6 +341,9 @@ async def _run(args: argparse.Namespace) -> tuple[str, list[str]]:
 
 def main(argv: Sequence[str]) -> int:
     args = _args(argv)
+    # Before the production request is spent, not after it (#75).
+    if not os.access(NOTE.parent, os.W_OK):
+        raise SystemExit(f"cannot write the note: {NOTE.parent} is not writable")
     note, failures = asyncio.run(_run(args))
     NOTE.write_text(note)
     print(f"wrote {NOTE}; {len(failures)} failed check(s)")

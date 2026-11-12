@@ -6,12 +6,20 @@ bounds. The production read and request run only in Phase 7 (#75).
 
 from __future__ import annotations
 
+import re
 from datetime import date
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
 from tick_support.measure_script import measure_script
+
+# fmt: off
+ARGV = ("--base-url", "http://x", "--product", "ES", "--rule", "v.0",
+        "--start", "2024-09-03", "--end", "2025-01-01",
+        "--ticks-per-bar", "1000", "--limit", "2000000")
+# fmt: on
 
 
 @pytest.fixture(scope="module")
@@ -135,11 +143,34 @@ def test_judge_applies_both_bounds(measure: ModuleType) -> None:
 def test_bad_numeric_arguments_are_usage_errors(
     measure: ModuleType, flag: str, value: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    argv = ["--base-url", "http://x", "--product", "ES", "--rule", "v.0",
-            "--start", "2024-09-03", "--end", "2025-01-01",
-            "--ticks-per-bar", "1000", "--limit", "2000000"]  # fmt: skip
+    argv = list(ARGV)
     argv[argv.index(flag) + 1] = value
     with pytest.raises(SystemExit) as exited:
         measure.main(argv)
     assert exited.value.code == 2
     assert flag in capsys.readouterr().err
+
+
+def test_the_note_frontmatter_follows_the_naming_conventions(
+    measure: ModuleType,
+) -> None:
+    args = measure._args(ARGV)
+    timing = measure.Timing(2.0, [0.06] * 7, [0.15] * 7)
+    note = measure.report(args, _rows(measure, [1000]), timing, [])
+    front = note.split("---")[1]
+    assert "docType: notes\n" in front
+    assert "status: complete\n" in front
+    assert re.search(r"^dateCreated: \d{8}$", front, re.MULTILINE)
+
+
+def test_an_unwritable_note_stops_before_any_request(
+    measure: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(measure, "NOTE", tmp_path / "missing" / "note.md")
+
+    def no_run(args: object) -> None:
+        raise AssertionError("the request ran")
+
+    monkeypatch.setattr(measure, "_run", no_run)
+    with pytest.raises(SystemExit, match="cannot write the note"):
+        measure.main(ARGV)

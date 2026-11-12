@@ -9,8 +9,9 @@ status: complete
 
 # Data Serving API reference
 
-Seventeen read-only HTTP routes over the equity bar store, the Kalshi
-prediction-market catalog and tape, and this system's own operational state.
+Read-only HTTP routes over the equity bar store, the futures catalog, bars,
+ticks and tick bars, the Kalshi prediction-market catalog and tape, and this
+system's own operational state.
 
 This document is **route-indexed**: one section per path, with a field table
 giving each field's type, nullability, unit or time base, and meaning. If you
