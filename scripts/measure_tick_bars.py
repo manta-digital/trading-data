@@ -148,7 +148,8 @@ async def ledger_rows(
     span: tuple[date, date],
 ) -> list[LedgerRow]:
     """The route's plan over ``[start, end)``, each window with its ledger
-    count and volume. A planned window with no ledger row stops the script."""
+    count and volume. A window with no ledger row holds no trades and scans
+    nothing, as the route's admission counts it (``trades_to_scan``)."""
     tick_url = resolve_database_url(settings, Database.TICK, Credential.APPLICATION)
     calendar_url = settings.timescale_db_url
     if not calendar_url:
@@ -167,17 +168,15 @@ async def ledger_rows(
         family = SchemaFamily.TICK_TIER
         totals = await ledger_totals(conn, shape, family, first, last)
         volumes = await ledger_volumes(conn, shape, family, first, last)
-    rows = []
-    for window in plan.segments:
-        key = (window.instrument_id, window.session_date)
-        if key not in totals:
-            raise SystemExit(f"{window.session_date} {window.raw_symbol}: no ledger")
-        rows.append(
-            LedgerRow(
-                window.session_date, window.instrument_id, totals[key], volumes[key]
-            )
+    return [
+        LedgerRow(
+            w.session_date,
+            w.instrument_id,
+            totals.get((w.instrument_id, w.session_date), 0),
+            volumes.get((w.instrument_id, w.session_date), 0),
         )
-    return rows
+        for w in plan.segments
+    ]
 
 
 @dataclass(frozen=True)
