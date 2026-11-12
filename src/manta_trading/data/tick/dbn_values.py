@@ -11,8 +11,12 @@ from __future__ import annotations
 from typing import Final
 
 #: DBN ``UNDEF_PRICE`` (``i64::MAX``): an undefined price or quantity field.
-UNDEF_INT64 = 2**63 - 1
+UNDEF_INT64: Final[int] = 2**63 - 1
+
+#: DBN ``UNDEF_ORDER_SIZE`` (``u32::MAX``): an undefined size field. Stored as
+#: delivered (``storage_columns``), so a trade row may carry it.
+UNDEF_UINT32: Final[int] = 2**32 - 1
 
 #: DBN aggressor sides of a trade. ``N`` (no side) is neither.
-TRADE_SIDE_BUY: Final = "B"
-TRADE_SIDE_SELL: Final = "A"
+TRADE_SIDE_BUY: Final[str] = "B"
+TRADE_SIDE_SELL: Final[str] = "A"

@@ -10,7 +10,8 @@ count restarts at index 0 when a trade's session differs from the open bar's,
 and the open bar is first emitted as that session's last bar, ``partial``.
 ``close_session`` ends the last session the same way. Input must arrive in key
 order ``(ts_event, sequence, sequence_ordinal)``; anything else is a caller
-bug and raises :class:`TickBarInputError`, never a silent reorder.
+bug and raises :class:`TickBarInputError`, never a silent reorder. So does a
+trade whose price or size is the provider's undefined sentinel.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from manta_trading.data.tick.dbn_values import (
     TRADE_SIDE_BUY,
     TRADE_SIDE_SELL,
     UNDEF_INT64,
+    UNDEF_UINT32,
 )
 
 #: A trade's stream key: ``(ts_event, sequence, sequence_ordinal)``.
@@ -188,6 +190,8 @@ class TickBarCutter:
         previous = self._last_key
         if trade.price == UNDEF_INT64:
             raise TickBarInputError("undefined price", (previous, key))
+        if trade.size == UNDEF_UINT32:
+            raise TickBarInputError("undefined size", (previous, key))
         if previous is not None and key <= previous:
             raise TickBarInputError("trade key not ascending", (previous, key))
         if self._session is not None and trade.session_date < self._session:

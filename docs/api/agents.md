@@ -533,7 +533,7 @@ Two consequences, stated so you do not have to infer them:
 {"detail":[{"type":"enum","loc":["query","granularity"],"msg":"Input should be '1m', '5m', …","input":"2d"}]}
 ```
 
-But **eight hand-written refusals send a different shape**:
+But **hand-written refusals send a different shape**:
 
 ```json
 {"error":"requested range spans about 3,167,495 1m bars, over the 75,000 bar limit; at 1m request at most 113 days per call, or use a coarser granularity"}

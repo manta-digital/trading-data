@@ -12,7 +12,10 @@ admission does.
 One fresh :class:`TickBarCutter` per window. Each fetched batch is pushed
 through it in the default executor (milliseconds of CPU per batch) and awaited
 before the next fetch, so one thread at a time touches the cutter; the awaited
-future is the hand-off between the loop and the worker thread.
+future is the hand-off between the loop and the worker thread. The final
+``close_session`` runs on the loop, which is safe only because no executor call
+is in flight then; a change that overlaps fetch and push must move it into the
+executor.
 """
 
 from __future__ import annotations

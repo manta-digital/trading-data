@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from manta_trading.data.tick.constants import TickSchema
-from manta_trading.data.tick.dbn_values import UNDEF_INT64
+from manta_trading.data.tick.dbn_values import UNDEF_INT64, UNDEF_UINT32
 from manta_trading.data.tick.tick_bars import (
     TickBar,
     TickBarCutter,
@@ -156,6 +156,7 @@ def _trade(ts: int, seq: int = 1, ordinal: int = 0, **kw: Any) -> Trade:
         (_trade(99, 9, 9), "lower ts_event"),
         (_trade(101, session_date=date(2024, 12, 2)), "session backwards"),
         (_trade(101, price=UNDEF_INT64), "undefined price"),
+        (_trade(101, size=UNDEF_UINT32), "undefined size"),
     ],
 )
 def test_bad_input_raises_with_both_keys(second: Trade, reason: str) -> None:

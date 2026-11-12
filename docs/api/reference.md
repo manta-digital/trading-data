@@ -239,7 +239,7 @@ its native body so clients retain the per-field detail:
 
 **This is the most likely thing to break a client**, so it is stated plainly:
 `openapi.json` declares `HTTPValidationError` — the `{"detail": [...]}` shape —
-for `422` on **every** route that has one. But the eight hand-written `422`s in
+for `422` on **every** route that has one. But the hand-written `422`s in
 this codebase send `{"error": "…"}` instead, through the exception handler at
 [`app.py:192`](../../src/manta_trading/api_server/app.py). A generated client
 that parses the declared shape will fail to parse the most informative
@@ -2039,10 +2039,11 @@ is down.
 
 ## 7. msgpack: what it actually saves
 
-Three routes accept `format=msgpack` — equity bars (§3.2), Kalshi candlesticks
-(§5.1) and Kalshi trades (§5.2). The response body is
+Every time-series route accepts `format=msgpack` — equity bars (§3.2), the
+futures time series (§6), Kalshi candlesticks (§5.1) and Kalshi trades (§5.2).
+The response body is
 `application/x-msgpack`; the field names, types and structure are identical to
-the JSON form. Both media types are declared on the `200` of all three routes,
+the JSON form. Both media types are declared on the `200` of each of them,
 so a generated client must expect either.
 
 **Measured savings, captured 2026-09-16:**
