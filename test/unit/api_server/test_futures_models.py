@@ -17,10 +17,8 @@ import pytest
 from manta_trading.api_server.models.futures import (
     FuturesBarRecord,
     FuturesBarsResponse,
-    FuturesTicksResponse,
     TickAccountingRecord,
     TickBlock,
-    TickRecord,
 )
 from manta_trading.api_server.models.futures_catalog import (
     ActiveLineRecord,
@@ -28,9 +26,10 @@ from manta_trading.api_server.models.futures_catalog import (
     FuturesScheduleResponse,
     ScheduleSegmentRecord,
 )
+from manta_trading.api_server.models.futures_ticks import FuturesTicksResponse
 from manta_trading.constants import Granularity
 from manta_trading.data.tick.bar_constants import BAR_SOURCE
-from manta_trading.data.tick.constants import TICK_BAR_GRANULARITIES, UNDEF_INT64
+from manta_trading.data.tick.constants import TICK_BAR_GRANULARITIES
 from manta_trading.data.tick.get_plan import (
     DisplaySegment,
     GetPlan,
@@ -56,7 +55,7 @@ from manta_trading.data.tick.roll_types import (
 )
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_accounting import TickAccountingLine
-from manta_trading.data.tick.tick_reads import BAR_COLUMNS, TICK_COLUMNS
+from manta_trading.data.tick.tick_reads import BAR_COLUMNS
 from manta_trading.data.tick.tick_status import TickSessionStatus
 
 #: 2024-09-18 14:00 UTC plus 123456789 ns: past 2^53, as every 2024 stamp is.
@@ -91,8 +90,7 @@ def _json(model: Any) -> Any:
     return json.loads(model.model_dump_json())
 
 
-def test_row_fields_are_the_read_columns_in_order() -> None:
-    assert tuple(TickRecord.model_fields) == TICK_COLUMNS
+def test_bar_fields_are_the_read_columns_in_order() -> None:
     assert tuple(FuturesBarRecord.model_fields) == BAR_COLUMNS
 
 
@@ -162,17 +160,6 @@ def _tick(price: int) -> tuple[Any, ...]:
     return (TS_2024, date(2024, 9, 18), "ESZ4", 1, price, 2, "A")
 
 
-def test_prices_are_exact_text_and_undefined_is_null() -> None:
-    row = (*_tick(5_950_250_000_000), UNDEF_INT64, None, None, None, None, None, 9)
-
-    tick = _json(FuturesTicksResponse.from_plan(_plan(), [row], (None, None)))["ticks"][
-        0
-    ]
-
-    assert (tick["price"], tick["bid_px"], tick["ask_px"]) == ("5950.25", None, None)
-    assert tick["ts_event"] == "2024-09-18T14:00:00.123456789Z"
-
-
 def _integers(value: Any) -> list[int]:
     if isinstance(value, bool):
         return []
@@ -186,7 +173,7 @@ def _integers(value: Any) -> list[int]:
 
 
 def test_no_integer_on_the_wire_reaches_2_to_the_53() -> None:
-    row = (*_tick(5_950_250_000_000), None, None, None, None, None, None, 9)
+    row = (*_tick(5_950_250_000_000), None, None, None, None, None, None, 9, 0)
     bar = (TS_2024, date(2024, 9, 18), "ESZ4", 1, *[5_950_250_000_000] * 4, 10)
 
     ticks = _json(FuturesTicksResponse.from_plan(_plan(), [row], (None, None)))

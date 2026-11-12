@@ -9,7 +9,9 @@ with ``end`` exclusive; ticks also take half-open ``[from, until)`` instants.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime
+from functools import partial
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -26,10 +28,8 @@ from manta_trading.api_server.futures_read import (
     RowCeilingExceeded,
     read_series,
 )
-from manta_trading.api_server.models.futures import (
-    FuturesBarsResponse,
-    FuturesTicksResponse,
-)
+from manta_trading.api_server.models.futures import FuturesBarsResponse
+from manta_trading.api_server.models.futures_ticks import FuturesTicksResponse
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
     TICK_UNAVAILABLE_RESPONSE,
@@ -96,12 +96,13 @@ async def _serve(
         raise over_ceiling(ceiling, remedy=remedy) from None
 
 
-def _contract_plan(
+def contract_plan_for(
     request: Request,
     symbol: str,
     span: tuple[date | None, date | None],
     family: SchemaFamily,
 ) -> PlanFor:
+    """The contract plan of ``family``, built on the read's own connection."""
     calendar_url = request.app.state.calendar_url
 
     async def plan(conn: Conn) -> GetPlan:
@@ -110,7 +111,7 @@ def _contract_plan(
     return plan
 
 
-def _product_plan(
+def product_plan_for(
     request: Request,
     product: str,
     rule: str | None,
@@ -148,7 +149,11 @@ async def _ticks(
     plan, rows = await _serve(
         request, conn, plan_for, read_ticks, (limit, NARROW_TICKS), bounds.ns()
     )
-    model = FuturesTicksResponse.from_plan(plan, rows, (bounds.lower, bounds.upper))
+    build = partial(
+        FuturesTicksResponse.from_plan, plan, rows, (bounds.lower, bounds.upper)
+    )
+    # The pivot touches every tick: off the loop, as the encode is (308 D6).
+    model = await asyncio.get_running_loop().run_in_executor(None, build)
     return await send_timeseries(request, model, fmt)
 
 
@@ -182,7 +187,7 @@ async def contract_ticks(
 ) -> Response:
     """One contract's ticks over ``[start, end)`` sessions, clipped to
     ``[from, until)``, in key order. Refused past the row ceiling."""
-    plan_for = _contract_plan(request, symbol, (start, end), SchemaFamily.TICK_TIER)
+    plan_for = contract_plan_for(request, symbol, (start, end), SchemaFamily.TICK_TIER)
     return await _ticks(request, conn, plan_for, max_rows, (from_, until), fmt)
 
 
@@ -200,7 +205,7 @@ async def contract_bars(
     fmt: Format = "json",
 ) -> Response:
     """One contract's provider bars over ``[start, end)`` sessions."""
-    plan_for = _contract_plan(request, symbol, (start, end), SchemaFamily.BAR_1M)
+    plan_for = contract_plan_for(request, symbol, (start, end), SchemaFamily.BAR_1M)
     return await _bars(request, conn, plan_for, max_rows, granularity, fmt)
 
 
@@ -221,7 +226,7 @@ async def product_ticks(
 ) -> Response:
     """A product's ticks under ``rule``: each session from the contract the
     rule names (``segments``); ``unresolved`` sessions have no rows."""
-    plan_for = _product_plan(
+    plan_for = product_plan_for(
         request, product, rule, (start, end), SchemaFamily.TICK_TIER
     )
     return await _ticks(request, conn, plan_for, max_rows, (from_, until), fmt)
@@ -242,5 +247,7 @@ async def product_bars(
     fmt: Format = "json",
 ) -> Response:
     """A product's bars under ``rule``, one contract per session, never merged."""
-    plan_for = _product_plan(request, product, rule, (start, end), SchemaFamily.BAR_1M)
+    plan_for = product_plan_for(
+        request, product, rule, (start, end), SchemaFamily.BAR_1M
+    )
     return await _bars(request, conn, plan_for, max_rows, granularity, fmt)

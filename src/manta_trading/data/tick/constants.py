@@ -17,6 +17,7 @@ from enum import StrEnum
 from typing import Final
 
 from manta_trading.constants import Granularity
+from manta_trading.data.tick.dbn_values import UNDEF_INT64
 from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
 from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_CALENDAR_ID
 
@@ -288,8 +289,6 @@ TICK_SPEND_WINDOW = timedelta(days=30)
 #: ``activation``/``expiration`` when the provider gives no timestamp
 #: (DBN ``UNDEF_TIMESTAMP``, ``u64::MAX``).
 UNDEF_TIMESTAMP_NS = 2**64 - 1
-#: DBN ``UNDEF_PRICE`` (``i64::MAX``): an undefined price or quantity field.
-UNDEF_INT64 = 2**63 - 1
 #: An undefined ``i32`` field (``i32::MAX``), e.g. ``contract_multiplier``.
 UNDEF_INT32 = 2**31 - 1
 

@@ -7,8 +7,8 @@ dependencies:
 - 306
 interfaces: []
 dateCreated: 20261108
-dateUpdated: 20261108
-status: not_started
+dateUpdated: 20261112
+status: complete
 turns: 27
 promptTokens: 2148565
 cachedTokens: 2036166
@@ -193,7 +193,7 @@ The ADR's rule, made exact:
 ### D3 — History runs the module in a loop
 Status: decided
 
-`tick_bar_reads.read_tick_bars(conn, window, ticks_per_bar, bounds, on_batch)` has the `ReadWindow` shape once `ticks_per_bar` and `bounds` are bound, so `read_series` drives it like `read_ticks`.
+`tick_bar_reads.read_tick_bars(conn, window, on_batch, *, ticks_per_bar, bounds, stop)` has the `ReadWindow` shape once its keyword-only parameters are bound, so `read_series` drives it like `read_ticks`. The route passes `read_series` no bounds, so windows arrive unclipped and the reader applies `[from, until)` itself (Phase 6: `partial` cannot bind `on_batch`, and `clip` would cut the session open the scan needs).
 
 - One statement per window over the full session `[open_ns, close_ns]`, on the key prefix `(instrument_id, ts_event)`, through `tick_reads.stream_rows`. It selects only the trade columns in `Trade` order (the window's session date as a parameter), so each fetched row becomes a `Trade` with `Trade._make`.
 - A fresh `TickBarCutter` per window. Every fetched batch is pushed through; bars whose `open_time` is in `[from, until)` go to `on_batch`. `close_session()` ends the window.
@@ -282,12 +282,12 @@ Status: decided
 
 Nothing is bought.
 
-- **Module tests** run the cutter on the real 2024-12-03 `tbbo` cut, whose busiest instrument has 1,000 contiguous trades on each side of the daily break: the end of session 2024-12-03 and the start of 2024-12-04. Expected bars come from an independent oracle in the test: the trades sorted by key, split per session, chunked by N with list slicing, each chunk summarised. The tests cover N = 1, a prime N that leaves a partial bar, N equal to and greater than a session's count, the restart at the session open, repeated `(ts_event, sequence)` records, and `buy + sell + side-N volume = volume`.
+- **Module tests** run the cutter on the real 2024-12-03 `tbbo` cut, which holds 1,000 records of all instruments on each side of the daily break. Its busiest instrument (ESZ4, 183748) has 982 trades before the 2024-12-03 close and 997 after the 2024-12-04 open, and 1,968 and 1,491 trades in those two sessions overall (corrected in Phase 6; the oracle asserts these counts). Expected bars come from an independent oracle in the test: the trades sorted by key, split per session, chunked by N with list slicing, each chunk summarised. The tests cover N = 1, a prime N that leaves a partial bar, N equal to and greater than a session's count, the restart at the session open, repeated `(ts_event, sequence)` records, and `buy + sell + side-N volume = volume`.
 - **`trades` tier:** the derived `trades` twin of the same day gives identical OHLCV, counts and sides, with null bid/ask.
 - **Window independence:** for random `from`/`until` cuts, the returned bars equal the full read's bars filtered by `open_time`.
 - **Integration (tick test cluster):** both routes over the ingested fixture, admission refusals at a small configured trade limit, and the bar ceiling.
 - **Columnar round trip:** decoding a block (prefix-summing `ts_event` from `ts_base`, scaling prices) reproduces `read_ticks`' rows exactly, for a `tbbo` and a `trades` block, through JSON and msgpack.
-- **Production (Phase 7, after release):** one ES request at the trade limit at N = 1000. Its range is chosen from the ledger, not from a session count: the run of consecutive ES 2024 sessions whose record counts (`mt data tick coverage --json`) sum to between 95% and 100% of the configured limit. The sum is recorded with the timing. The request completes in under 10 s, the bound 306 D10 uses. For every session, `Σ trade_count` equals the ledger's record count and `Σ volume` its volume; `count` equals `Σ ceil(nᵢ / 1000)`. While that request runs, a concurrent `GET /api/v1/futures/products` answers within 100 ms of its time measured idle, which shows the loop is not starved. The result is recorded in `user/notes/308-tick-bar-measurement.md`.
+- **Production (Phase 7, after release):** one ES request at the trade limit at N = 1000. Its range is chosen from the ledger, not from a session count: the run of consecutive ES 2024 sessions whose record counts (the plan's windows with `ledger_totals`, as `scripts/measure_tick_bars.py` reads them; `mt data tick coverage --json` sums every instrument so it cannot) sum to between 95% and 100% of the configured limit. The sum is recorded with the timing. The request completes in under 10 s, the bound 306 D10 uses. For every session, `Σ trade_count` equals the ledger's record count and `Σ volume` its volume; `count` equals `Σ ceil(nᵢ / 1000)`. While that request runs, a concurrent `GET /api/v1/futures/products` answers within 250 ms of its time measured idle (the test-cluster measurement of 2026-11-12 put the idle probe's own spread near 80 ms and cutting's GIL share at 50-90 ms; 100 ms was inside that noise), which shows the loop is not starved. The result is recorded in `user/notes/308-tick-bar-measurement.md`.
 
 ### D10 — Abandoned, concurrent and early-stopped reads
 Status: decided
@@ -367,46 +367,73 @@ Status: decided
 
 The routes exist after Phase 6. The production steps run after the release, against the held ES 2024 ticks. Before then, the integration tests run the same paths on the fixtures.
 
+**Run on 2026-11-12 (Phase 6).** Every step below was run against a dev API built from the slice branch (`uv run mt serve --host 127.0.0.1 --port 8199`, from the checkout root), which reads the production databases through the checkout's `.env`. The outputs shown are from that run. After the release, use `localhost:8100`. Set `API=localhost:8199` (or `localhost:8100`) first.
+
 1. **Tick bars at an arbitrary N.**
    ```bash
-   curl -s 'localhost:8100/api/v1/futures/products/ES/tick-bars?ticks_per_bar=997&start=2024-12-03&end=2024-12-04' \
-     | jq '.count, .bars[0] | {session_date, index, open_time, trade_count, partial}'
-   curl -s '…same…' | jq '[.bars[] | select(.partial)] | length'
-   # one partial bar at most per session; index 0 at the session open
+   curl -s "$API/api/v1/futures/products/ES/tick-bars?ticks_per_bar=997&start=2024-12-03&end=2024-12-04" \
+     | jq -c '.count, (.bars[0] | {session_date, index, open_time, trade_count, partial}), ([.bars[] | select(.partial)] | length)'
+   # 264
+   # {"session_date":"2024-12-03","index":0,"open_time":"2024-12-02T23:00:00.000000000Z","trade_count":997,"partial":false}
+   # 1        <- one partial bar at most per session; index 0 at the session open
    ```
 2. **Partial bar and restart across sessions.**
    ```bash
-   curl -s 'localhost:8100/api/v1/futures/products/ES/tick-bars?ticks_per_bar=1000&start=2024-12-02&end=2024-12-04' \
-     | jq '[.bars[] | select(.index == 0 or .partial) | {session_date, index, trade_count, partial}]'
+   curl -s "$API/api/v1/futures/products/ES/tick-bars?ticks_per_bar=1000&start=2024-12-02&end=2024-12-04" > /tmp/tb2.json
+   jq -c '[.bars[] | select(.index == 0 or .partial) | {session_date, index, trade_count, partial}]' /tmp/tb2.json
+   # 2024-12-02: index 0 (1000, false) ... index 281 (74, true)
+   # 2024-12-03: index 0 (1000, false) ... index 262 (654, true)
+   jq -c '[.bars | group_by(.session_date)[] | {s: .[0].session_date, i: .[0].instrument_id, trades: (map(.trade_count)|add), vol: (map(.volume)|add)}]' /tmp/tb2.json
+   # 2024-12-02 ESZ4 (183748): 281,074 trades, volume 929,487
+   # 2024-12-03 ESZ4 (183748): 262,654 trades, volume 920,768
    ```
-3. **Totals agree with the ledger.**
+3. **Totals agree with the ledger.** `mt data tick coverage --json` cannot be used here: it sums every instrument of the product and reports no tick-tier volume. Read the ledger for the served instrument instead (read-only, URL from `Settings`):
    ```bash
-   sudo mt-run data tick coverage --product ES --start 2024-12-02 --end 2024-12-04 --json
-   # compare each session's record count and volume with Σ trade_count and Σ volume from step 2
+   uv run python - <<'PY'
+   import psycopg
+   from manta_trading.config import Settings
+   from manta_trading.market.schema.databases import Credential, Database, resolve_database_url
+   url = resolve_database_url(Settings(), Database.TICK, Credential.APPLICATION)
+   with psycopg.connect(url, options="-c default_transaction_read_only=on") as c:
+       print(c.execute("SELECT session_date, sum(record_count), sum(volume) FROM tick_ingest_ledger"
+                       " WHERE instrument_id = 183748 AND session_date IN ('2024-12-02', '2024-12-03')"
+                       " GROUP BY 1 ORDER BY 1").fetchall())
+   PY
+   # 2024-12-02: 281074, 929487; 2024-12-03: 262654, 920768 (equal to step 2)
    ```
 4. **Admission.**
    ```bash
-   curl -s -w '%{http_code}\n' 'localhost:8100/api/v1/futures/products/ES/tick-bars?ticks_per_bar=1000&start=2024-09-03&end=2024-12-31' | tail -c 200
-   # 422: "the request scans … trades, over the 2,000,000 trade limit; narrow start/end"
-   curl -s -w '%{http_code}\n' 'localhost:8100/api/v1/futures/products/ES/tick-bars?ticks_per_bar=1&start=2024-12-03&end=2024-12-04' | tail -c 200
-   # 422: over the 75,000 row limit; raise ticks_per_bar, or narrow start/end or from/until
+   curl -s -w ' %{http_code}\n' "$API/api/v1/futures/products/ES/tick-bars?ticks_per_bar=1000&start=2024-09-03&end=2024-12-31"
+   # {"error":"the request scans 22,139,555 trades, over the 2,000,000 trade limit; narrow start/end"} 422
+   curl -s -w ' %{http_code}\n' "$API/api/v1/futures/products/ES/tick-bars?ticks_per_bar=1&start=2024-12-03&end=2024-12-04"
+   # {"error":"the request matches more than the 75,000 row limit; raise ticks_per_bar, or narrow start/end or from/until"} 422
    ```
-5. **Measurement at the trade limit (D9).**
+5. **Measurement at the trade limit (D9, criterion 12).** `scripts/measure_tick_bars.py` builds the route's plan, reads each window's ledger count and volume, picks the first run of consecutive sessions that sums to 95-100% of `--limit`, times the request while probing `/futures/products`, checks the totals per session and writes `user/notes/308-tick-bar-measurement.md`. It exits 0 only when every check passes. `--limit` must be production's `MT_API_MAX_TICK_BAR_TRADES` (default 2,000,000).
    ```bash
-   sudo mt-run data tick coverage --product ES --start 2024-09-03 --end 2025-01-01 --json
-   # pick START/END: consecutive sessions whose record counts sum to 95–100% of the trade limit
-   time curl -s --compressed -o /tmp/tb.json "localhost:8100/api/v1/futures/products/ES/tick-bars?ticks_per_bar=1000&start=$START&end=$END"
-   # meanwhile, in a second shell: time curl -s -o /dev/null localhost:8100/api/v1/futures/products  (within 100 ms of idle)
-   # under 10 s; the ledger sum and the timing are recorded in user/notes/308-tick-bar-measurement.md
+   uv run python scripts/measure_tick_bars.py --base-url http://$API --product ES --rule v.0 \
+     --start 2024-09-03 --end 2025-01-01 --ticks-per-bar 1000 --limit 2000000
+   # wrote project-documents/user/notes/308-tick-bar-measurement.md; 0 failed check(s)
    ```
+   Rehearsal against the dev API: sessions 2024-09-09..2024-09-12 (end 2024-09-13), ledger sum 1,967,590 (98.4%), request 5.252 s, `/products` idle median 0.290 s, during the request 0.384-0.441 s. All checks passed. The rehearsal note was not kept: criterion 12 is the production run after the release (#75).
 6. **Compact ticks.**
    ```bash
    curl -s --compressed -H 'Accept-Encoding: gzip' -o /tmp/ticks.json -w '%{size_download}\n' \
-     'localhost:8100/api/v1/futures/products/ES/ticks?start=2024-12-03&end=2024-12-04&until=2024-12-03T00:30:00Z'
-   jq '.price_scale, .blocks[0] | {session_date, raw_symbol, count, ts_base, side: .side[0:10]}' /tmp/ticks.json
-   # bytes per tick ≈ size_download / count; expect about 10 gzipped (ADR: 9.5)
+     "$API/api/v1/futures/products/ES/ticks?start=2024-12-03&end=2024-12-04&until=2024-12-03T14:40:00Z"
+   # 706380
+   jq -c '.price_scale, ([.blocks[].count] | add), (.blocks[0] | {session_date, raw_symbol, count, ts_base, side: .side[0:10]})' /tmp/ticks.json
+   # 9
+   # 63091
+   # {"session_date":"2024-12-03","raw_symbol":"ESZ4","count":63091,"ts_base":"1733180400000000000","side":"NAAAAAAAAA"}
    ```
-7. **Docs.** `uv run python scripts/check_api_docs.py` passes. `docs/api/openapi.json` shows `FuturesTickBarsResponse` and the columnar `FuturesTicksResponse`.
+   Bytes per tick: 706,380 / 63,091 = 11.2 gzipped. Caveat: the server compresses at `API_GZIP_LEVEL = 1`. The same body at `gzip -6` is 9.2 B/tick and at `gzip -9` 9.0, against the ADR's 9.5, so the encoding meets the ADR and the gap comes from the server's compression level. A whole session is over the 75,000 row limit (422), so use `until` to stay under it.
+7. **Docs.**
+   ```bash
+   uv run python scripts/check_api_docs.py
+   # checked 27 paths, 128 documented parameters, 112 documented statuses, 24 from: markers
+   jq '.components.schemas | has("FuturesTickBarsResponse"), has("FuturesTicksResponse")' docs/api/openapi.json
+   # true
+   # true
+   ```
 
 ## Implementation Notes
 

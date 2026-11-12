@@ -1646,9 +1646,153 @@
         "title": "FuturesTarget",
         "type": "object"
       },
-      "FuturesTicksResponse": {
-        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/ticks``.\n\n``end`` is exclusive (session dates). ``from``/``until`` echo the instant\nbounds, half-open, null when not given.",
+      "FuturesTickBarRecord": {
+        "description": "One bar of ``ticks_per_bar`` trades (D2). ``partial`` is true only for\na session's last bar holding fewer trades; ``buy_volume + sell_volume`` is\nbelow ``volume`` by the trades with no aggressor side.",
         "properties": {
+          "ask_px": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask Px"
+          },
+          "bid_px": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bid Px"
+          },
+          "buy_volume": {
+            "title": "Buy Volume",
+            "type": "integer"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "close_time": {
+            "title": "Close Time",
+            "type": "string"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
+          },
+          "open": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open"
+          },
+          "open_time": {
+            "title": "Open Time",
+            "type": "string"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "raw_symbol": {
+            "title": "Raw Symbol",
+            "type": "string"
+          },
+          "sell_volume": {
+            "title": "Sell Volume",
+            "type": "integer"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          },
+          "trade_count": {
+            "title": "Trade Count",
+            "type": "integer"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_date",
+          "index",
+          "open_time",
+          "close_time",
+          "raw_symbol",
+          "instrument_id",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "trade_count",
+          "buy_volume",
+          "sell_volume",
+          "bid_px",
+          "ask_px",
+          "partial"
+        ],
+        "title": "FuturesTickBarRecord",
+        "type": "object"
+      },
+      "FuturesTickBarsResponse": {
+        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/tick-bars``.\n\n``end`` is exclusive (session dates). ``from``/``until`` echo the instant\nbounds, half-open, null when not given; they select bars by ``open_time``.",
+        "properties": {
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/FuturesTickBarRecord"
+            },
+            "title": "Bars",
+            "type": "array"
+          },
           "count": {
             "title": "Count",
             "type": "integer"
@@ -1718,12 +1862,280 @@
           "target": {
             "$ref": "#/components/schemas/FuturesTarget"
           },
-          "ticks": {
+          "ticks_per_bar": {
+            "title": "Ticks Per Bar",
+            "type": "integer"
+          },
+          "unresolved": {
             "items": {
-              "$ref": "#/components/schemas/TickRecord"
+              "$ref": "#/components/schemas/UnresolvedRecord"
             },
-            "title": "Ticks",
+            "title": "Unresolved",
             "type": "array"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "target",
+          "ticks_per_bar",
+          "start",
+          "end",
+          "from",
+          "until",
+          "definitions_as_of",
+          "segments",
+          "unresolved",
+          "incomplete",
+          "count",
+          "bars"
+        ],
+        "title": "FuturesTickBarsResponse",
+        "type": "object"
+      },
+      "FuturesTickBlock": {
+        "description": "One window's ticks, columnar (D6). Every column holds ``count`` values;\nthe quote columns hold ``None`` on trades-tier ticks and are never omitted.",
+        "properties": {
+          "ask_px": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Ask Px",
+            "type": "array"
+          },
+          "ask_sz": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Ask Sz",
+            "type": "array"
+          },
+          "bid_px": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Bid Px",
+            "type": "array"
+          },
+          "bid_sz": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Bid Sz",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "instrument_id": {
+            "title": "Instrument Id",
+            "type": "integer"
+          },
+          "price": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Price",
+            "type": "array"
+          },
+          "raw_symbol": {
+            "title": "Raw Symbol",
+            "type": "string"
+          },
+          "sequence": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sequence",
+            "type": "array"
+          },
+          "sequence_ordinal": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sequence Ordinal",
+            "type": "array"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          },
+          "side": {
+            "description": "One character per tick: B, A or N.",
+            "title": "Side",
+            "type": "string"
+          },
+          "size": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Size",
+            "type": "array"
+          },
+          "ts_base": {
+            "description": "The first tick's ts_event, epoch ns as text.",
+            "title": "Ts Base",
+            "type": "string"
+          },
+          "ts_event": {
+            "description": "Delta in ns from the previous tick; the first is 0.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ts Event",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_date",
+          "raw_symbol",
+          "instrument_id",
+          "count",
+          "ts_base",
+          "ts_event",
+          "sequence",
+          "sequence_ordinal",
+          "price",
+          "size",
+          "side",
+          "bid_px",
+          "ask_px",
+          "bid_sz",
+          "ask_sz"
+        ],
+        "title": "FuturesTickBlock",
+        "type": "object"
+      },
+      "FuturesTicksResponse": {
+        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/ticks``.\n\n``end`` is exclusive (session dates). ``from``/``until`` echo the instant\nbounds, half-open, null when not given. ``count`` is the ticks over all\nblocks.",
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/FuturesTickBlock"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "definitions_as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definitions As Of"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "incomplete": {
+            "items": {
+              "$ref": "#/components/schemas/IncompleteRecord"
+            },
+            "title": "Incomplete",
+            "type": "array"
+          },
+          "price_scale": {
+            "description": "A price is its integer \u00d7 10^-price_scale (DBN fixed point).",
+            "title": "Price Scale",
+            "type": "integer"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentRecord"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "target": {
+            "$ref": "#/components/schemas/FuturesTarget"
           },
           "unresolved": {
             "items": {
@@ -1756,7 +2168,8 @@
           "unresolved",
           "incomplete",
           "count",
-          "ticks"
+          "price_scale",
+          "blocks"
         ],
         "title": "FuturesTicksResponse",
         "type": "object"
@@ -3736,135 +4149,6 @@
         "title": "TickLineState",
         "type": "string"
       },
-      "TickRecord": {
-        "description": "One tick (``/futures/.../ticks``): ``TICK_COLUMNS`` in order. The BBO\nfields are null on trades-tier rows.",
-        "properties": {
-          "ask_ct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ask Ct"
-          },
-          "ask_px": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ask Px"
-          },
-          "ask_sz": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ask Sz"
-          },
-          "bid_ct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bid Ct"
-          },
-          "bid_px": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bid Px"
-          },
-          "bid_sz": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Bid Sz"
-          },
-          "instrument_id": {
-            "title": "Instrument Id",
-            "type": "integer"
-          },
-          "price": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Price"
-          },
-          "raw_symbol": {
-            "title": "Raw Symbol",
-            "type": "string"
-          },
-          "sequence": {
-            "title": "Sequence",
-            "type": "integer"
-          },
-          "session_date": {
-            "format": "date",
-            "title": "Session Date",
-            "type": "string"
-          },
-          "side": {
-            "title": "Side",
-            "type": "string"
-          },
-          "size": {
-            "title": "Size",
-            "type": "integer"
-          },
-          "ts_event": {
-            "title": "Ts Event",
-            "type": "string"
-          }
-        },
-        "required": [
-          "ts_event",
-          "session_date",
-          "raw_symbol",
-          "instrument_id",
-          "price",
-          "size",
-          "side",
-          "bid_px",
-          "ask_px",
-          "bid_sz",
-          "ask_sz",
-          "bid_ct",
-          "ask_ct",
-          "sequence"
-        ],
-        "title": "TickRecord",
-        "type": "object"
-      },
       "TickSessionStatus": {
         "description": "A session's status, declared worst first (TD9's table order).",
         "enum": [
@@ -4379,6 +4663,176 @@
         ]
       }
     },
+    "/api/v1/futures/contracts/{symbol}/tick-bars": {
+      "get": {
+        "description": "One contract's bars of ``ticks_per_bar`` trades over ``[start, end)``\nsessions, those opened in ``[from, until)``. Refused past the trade limit\nor the row ceiling.",
+        "operationId": "contract_tick_bars_api_v1_futures_contracts__symbol__tick_bars_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "required": true,
+            "schema": {
+              "title": "Symbol",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Trades per bar, any positive integer. The count restarts at each session open; a session's last bar may be partial.",
+            "in": "query",
+            "name": "ticks_per_bar",
+            "required": true,
+            "schema": {
+              "description": "Trades per bar, any positive integer. The count restarts at each session open; a session's last bar may be partial.",
+              "minimum": 1,
+              "title": "Ticks Per Bar",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "First session date. Omitted: the first held session.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First session date. Omitted: the first held session.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "title": "End"
+            }
+          },
+          {
+            "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesTickBarsResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesTickBarsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Contract Tick Bars",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
     "/api/v1/futures/contracts/{symbol}/ticks": {
       "get": {
         "description": "One contract's ticks over ``[start, end)`` sessions, clipped to\n``[from, until)``, in key order. Refused past the row ceiling.",
@@ -4432,7 +4886,7 @@
             }
           },
           {
-            "description": "Ticks only: first instant, inclusive (UTC; naive is UTC).",
+            "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -4446,12 +4900,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks only: first instant, inclusive (UTC; naive is UTC).",
+              "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
               "title": "From"
             }
           },
           {
-            "description": "Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC).",
+            "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
             "in": "query",
             "name": "until",
             "required": false,
@@ -4465,7 +4919,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC).",
+              "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
               "title": "Until"
             }
           },
@@ -4909,6 +5363,194 @@
         ]
       }
     },
+    "/api/v1/futures/products/{product}/tick-bars": {
+      "get": {
+        "description": "A product's tick bars under ``rule``: each session from the contract the\nrule names, the count restarting at every session open.",
+        "operationId": "product_tick_bars_api_v1_futures_products__product__tick_bars_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product",
+            "required": true,
+            "schema": {
+              "title": "Product",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Trades per bar, any positive integer. The count restarts at each session open; a session's last bar may be partial.",
+            "in": "query",
+            "name": "ticks_per_bar",
+            "required": true,
+            "schema": {
+              "description": "Trades per bar, any positive integer. The count restarts at each session open; a session's last bar may be partial.",
+              "minimum": 1,
+              "title": "Ticks Per Bar",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); default v.0.",
+            "in": "query",
+            "name": "rule",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Roll rule, {method}.{rank}[+{offset}s] (e.g. v.0, n.0, c.0, c.0+2s); default v.0.",
+              "title": "Rule"
+            }
+          },
+          {
+            "description": "First session date. Omitted: the first held session.",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First session date. Omitted: the first held session.",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "title": "End"
+            }
+          },
+          {
+            "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "enum": [
+                "json",
+                "msgpack"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesTickBarsResponse"
+                }
+              },
+              "application/x-msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/FuturesTickBarsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The tick database is not configured, unreachable, or has migrations pending. Retry later; equities and Kalshi routes are unaffected."
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The database cancelled the query at the server's statement timeout. Narrow the requested range or use a coarser granularity."
+          }
+        },
+        "summary": "Product Tick Bars",
+        "tags": [
+          "futures"
+        ]
+      }
+    },
     "/api/v1/futures/products/{product}/ticks": {
       "get": {
         "description": "A product's ticks under ``rule``: each session from the contract the\nrule names (``segments``); ``unresolved`` sessions have no rows.",
@@ -4980,7 +5622,7 @@
             }
           },
           {
-            "description": "Ticks only: first instant, inclusive (UTC; naive is UTC).",
+            "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -4994,12 +5636,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks only: first instant, inclusive (UTC; naive is UTC).",
+              "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
               "title": "From"
             }
           },
           {
-            "description": "Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC).",
+            "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
             "in": "query",
             "name": "until",
             "required": false,
@@ -5013,7 +5655,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks only: instant bound, EXCLUSIVE (UTC; naive is UTC).",
+              "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
               "title": "Until"
             }
           },

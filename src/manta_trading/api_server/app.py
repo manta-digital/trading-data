@@ -23,6 +23,9 @@ from manta_trading.api_server.routes.futures_catalog import (
 from manta_trading.api_server.routes.futures_series import (
     router as futures_series_router,
 )
+from manta_trading.api_server.routes.futures_tick_bars import (
+    router as futures_tick_bars_router,
+)
 from manta_trading.api_server.routes.gaps import router as gaps_router
 from manta_trading.api_server.routes.health import router as health_router
 from manta_trading.api_server.routes.kalshi_catalog import (
@@ -94,6 +97,7 @@ async def lifespan(
     # Changing an override requires a restart — the same contract as
     # MT_TIMESCALE_DB_URL — so no request pays for re-reading the environment.
     app.state.max_bars_per_request = settings.api_max_bars_per_request
+    app.state.max_tick_bar_trades = settings.api_max_tick_bar_trades
     app.state.statement_timeout = settings.api_statement_timeout
     # The operations routes read `minute_firing_days` and `eodhd_api_key` from
     # here rather than re-instantiating Settings per request — the same
@@ -206,6 +210,7 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
     app.include_router(kalshi_timeseries_router)
     app.include_router(futures_catalog_router)
     app.include_router(futures_series_router)
+    app.include_router(futures_tick_bars_router)
 
     @app.exception_handler(HTTPException)
     async def _custom_http_exception_handler(

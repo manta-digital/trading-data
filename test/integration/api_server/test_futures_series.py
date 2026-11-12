@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 from tick_support.api import SECOND, client_for
 from tick_support.cli import clear_tick_env, cli_settings, closed_port
+from tick_support.columnar import WIRE_COLUMNS, decode_body
 from tick_support.roll_bars import seed_bar_sessions
 from tick_support.roll_seed import ESU4, ESZ4, SeededRoll, seed_september_roll
 from tick_support.rows import (
@@ -45,6 +46,7 @@ from manta_trading.data.tick.get_plan import GetPlan, contract_plan
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.schema_families import SchemaFamily
+from manta_trading.data.tick.tick_format import row_cells
 from manta_trading.data.tick.tick_reads import OnBatch, Row, TickWindow, read_ticks
 
 N_TICKS = 30
@@ -202,7 +204,8 @@ def test_contract_ticks_equal_the_cli(
     session_migrated_db: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """FR1: field for field, in order."""
+    """FR1: field for field, in order, once the columnar body is decoded and
+    formatted as the CLI formats (``bid_ct``/``ask_ct`` are not on the wire)."""
     body = client.get(CONTRACT.format("ESZ4", "ticks"), params=SESSION_RANGE).json()
     cli = _cli_get(
         monkeypatch,
@@ -212,7 +215,12 @@ def test_contract_ticks_equal_the_cli(
     )
 
     assert body["count"] == N_TICKS == cli["row_count"]
-    assert body["ticks"] == cli["rows"]
+    decoded = [
+        dict(zip(WIRE_COLUMNS, row_cells(WIRE_COLUMNS, row), strict=True))
+        for row in decode_body(body)
+    ]
+    on_wire = [{k: v for k, v in r.items() if k in WIRE_COLUMNS} for r in cli["rows"]]
+    assert decoded == on_wire
     assert body["target"] == {
         "kind": "contract",
         "product": None,

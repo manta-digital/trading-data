@@ -14,8 +14,9 @@ one). This module never opens, commits or closes anything.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator, Callable, Sequence
+from contextlib import aclosing
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
@@ -25,6 +26,7 @@ from manta_trading.data.tick.constants import TICK_GET_FETCH_ROWS
 from manta_trading.data.tick.manifest_reads import Conn
 
 #: TD5's tick row, in order. The BBO columns are null on trades-tier rows.
+#: ``sequence_ordinal`` completes the stream key (308 D6).
 TICK_COLUMNS = (
     "ts_event",
     "session_date",
@@ -40,6 +42,7 @@ TICK_COLUMNS = (
     "bid_ct",
     "ask_ct",
     "sequence",
+    "sequence_ordinal",
 )
 #: TD5's bar row, in order. ``time`` is the bucket start, in ns.
 BAR_COLUMNS = (
@@ -68,13 +71,48 @@ class TickWindow:
     """One session of one instrument: ticks with ``open_ns <= ts_event <=
     close_ns``. Closed, as ``Session`` is: ingest files a tick stamped at the
     close under that session, so the ledger and ``coverage`` count it, and
-    the read must too. The one segment type; ``get_plan`` plans these."""
+    the read must too. The one segment type; ``get_plan`` plans these.
+    ``clipped`` is true when ``clip`` narrowed it: it no longer spans its
+    session, so a tick-bar read refuses it (308 D3)."""
 
     session_date: date
     instrument_id: int
     raw_symbol: str
     open_ns: int
     close_ns: int
+    clipped: bool = False
+
+
+#: Half-open instant bounds in epoch ns, ``[from, until)``; ``None`` = open.
+Bounds = tuple[int | None, int | None]
+
+
+def clip(windows: Sequence[TickWindow], bounds: Bounds) -> tuple[TickWindow, ...]:
+    """Each window cut to ``[from, until)``; windows left empty are dropped.
+
+    Windows are closed (``open_ns <= ts <= close_ns``), so ``until`` becomes
+    ``until − 1``. Consecutive bounds ``[a, b)``, ``[b, c)`` therefore page
+    through a session with no overlap and no gap (231 TD3; moved here
+    from ``futures_read`` in 308 so the tick-bar reader shares it).
+    """
+    from_ns, until_ns = bounds
+    clipped = []
+    for window in windows:
+        open_ns = window.open_ns if from_ns is None else max(window.open_ns, from_ns)
+        close_ns = (
+            window.close_ns if until_ns is None else min(window.close_ns, until_ns - 1)
+        )
+        if open_ns <= close_ns:
+            narrowed = (open_ns, close_ns) != (window.open_ns, window.close_ns)
+            clipped.append(
+                replace(
+                    window,
+                    open_ns=open_ns,
+                    close_ns=close_ns,
+                    clipped=window.clipped or narrowed,
+                )
+            )
+    return tuple(clipped)
 
 
 #: The window's own columns, selected as parameters so rows need no reshaping
@@ -88,7 +126,7 @@ WINDOW_WHERE = sql.SQL(
 )
 _TICKS = sql.SQL(
     "SELECT ts_event, {window}, price, size, side, bid_px_00, ask_px_00,"
-    " bid_sz_00, ask_sz_00, bid_ct_00, ask_ct_00, sequence"
+    " bid_sz_00, ask_sz_00, bid_ct_00, ask_ct_00, sequence, sequence_ordinal"
     " FROM tick_trade WHERE {where}"
     " ORDER BY ts_event, sequence, sequence_ordinal"
 )
@@ -104,14 +142,25 @@ def window_params(window: TickWindow) -> dict[str, Any]:
     }
 
 
+async def iter_batches(
+    conn: Conn, query: sql.Composed, params: dict[str, Any]
+) -> AsyncGenerator[list[Row]]:
+    """Run ``query`` on a named cursor and yield it ``TICK_GET_FETCH_ROWS``
+    rows at a time (308). Consume under ``contextlib.aclosing`` so a consumer
+    that stops early closes the cursor at once, not at garbage collection."""
+    async with conn.cursor(name="tick_get") as cursor:
+        await cursor.execute(query, params)
+        while batch := await cursor.fetchmany(TICK_GET_FETCH_ROWS):
+            yield batch
+
+
 async def stream_rows(
     conn: Conn, query: sql.Composed, params: dict[str, Any], on_batch: OnBatch
 ) -> int:
     """Run ``query`` on a named cursor; hand each batch on; return the count."""
     count = 0
-    async with conn.cursor(name="tick_get") as cursor:
-        await cursor.execute(query, params)
-        while batch := await cursor.fetchmany(TICK_GET_FETCH_ROWS):
+    async with aclosing(iter_batches(conn, query, params)) as batches:
+        async for batch in batches:
             on_batch(batch)
             count += len(batch)
     return count

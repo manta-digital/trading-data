@@ -54,6 +54,9 @@ class ContractAmbiguous(TickPreflightError):
 class ContractTarget:
     contract: str
     instrument_id: int
+    #: The universe product the contract belongs to, so a reader can find the
+    #: product's request shape (308 D5 admission).
+    product: str
 
 
 @dataclass(frozen=True)
@@ -242,7 +245,7 @@ async def contract_plan(
     held in ``family`` (TD2)."""
     candidate = _one(symbol, await _candidates(conn, symbol, start, end))
     entry = _entry_for(candidate, symbol)
-    target = ContractTarget(symbol, candidate.instrument_id)
+    target = ContractTarget(symbol, candidate.instrument_id, entry.product)
     if start is None or end is None:
         held = await _held(conn, candidate.instrument_id, family)
         if held is None:

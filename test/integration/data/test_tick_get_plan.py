@@ -129,7 +129,7 @@ async def test_contract_with_a_range(
         date(2024, 9, 18),
     )
 
-    assert plan.target == ContractTarget("ESZ4", ESZ4.instrument_id)
+    assert plan.target == ContractTarget("ESZ4", ESZ4.instrument_id, "ES")
     assert _sessions(plan) == [(date(2024, 9, 16), "ESZ4"), (date(2024, 9, 17), "ESZ4")]
     assert _display(plan) == [
         (date(2024, 9, 16), date(2024, 9, 17), "ESZ4", ESZ4.instrument_id)
@@ -185,7 +185,7 @@ async def test_a_range_separates_the_namesakes(
         date(2024, 9, 17),
     )
 
-    assert plan.target == ContractTarget("ESZ4", ESZ4.instrument_id)
+    assert plan.target == ContractTarget("ESZ4", ESZ4.instrument_id, "ES")
 
 
 async def test_contract_lists_an_incomplete_session_and_still_plans_it(

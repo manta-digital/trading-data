@@ -9,8 +9,9 @@ status: complete
 
 # Data Serving API reference
 
-Seventeen read-only HTTP routes over the equity bar store, the Kalshi
-prediction-market catalog and tape, and this system's own operational state.
+Read-only HTTP routes over the equity bar store, the futures catalog, bars,
+ticks and tick bars, the Kalshi prediction-market catalog and tape, and this
+system's own operational state.
 
 This document is **route-indexed**: one section per path, with a field table
 giving each field's type, nullability, unit or time base, and meaning. If you
@@ -280,13 +281,15 @@ recorded as Future Work in
 
 #### Remedy strings
 
-Refusals that a caller can act on quote one of three fixed remedies, defined
+Refusals that a caller can act on quote one of four fixed remedies, defined
 once in [`admission.py`](../../src/manta_trading/api_server/admission.py):
 
 - `narrow the filter` — a catalog list; bound it with query parameters.
 - `narrow start/end` — a time series; bound it with a shorter window.
 - `narrow start/end or from/until` — futures ticks; a session can exceed the
   ceiling, so the instant bounds are the way through it (§6.1).
+- `raise ticks_per_bar, or narrow start/end or from/until` — futures tick
+  bars over the row ceiling; fewer, larger bars also fit (§6.9).
 
 ### 2.8 Auth, CORS and pagination
 
@@ -1461,8 +1464,10 @@ keeps `/api/v1/overview` pure database and safe to poll.
 ## 6. Endpoints: futures
 
 Futures tick data: the configured products, their contract definitions and roll
-schedules, ticks, and bars by contract or by product under a roll rule. Bars
-are the provider's one-minute bars, rolled up per session; ticks never make bars. Served from the tick database (`MT_TICK_DB_URL`), not the equity
+schedules, ticks, time bars and tick bars, by contract or by product under a
+roll rule. Time bars are the provider's one-minute bars, rolled up per session;
+ticks never make time bars. Tick bars (bars of N trades, §6.9) are cut from the
+stored ticks. Served from the tick database (`MT_TICK_DB_URL`), not the equity
 store. When that database is not configured, unreachable, or missing a
 migration, every route here answers `503` (§6.1) and the rest of the API is
 unaffected.
@@ -1479,15 +1484,17 @@ opposite of §2.2's inclusive `end`; it is the tick tier's convention, shared
 with `mt data tick get`. An omitted `start` or `end` defaults to the first held
 session, or the day after the last one. `end` at or before `start` is a `422`.
 
-**Ticks also take `from` and `until`**, UTC instants (naive input is UTC, as in
-§2.1), half-open: `[from, until)`. They clip each session to the instants
-between them, which is how a client reads a session larger than the row
-ceiling. To page, pass the previous request's `until` as the next `from`; pages
-neither overlap nor skip. `from` must be before `until` (`422` otherwise). Bars
-take no instant bounds: a bar starts at its session-anchored bucket, so
-clipping would move the first bar's stamp. Bound a bars request by sessions.
+**Ticks and tick bars also take `from` and `until`**, UTC instants (naive input
+is UTC, as in §2.1), half-open: `[from, until)`. For ticks they clip each
+session to the instants between them, which is how a client reads a session
+larger than the row ceiling. To page, pass the previous request's `until` as the
+next `from`; pages neither overlap nor skip. For tick bars they select the bars
+whose `open_time` is in `[from, until)`; a bar's content and index never depend
+on them (below). `from` must be before `until` (`422` otherwise). Time bars take
+no instant bounds: a bar starts at its session-anchored bucket, so clipping
+would move the first bar's stamp. Bound a bars request by sessions.
 
-**Bars come from the provider's one-minute bars, and from nothing else.** Every
+**Time bars come from the provider's one-minute bars, and from nothing else.** Every
 size is built from Databento `ohlcv-1m` bars: `1m` as stored, `5m` `15m` `1h`
 `4h` and `1d` rolled up from them (open of the first, high, low, close of the
 last, summed volume). Ticks are never read for bars, even where a session has
@@ -1516,6 +1523,91 @@ ticks and no provider bars. Every bars response names this in `source`
   right is issue #70, measured by `mt data tick parity`.
 - **Statistics are not served** (open interest, settlement, cleared volume).
   Operators read them with `mt data tick coverage --schema statistics`.
+
+**Tick bars are bars of `ticks_per_bar` trades**, any positive integer, cut by
+one rule (the same code the live stream will run):
+
+- **One trade record is one tick.** Records sharing `ts_event` and `sequence`
+  (about 2% of ES) are separate trades, told apart by `sequence_ordinal`.
+- **Each session counts from its open.** `index` is the bar's 0-based position
+  in its session and restarts at 0 at every session open, and at a roll, which
+  falls on a session boundary. `(session_date, index)` is unique and strictly
+  ascending across a response.
+- `open_time` and `close_time` are the `ts_event` of the bar's first and last
+  trade; two bars can share a nanosecond, and `index` still orders them.
+- `open`, `high`, `low`, `close` are the first, highest, lowest and last trade
+  price in key order (`ts_event`, `sequence`, `sequence_ordinal`).
+- `volume` is the summed size; `trade_count` the trades in the bar (equal to
+  `ticks_per_bar` unless `partial`).
+- `buy_volume` and `sell_volume` sum the trades whose aggressor side is `B` and
+  `A`. A trade with side `N` counts in `volume` only, so `buy_volume +
+  sell_volume` can be below `volume`.
+- `bid_px` and `ask_px` are the quote at the bar's last trade; null when that
+  trade's record is trades-tier.
+- **`partial` is true only for a session's last bar holding fewer than
+  `ticks_per_bar` trades.** A session whose trade count is a multiple of
+  `ticks_per_bar` ends with a full bar and has no partial one. A
+  `ticks_per_bar` above a session's trade count gives that session one partial
+  bar.
+- **Bars do not depend on `from`/`until`.** Cutting always starts at the session
+  open, and a bar opened before `until` is completed with the trades after it.
+- **An incomplete session is cut from what is held** and listed in
+  `incomplete`, as every futures read does. Its bars, and their indices, can
+  change when the session is completed.
+
+**Tick bars are admitted on the trades they scan, then bounded by the bars they
+return.** Before any tick is read, the server sums the ingest ledger's record
+count over every session the request overlaps (whole sessions: cutting starts at
+the open) and refuses with a `422` when the sum is over the trade limit:
+`the request scans 2,431,907 trades, over the 2,000,000 trade limit; narrow
+start/end`.
+<!-- from: manta_trading.constants.API_MAX_TICK_BAR_TRADES -->
+The limit is configurable as `MT_API_MAX_TICK_BAR_TRADES`, beside
+`MT_API_MAX_BARS_PER_REQUEST`. The bars returned then count against the row
+ceiling (below), with the remedy `raise ticks_per_bar, or narrow start/end or
+from/until`. A median ES session (about 393,000 trades) fits at `ticks_per_bar`
+of 6 or more.
+
+**Ticks are columnar.** A `/ticks` body holds one block per session window
+(session × contract), in order, with the session, symbol and instrument once
+per block and every other field a column of `count` values:
+
+- `ts_base` is the block's first `ts_event`, epoch nanoseconds as **text**.
+  `ts_event[i]` is the delta in nanoseconds from tick `i − 1`, and
+  `ts_event[0]` is 0, so tick `i`'s time is `ts_base` plus the sum of
+  `ts_event[0..i]`. Deltas are never negative. Add them as 64-bit integers (a
+  JavaScript `BigInt`), never as floats.
+- Prices (`price`, `bid_px`, `ask_px`) are integers in DBN fixed point: the
+  price is the integer × 10^−`price_scale` (`price_scale` is 9). An undefined
+  price is `null`. ES and GC prices are below 2^53, so they decode exactly as
+  JSON numbers.
+- `side` is one string, one character per tick (`B`, `A`, `N`).
+- `sequence` and `sequence_ordinal` with `ts_event` are the stream key: unique
+  per instrument, and the order ticks come in.
+- `bid_px`, `ask_px`, `bid_sz`, `ask_sz` hold `null` for a trades-tier tick.
+  They are never left out, so a block always has one shape. Order counts
+  (`bid_ct`, `ask_ct`) are not served.
+
+Decoding one block:
+
+```json
+{"session_date":"2024-12-03","raw_symbol":"ESZ4","instrument_id":183748,"count":3,
+ "ts_base":"1733180400000000000","ts_event":[0,1250,0],
+ "sequence":[7,8,8],"sequence_ordinal":[0,0,1],
+ "price":[6050250000000,6050500000000,6050500000000],"size":[1,2,1],"side":"BAN",
+ "bid_px":[6050000000000,6050250000000,null],"ask_px":[6050250000000,6050500000000,null],
+ "bid_sz":[17,9,null],"ask_sz":[18,4,null]}
+```
+
+```python
+ts = int(block["ts_base"])
+for i in range(block["count"]):
+    ts += block["ts_event"][i]          # 1733180400000000000, …001250, …001250
+    price = Decimal(block["price"][i]).scaleb(-body["price_scale"])  # 6050.25, …
+    side = block["side"][i]
+```
+
+*Shape only: values chosen to show the decoding, not captured.*
 
 **Roll rules** name the contract a product read uses for each session:
 `{method}.{rank}[+{offset}s]`, case-insensitive. The default is `v.0`, the
@@ -1549,10 +1641,13 @@ Session statuses are `retry_exhausted` `failed` `provider_hole` `in_flight`
 `awaiting_ingest` `missing` `pending` `edge_unknown` `complete`.
 <!-- from: manta_trading.data.tick.tick_status.TickSessionStatus -->
 
-**Prices and times are strings.** Every price is exact decimal text
-(`"5950.25"`), `null` when undefined. Every tick or bar time is RFC 3339 with
-nine fraction digits (`"2024-12-18T14:30:00.001440845Z"`). Epoch nanoseconds
-exceed 2^53 and a JavaScript number would round them, so none is sent.
+**Prices and times are strings, except in the columnar ticks.** Every bar and
+tick-bar price is exact decimal text (`"5950.25"`), `null` when undefined. Every
+bar or tick-bar time is RFC 3339 with nine fraction digits
+(`"2024-12-18T14:30:00.001440845Z"`). Epoch nanoseconds exceed 2^53 and a
+JavaScript number would round them, so none is sent as a number: the columnar
+ticks send `ts_base` as text and small deltas, and their prices as integers
+below 2^53 (above).
 
 **The row ceiling is enforced while reading.** A futures request that would
 return more than 75,000 rows is refused with a `422`.
@@ -1705,7 +1800,8 @@ sessions, or a range outside the calendar; `503`.
              format:json|msgpack
      errors: 422, 503, 504 -->
 
-One contract's ticks, in key order (`ts_event`, then `sequence`).
+One contract's ticks, in key order (`ts_event`, `sequence`, `sequence_ordinal`),
+as columnar blocks (§6.1).
 
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
@@ -1721,13 +1817,19 @@ One contract's ticks, in key order (`ts_event`, then `sequence`).
 | `from`, `until` | string | yes | The instant bounds, echoed in UTC. |
 | `definitions_as_of` | date | yes | Product reads only. |
 | `segments`, `unresolved`, `incomplete` | array | no | §6.1. |
-| `count` | integer | no | Rows returned. |
-| `ticks[].ts_event` | string | no | Exchange time, nine fraction digits. |
-| `ticks[].session_date`, `raw_symbol`, `instrument_id` | | no | Which session and contract. |
-| `ticks[].price` | string | yes | Trade price. |
-| `ticks[].size`, `side`, `sequence` | integer, string, integer | no | Size, aggressor side (`A`/`B`/`N`), venue sequence. |
-| `ticks[].bid_px`, `ask_px` | string | yes | Best bid and offer at the trade; null on trades-tier data. |
-| `ticks[].bid_sz`, `ask_sz`, `bid_ct`, `ask_ct` | integer | yes | Their sizes and order counts. |
+| `count` | integer | no | Ticks returned, over all blocks. |
+| `price_scale` | integer | no | A price is its integer × 10^−`price_scale` (9). |
+| `blocks[]` | array of object | no | One per non-empty session window, in order. |
+| `blocks[].session_date`, `raw_symbol`, `instrument_id` | | no | Which session and contract. |
+| `blocks[].count` | integer | no | Ticks in the block; every column has this many values. |
+| `blocks[].ts_base` | string | no | First `ts_event`, epoch ns as text. |
+| `blocks[].ts_event[]` | integer | no | Delta in ns from the previous tick; the first is 0. |
+| `blocks[].sequence[]`, `sequence_ordinal[]` | integer | no | Venue sequence and the ordinal among records sharing `(ts_event, sequence)`. |
+| `blocks[].price[]` | integer | yes | Trade price, fixed point. |
+| `blocks[].size[]` | integer | no | Trade size. |
+| `blocks[].side` | string | no | Aggressor sides, one character per tick (`A`/`B`/`N`). |
+| `blocks[].bid_px[]`, `ask_px[]` | integer | yes | Best bid and offer at the trade, fixed point; null on trades-tier data. |
+| `blocks[].bid_sz[]`, `ask_sz[]` | integer | yes | Their sizes. |
 
 ```sh
 curl 'http://127.0.0.1:8137/api/v1/futures/contracts/ESZ4/ticks?start=2024-12-18&end=2024-12-19&from=2024-12-18T14:30:00Z&until=2024-12-18T14:35:00Z'
@@ -1737,12 +1839,15 @@ curl 'http://127.0.0.1:8137/api/v1/futures/contracts/ESZ4/ticks?start=2024-12-18
 {"target":{"kind":"contract","product":null,"contract":"ESZ4","instrument_id":183748,"rule":null,"is_default":null},
  "start":"2024-12-18","end":"2024-12-19","from":"2024-12-18T14:30:00Z","until":"2024-12-18T14:35:00Z",
  "definitions_as_of":null,"segments":[{"first_session":"2024-12-18","last_session":"2024-12-18","raw_symbol":"ESZ4","instrument_id":183748,"basis":null}],
- "unresolved":[],"incomplete":[],"count":1792,
- "ticks":[{"ts_event":"2024-12-18T14:30:00.001440845Z","session_date":"2024-12-18","raw_symbol":"ESZ4","instrument_id":183748,"price":"6050.25","size":1,"side":"B","bid_px":"6050","ask_px":"6050.25","bid_sz":17,"ask_sz":18,"bid_ct":17,"ask_ct":13,"sequence":29838835},…]}
+ "unresolved":[],"incomplete":[],"count":1792,"price_scale":9,
+ "blocks":[{"session_date":"2024-12-18","raw_symbol":"ESZ4","instrument_id":183748,"count":1792,
+   "ts_base":"1734532200001440845","ts_event":[0,…],"sequence":[29838835,…],"sequence_ordinal":[0,…],
+   "price":[6050250000000,…],"size":[1,…],"side":"B…",
+   "bid_px":[6050000000000,…],"ask_px":[6050250000000,…],"bid_sz":[17,…],"ask_sz":[18,…]}]}
 ```
 
-*Captured 2026-10-13 against the dev tick database. 1,791 of 1,792 ticks
-elided.*
+*Shape of the 2026-10-13 capture (first tick shown) re-encoded as blocks; the
+columns are elided after their first value.*
 
 The whole session is refused:
 
@@ -1784,7 +1889,8 @@ Futures bar sizes are `1m` `5m` `15m` `1h` `4h` `1d`.
 
 The body is the ticks envelope (§6.5) without `from`/`until`, plus
 `granularity` and `source` (the provider schema the bars were built from, today
-always `"ohlcv-1m"`), with `bars[]` in place of `ticks[]`:
+always `"ohlcv-1m"`), with `bars[]` records in place of `price_scale` and
+`blocks[]`:
 
 | Field | Type | Null? | Meaning |
 |---|---|---|---|
@@ -1815,8 +1921,9 @@ always `"ohlcv-1m"`), with `bars[]` in place of `ticks[]`:
 A product's ticks under a roll rule: each session from the contract the rule
 names for it, never merged across contracts. The parameters and body are
 §6.5's, plus `rule` (default `v.0`); `target` is `{kind: "product", product,
-rule, is_default}`, and `segments` shows the roll. Sessions in `unresolved`
-have no rows.
+rule, is_default}`, and `segments` shows the roll. Each session is its own
+block, so a roll starts a new block with the new contract. Sessions in
+`unresolved` have no block.
 
 **Errors**: `404` unknown product; `422` as §6.5, plus a bad rule or a range
 over 1,300 sessions; `503`, including when the calendar database is down.
@@ -1850,6 +1957,85 @@ At `1m`, a session yields about 1,380 bars, so one request covers about 54
 sessions before the row ceiling.
 
 **Errors**: as §6.7, plus `422` for a size outside the list.
+
+### 6.9 `GET /api/v1/futures/contracts/{symbol}/tick-bars`
+
+<!-- endpoint: /api/v1/futures/contracts/{symbol}/tick-bars
+     params: ticks_per_bar:integer, start:date, end:date, from:date-time,
+             until:date-time, format:json|msgpack
+     errors: 422, 503, 504 -->
+
+One contract's bars of `ticks_per_bar` trades over `[start, end)` sessions, cut
+by §6.1's rule from the stored ticks. Admitted on the trades scanned, then
+bounded by the row ceiling (§6.1).
+
+| Name | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `ticks_per_bar` | integer | **yes** | — | Trades per bar, `1` or more; `0`, negatives and non-integers are a `422`. No upper bound. |
+| `start`, `end` | date | no | the contract's sessions held as ticks | Session dates; `end` **exclusive**. |
+| `from` | date-time | no | — | First `open_time`, inclusive. |
+| `until` | date-time | no | — | `open_time` bound, **exclusive**. |
+| `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
+
+The envelope is §6.5's (`target`, `start`, `end`, `from`, `until`,
+`definitions_as_of`, `segments`, `unresolved`, `incomplete`, `count`) plus
+`ticks_per_bar`, with `bars[]` records. No `source`: tick bars have one source,
+the stored trades.
+
+| Field | Type | Null? | Meaning |
+|---|---|---|---|
+| `ticks_per_bar` | integer | no | Echoed. |
+| `bars[].session_date`, `index` | date, integer | no | The session and the bar's 0-based position in it. |
+| `bars[].open_time`, `close_time` | string | no | `ts_event` of the first and last trade, nine fraction digits. |
+| `bars[].raw_symbol`, `instrument_id` | string, integer | no | The contract. |
+| `bars[].open`, `high`, `low`, `close` | string | yes | Exact decimal text. |
+| `bars[].volume`, `trade_count` | integer | no | Summed size; trades in the bar. |
+| `bars[].buy_volume`, `sell_volume` | integer | no | Size of trades with aggressor side `B`, `A`. |
+| `bars[].bid_px`, `ask_px` | string | yes | Quote at the last trade; null on trades-tier data. |
+| `bars[].partial` | boolean | no | The session's last bar, with fewer than `ticks_per_bar` trades. |
+
+```json
+{"target":{"kind":"contract","product":null,"contract":"ESZ4","instrument_id":0,"rule":null,"is_default":null},
+ "ticks_per_bar":1000,"start":"2024-12-03","end":"2024-12-04","from":null,"until":null,"definitions_as_of":null,
+ "segments":[{"first_session":"2024-12-03","last_session":"2024-12-03","raw_symbol":"ESZ4","instrument_id":0,"basis":null}],
+ "unresolved":[],"incomplete":[],"count":2,
+ "bars":[{"session_date":"2024-12-03","index":0,"open_time":"2024-12-02T23:00:00.000000000Z","close_time":"…",
+          "raw_symbol":"ESZ4","instrument_id":0,"open":"…","high":"…","low":"…","close":"…",
+          "volume":0,"trade_count":1000,"buy_volume":0,"sell_volume":0,"bid_px":"…","ask_px":"…","partial":false},…]}
+```
+
+*Shape only: values are elided with `…` and zeros.*
+
+Over the trade limit:
+
+```json
+{"error":"the request scans 2,431,907 trades, over the 2,000,000 trade limit; narrow start/end"}
+```
+
+**Errors**: `404` no definition for the symbol; `422` a bad `ticks_per_bar`, an
+ambiguous symbol, an empty range, `from` not before `until`, over the trade
+limit, or over the row ceiling; `500` when stored ticks break the cutting rule
+(`stored ticks for session … of … cannot be cut into bars; see the server
+log`: a data fault for an operator, not a client error); `503`. A client that
+disconnects mid-read gets nothing: the read stops and the route answers a
+bodiless `499`, which it does not log as an error.
+
+### 6.10 `GET /api/v1/futures/products/{product}/tick-bars`
+
+<!-- endpoint: /api/v1/futures/products/{product}/tick-bars
+     params: ticks_per_bar:integer, rule:string, start:date, end:date,
+             from:date-time, until:date-time, format:json|msgpack
+     errors: 422, 503, 504 -->
+
+A product's tick bars under a roll rule: §6.9's parameters and body, plus
+`rule` (default `v.0`). Each session is cut from the contract the rule names for
+it, from the same schedule as `/ticks`, `/bars` and `/schedule`, and its count
+restarts at `index` 0; a roll falls on a session boundary, so it shows in
+`segments` and in each bar's `raw_symbol` and never splits a bar.
+
+**Errors**: `404` unknown product; `422` as §6.9, plus a bad rule or a range over
+1,300 sessions; `500` and `503` as §6.9, `503` also when the calendar database
+is down.
 
 ## 7. msgpack: what it actually saves
 

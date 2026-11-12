@@ -38,13 +38,22 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from functools import partial
+from pathlib import Path
 
 import psycopg
 import pytest
 from kalshi_support.schema import apply_kalshi_track
 from psycopg_pool import ConnectionPool
 from tick_support.api import no_dev_tick_settings  # noqa: F401  (231 guard)
+from tick_support.ingest import ingest_inputs, run_ingest_phase
+from tick_support.tier_units import seed_tier_unit
 
+from load.busiest_day import (
+    BUSIEST_DAY,
+    BUSIEST_DEFINITIONS,
+    BUSIEST_RECORDS,
+    BUSIEST_TIER,
+)
 from load.manifest_scale_seed import (
     manifest_scale,  # noqa: F401  (305: pytest discovers it here)
 )
@@ -64,6 +73,8 @@ from manta_trading.data.kalshi.constants import (
     MarketStatus,
     Surface,
 )
+from manta_trading.data.tick.constants import TickSchema
+from manta_trading.data.tick.pass_contract import TickOutcome
 from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
 from manta_trading.market.schema.runner import apply_migrations
 
@@ -597,3 +608,28 @@ def api_tick_pool(
     monkeypatch.setattr(
         request.module, "create_app", partial(create_app, tick_db_url=migrated_tick_db)
     )
+
+
+# --- the busiest real tick session (slice 231; shared with 308) ----------------
+
+
+@pytest.fixture
+async def busiest(migrated_tick_db: str, prod_shaped_db: str, tmp_path: Path) -> str:
+    """The 2024-12-18 tbbo day, ingested for real."""
+    for path in (BUSIEST_TIER, BUSIEST_DEFINITIONS):
+        assert path.is_file(), f"archived day missing: {path}"
+    seeded = await seed_tier_unit(
+        migrated_tick_db,
+        tmp_path,
+        TickSchema.TBBO,
+        BUSIEST_DAY,
+        job_id=BUSIEST_TIER.parent.name,
+        tier_file=BUSIEST_TIER,
+        definition_file=BUSIEST_DEFINITIONS,
+    )
+    assert seeded.record_count == BUSIEST_RECORDS
+    report = await run_ingest_phase(
+        migrated_tick_db, tmp_path, ingest_inputs(migrated_tick_db, prod_shaped_db)
+    )
+    assert report.outcome is TickOutcome.OK, report.error
+    return migrated_tick_db

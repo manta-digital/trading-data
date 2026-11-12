@@ -335,7 +335,19 @@ the tier its roll was decided from (`tick_tier`, `bar_1m`, or `statistics` for
 
 `GET /api/v1/futures/contracts/{symbol}/ticks` for one contract, or
 `GET /api/v1/futures/products/{product}/ticks?rule=` for a product stitched by
-a roll rule. Rows are `ticks[]` with string prices and nanosecond string times.
+a roll rule. The body is **columnar**: `blocks[]`, one per session and
+contract, each with `session_date`, `raw_symbol`, `instrument_id` and `count`
+once, and one array per field. To decode a block:
+
+- time of tick `i` = `int(ts_base)` + `ts_event[0] + … + ts_event[i]`
+  (`ts_base` is text; `ts_event` holds nanosecond deltas, the first 0). Use
+  64-bit integers, never floats.
+- price = integer × 10^−`price_scale` (`price_scale` is 9); `null` is an
+  undefined price. Same for `bid_px`, `ask_px`.
+- `side[i]` is one character: `B`, `A`, `N`.
+- `(ts_event, sequence, sequence_ordinal)` is the stream key; ticks come in that
+  order. Bid/ask columns are `null` on trades-tier ticks and never missing.
+  Order counts (`bid_ct`, `ask_ct`) are not served.
 
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/ticks
      params: start:date, end:date, from:date-time, until:date-time,
@@ -355,7 +367,7 @@ a roll rule. Rows are `ticks[]` with string prices and nanosecond string times.
 `GET /api/v1/futures/contracts/{symbol}/bars?granularity=` or
 `GET /api/v1/futures/products/{product}/bars?granularity=&rule=`. Bars are the
 provider's one-minute bars (`source: "ohlcv-1m"` in the response), rolled up per
-session for `5m` `15m` `1h` `4h` `1d`; ticks never make bars. Buckets start at
+session for `5m` `15m` `1h` `4h` `1d`; ticks never make time bars. Buckets start at
 the session open (`4h` at 17:00, 21:00, 01:00, 05:00, 09:00, 13:00 Chicago time;
 the last is short), a bar never crosses a session, and `1d` is the whole
 session. **No provider bars, no bars:** a session that has ticks and no provider
@@ -375,6 +387,38 @@ not a fault.
 
 **Not this:** `/api/v1/bars/{symbol}` is the equity store. It does not know
 futures symbols, and its `end` is inclusive.
+
+### "Give me futures tick bars."
+
+`GET /api/v1/futures/contracts/{symbol}/tick-bars?ticks_per_bar=N` or
+`GET /api/v1/futures/products/{product}/tick-bars?ticks_per_bar=N&rule=` → bars
+of N trades, any `N` ≥ 1, cut from the stored ticks. Each bar has
+`session_date`, `index` (0-based, restarting at every session open),
+`open_time`/`close_time` (first and last trade), OHLC, `volume`, `trade_count`,
+`buy_volume`/`sell_volume` (side `N` trades count in `volume` only), the
+`bid_px`/`ask_px` of its last trade, and `partial`, true only for a session's
+last bar with fewer than N trades. `(session_date, index)` is unique and
+ascending. `from`/`until` select bars by `open_time` and never change a bar.
+
+<!-- endpoint: /api/v1/futures/contracts/{symbol}/tick-bars
+     params: ticks_per_bar:integer, start:date, end:date, from:date-time,
+             until:date-time, format:json|msgpack
+     errors: 422, 503, 504 -->
+
+<!-- endpoint: /api/v1/futures/products/{product}/tick-bars
+     params: ticks_per_bar:integer, rule:string, start:date, end:date,
+             from:date-time, until:date-time, format:json|msgpack
+     errors: 422, 503, 504 -->
+
+**Two refusals, both `422`:** too many trades to scan (`the request scans …
+trades, over the … trade limit; narrow start/end`: the server counts whole
+sessions before reading anything, so narrow `start`/`end`), or too many bars
+(`… row limit; raise ticks_per_bar, or narrow start/end or from/until`). A `500`
+naming a session means the stored ticks are faulty: retrying will not help;
+report it. An `incomplete` session's bars can change once it is completed.
+
+**Not this:** `/bars` are time bars from the provider's one-minute bars; they
+never come from ticks.
 
 **Before trusting a product read, check three arrays:** `segments` (which
 contract served which sessions, and from which tier's data the roll was decided,
