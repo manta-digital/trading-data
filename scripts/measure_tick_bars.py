@@ -61,11 +61,17 @@ from manta_trading.market.schema.databases import (
 BAND_LOW = 0.95
 #: The request completes under this (306 D10).
 BOUND_S = 10.0
-#: A concurrent catalog request answers within this of its idle median; the
-#: evidence for 0.25 s is beside ``STARVATION_MARGIN_S`` in
-#: ``test/load/test_308_tick_bars_nfr.py``.
+#: A concurrent catalog request answers within this of its idle median (D9).
+#: Measured on the test cluster, 2026-11-12: idle ``/products`` is 43-131 ms
+#: (the probe itself varies by ~80 ms) and cutting adds 50-90 ms of GIL sharing
+#: with the cutter thread (busy max 0.160-0.177 s over idle medians 0.066-0.095
+#: s; max-of-7 against +0.1 s failed one run in four). Starvation would track
+#: the multi-second cut, so 0.25 s separates it from that contention. The load
+#: test (``test/load/test_308_tick_bars_nfr.py``) judges with ``starvation``.
 STARVATION_MARGIN_S = 0.25
 PROBES = 7
+#: Fewer probes beside the request than this cannot show the loop was free.
+MIN_BUSY_PROBES = 3
 #: Let the request get past planning and admission before probing.
 PROBE_DELAY_S = 0.2
 REQUEST_TIMEOUT_S = 120.0
@@ -186,7 +192,6 @@ class Timing:
     elapsed: float
     idle: list[float]
     busy: list[float]
-    overlapped: bool
 
 
 async def _probe(client: httpx.AsyncClient) -> float:
@@ -196,50 +201,52 @@ async def _probe(client: httpx.AsyncClient) -> float:
     return time.perf_counter() - started
 
 
-async def _timed(
+async def timed(
     client: httpx.AsyncClient, path: str, params: dict[str, str]
 ) -> tuple[float, httpx.Response]:
+    """One request and its wall time."""
     started = time.perf_counter()
     response = await client.get(path, params=params)
     return time.perf_counter() - started, response
 
 
 async def measure(
-    base_url: str, path: str, params: dict[str, str]
-) -> tuple[Timing, dict[str, Any]]:
+    client: httpx.AsyncClient, path: str, params: dict[str, str]
+) -> tuple[Timing, httpx.Response]:
     """Idle probes, then the request with probes beside it (D9)."""
-    async with httpx.AsyncClient(
-        base_url=base_url, timeout=REQUEST_TIMEOUT_S
-    ) as client:
-        idle = [await _probe(client) for _ in range(PROBES)]
-        request = asyncio.create_task(_timed(client, path, params))
-        await asyncio.sleep(PROBE_DELAY_S)
-        busy: list[float] = []
-        while not request.done() and len(busy) < PROBES:
-            busy.append(await _probe(client))
-        overlapped = not request.done()
-        elapsed, response = await request
-    if response.status_code != 200:
-        raise SystemExit(
-            f"{path} answered {response.status_code}: {response.text[:300]}"
-        )
-    return Timing(elapsed, idle, busy, overlapped), response.json()
+    idle = [await _probe(client) for _ in range(PROBES)]
+    request = asyncio.create_task(timed(client, path, params))
+    await asyncio.sleep(PROBE_DELAY_S)
+    busy: list[float] = []
+    while not request.done() and len(busy) < PROBES:
+        busy.append(await _probe(client))
+    elapsed, response = await request
+    return Timing(elapsed, idle, busy), response
+
+
+def starvation(timing: Timing) -> list[str]:
+    """The starvation check (D9): enough probes ran beside the request, and
+    none answered later than ``STARVATION_MARGIN_S`` over the idle median."""
+    if len(timing.busy) < MIN_BUSY_PROBES:
+        return [
+            f"only {len(timing.busy)} probe(s) ran beside the request,"
+            f" fewer than {MIN_BUSY_PROBES}"
+        ]
+    idle_median = statistics.median(timing.idle)
+    if max(timing.busy) > idle_median + STARVATION_MARGIN_S:
+        return [
+            f"catalog probe {max(timing.busy):.3f} s during the request, over"
+            f" idle median {idle_median:.3f} s + {STARVATION_MARGIN_S} s"
+        ]
+    return []
 
 
 def judge(timing: Timing, totals: list[str]) -> list[str]:
-    """Every failed check: the totals, the 10 s bound and the starvation bound."""
+    """Every failed check: the totals, the 10 s bound and starvation."""
     failures = list(totals)
     if timing.elapsed >= BOUND_S:
         failures.append(f"request took {timing.elapsed:.3f} s, bound {BOUND_S} s")
-    idle_median = statistics.median(timing.idle)
-    if not timing.busy:
-        failures.append("the request finished before any concurrent probe")
-    elif max(timing.busy) > idle_median + STARVATION_MARGIN_S:
-        failures.append(
-            f"catalog probe {max(timing.busy):.3f} s during the request, over"
-            f" idle median {idle_median:.3f} s + {STARVATION_MARGIN_S} s"
-        )
-    return failures
+    return failures + starvation(timing)
 
 
 def report(
@@ -271,13 +278,23 @@ dateUpdated: {today}
 - `/futures/products` idle: {[round(s, 3) for s in timing.idle]}
   (median {statistics.median(timing.idle):.3f} s)
 - During the request: {[round(s, 3) for s in timing.busy]}
-  (request still running after the probes: {timing.overlapped};
-  margin {STARVATION_MARGIN_S} s)
+  (margin {STARVATION_MARGIN_S} s)
 
 ## Checks
 
 {checks}
 """
+
+
+def _positive(text: str) -> int:
+    """An argparse type: an integer of at least 1, else a usage error."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1: {value}")
+    return value
 
 
 def _args(argv: Sequence[str]) -> argparse.Namespace:
@@ -287,8 +304,8 @@ def _args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--rule", required=True)
     parser.add_argument("--start", required=True, type=date.fromisoformat)
     parser.add_argument("--end", required=True, type=date.fromisoformat)
-    parser.add_argument("--ticks-per-bar", required=True, type=int)
-    parser.add_argument("--limit", required=True, type=int)
+    parser.add_argument("--ticks-per-bar", required=True, type=_positive)
+    parser.add_argument("--limit", required=True, type=_positive)
     return parser.parse_args(argv)
 
 
@@ -304,8 +321,16 @@ async def _run(args: argparse.Namespace) -> tuple[str, list[str]]:
         "end": (picked[-1].session_date + timedelta(days=1)).isoformat(),
     }
     path = f"/api/v1/futures/products/{args.product}/tick-bars"
-    timing, body = await measure(args.base_url, path, params)
-    failures = judge(timing, check_totals(body["bars"], picked, args.ticks_per_bar))
+    async with httpx.AsyncClient(
+        base_url=args.base_url, timeout=REQUEST_TIMEOUT_S
+    ) as client:
+        timing, response = await measure(client, path, params)
+    if response.status_code != 200:
+        raise SystemExit(
+            f"{path} answered {response.status_code}: {response.text[:300]}"
+        )
+    bars = response.json()["bars"]
+    failures = judge(timing, check_totals(bars, picked, args.ticks_per_bar))
     return report(args, picked, timing, failures), failures
 
 

@@ -22,17 +22,16 @@ Gate (CI runs no test job; see slice 907):
 
 from __future__ import annotations
 
-import asyncio
 import math
 import os
 import statistics
-import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
 import psycopg
 import pytest
+from tick_support.measure_script import measure_script
 
 from load.busiest_day import BUSIEST_DAY
 from manta_trading.api_server.app import create_app
@@ -46,8 +45,10 @@ pytestmark = [
     pytest.mark.timeout(1800),
 ]
 
+#: The probing, the bounds and the starvation check are the Phase 7 script's
+#: (``scripts/measure_tick_bars.py``), so the two never diverge.
+SCRIPT = measure_script()
 TICK_BARS = "/api/v1/futures/products/ES/tick-bars"
-PRODUCTS = "/api/v1/futures/products"
 #: ESH5's instrument id in the archived day (its definition file).
 ESH5_ID = 5002
 N = 1000
@@ -58,19 +59,13 @@ PARAMS = {
     "end": "2024-12-19",
 }
 RUNS = 5
-PROBES = 7
 
 #: About 2× the median of five runs on the test cluster. 2026-11-12, 661,950
 #: ESH5 trades in the session: 2.445, 2.485, 2.451, 2.435, 2.498 s; median
-#: 2.451 s. Never above 10 s (306 D10).
+#: 2.451 s. One session is a proxy; the script's ``BOUND_S`` (10 s, 306 D10) is
+#: the bound at the trade limit, and this one may never exceed it.
 TICK_BARS_BOUND_S = 5.0
-#: A concurrent catalog request answers within this of its idle median (D9).
-#: Measured on the test cluster, 2026-11-12: idle ``/products`` is 43-131 ms
-#: (the probe itself varies by ~80 ms) and cutting adds 50-90 ms of GIL sharing
-#: with the cutter thread (busy max 0.160-0.177 s over idle medians 0.066-0.095
-#: s; max-of-7 against +0.1 s failed one run in four). Starvation would track
-#: the multi-second cut, so 0.25 s separates it from that contention.
-STARVATION_MARGIN_S = 0.25
+assert TICK_BARS_BOUND_S <= SCRIPT.BOUND_S
 
 
 @asynccontextmanager
@@ -99,14 +94,6 @@ def _ledger(url: str) -> tuple[int, int]:
     return int(row[0]), int(row[1])
 
 
-async def _timed_get(
-    client: httpx.AsyncClient, path: str, params: dict[str, str]
-) -> tuple[float, httpx.Response]:
-    started = time.perf_counter()
-    response = await client.get(path, params=params)
-    return time.perf_counter() - started, response
-
-
 async def test_product_tick_bars_over_the_busiest_session(
     busiest: str, prod_shaped_db: str
 ) -> None:
@@ -116,7 +103,7 @@ async def test_product_tick_bars_over_the_busiest_session(
     samples = []
     async with _client(prod_shaped_db, busiest) as client:
         for _ in range(RUNS):
-            elapsed, response = await _timed_get(client, TICK_BARS, PARAMS)
+            elapsed, response = await SCRIPT.timed(client, TICK_BARS, PARAMS)
             assert response.status_code == 200, response.text[:300]
             samples.append(elapsed)
     body = response.json()
@@ -137,29 +124,14 @@ async def test_product_tick_bars_over_the_busiest_session(
 async def test_the_catalog_is_not_starved_while_cutting(
     busiest: str, prod_shaped_db: str
 ) -> None:
-    """``/futures/products`` during a tick-bar request answers within
-    STARVATION_MARGIN_S of its idle median: the loop is not starved (D9)."""
+    """``/futures/products`` during a tick-bar request answers within the
+    script's ``STARVATION_MARGIN_S`` of its idle median: the loop is not
+    starved (D9)."""
     async with _client(prod_shaped_db, busiest) as client:
-        idle = []
-        for _ in range(PROBES):
-            elapsed, response = await _timed_get(client, PRODUCTS, {})
-            assert response.status_code == 200
-            idle.append(elapsed)
-        idle_median = statistics.median(idle)
-
-        cutting = asyncio.create_task(client.get(TICK_BARS, params=PARAMS))
-        await asyncio.sleep(0.2)  # let the read get past planning and admission
-        busy: list[float] = []
-        while not cutting.done() and len(busy) < PROBES:
-            elapsed, response = await _timed_get(client, PRODUCTS, {})
-            assert response.status_code == 200
-            busy.append(elapsed)
-        overlapped = not cutting.done()
-        assert (await cutting).status_code == 200
+        timing, response = await SCRIPT.measure(client, TICK_BARS, PARAMS)
+    assert response.status_code == 200, response.text[:300]
     print(
-        f"\nproducts idle median {idle_median:.3f} s {[round(s, 3) for s in idle]};"
-        f" during tick bars {[round(s, 3) for s in busy]}"
-        f" (request still running after probes: {overlapped})"
+        f"\nproducts idle {[round(s, 3) for s in timing.idle]};"
+        f" during tick bars {[round(s, 3) for s in timing.busy]}"
     )
-    assert len(busy) >= 3, "the tick-bar request finished before three probes"
-    assert max(busy) <= idle_median + STARVATION_MARGIN_S
+    assert SCRIPT.starvation(timing) == []

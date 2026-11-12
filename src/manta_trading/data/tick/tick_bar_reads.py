@@ -188,13 +188,20 @@ async def read_tick_bars(
     stop: Stop,
 ) -> int:
     """The window's bars opened in ``[from, until)``, to ``on_batch`` in order;
-    returns how many. ``window`` must be unclipped; one that misses the bounds
-    is not read.
+    returns how many. ``window`` must span its session: bar indexes count from
+    the session open. One that misses the bounds is not read.
 
     Raises:
+        ValueError: ``window`` was clipped (``clip``), so its bars would be
+            renumbered from the clip point.
         ReadAbandoned: ``stop()`` returned true before a fetch.
         TickBarWindowError: a stored trade broke the cutter's contract.
     """
+    if window.clipped:
+        raise ValueError(
+            f"tick bars need the whole session; the {window.session_date} window"
+            f" of {window.raw_symbol} was clipped"
+        )
     if not overlapping([window], bounds):
         return 0
     state = _WindowCut(window, ticks_per_bar, bounds)

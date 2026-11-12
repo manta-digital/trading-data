@@ -280,13 +280,15 @@ recorded as Future Work in
 
 #### Remedy strings
 
-Refusals that a caller can act on quote one of three fixed remedies, defined
+Refusals that a caller can act on quote one of four fixed remedies, defined
 once in [`admission.py`](../../src/manta_trading/api_server/admission.py):
 
 - `narrow the filter` — a catalog list; bound it with query parameters.
 - `narrow start/end` — a time series; bound it with a shorter window.
 - `narrow start/end or from/until` — futures ticks; a session can exceed the
   ceiling, so the instant bounds are the way through it (§6.1).
+- `raise ticks_per_bar, or narrow start/end or from/until` — futures tick
+  bars over the row ceiling; fewer, larger bars also fit (§6.9).
 
 ### 2.8 Auth, CORS and pagination
 
@@ -2014,7 +2016,8 @@ ambiguous symbol, an empty range, `from` not before `until`, over the trade
 limit, or over the row ceiling; `500` when stored ticks break the cutting rule
 (`stored ticks for session … of … cannot be cut into bars; see the server
 log`: a data fault for an operator, not a client error); `503`. A client that
-disconnects mid-read gets nothing (the server logs status `499`).
+disconnects mid-read gets nothing: the read stops and the route answers a
+bodiless `499`, which it does not log as an error.
 
 ### 6.10 `GET /api/v1/futures/products/{product}/tick-bars`
 

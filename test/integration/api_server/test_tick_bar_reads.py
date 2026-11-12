@@ -241,6 +241,20 @@ async def test_until_stops_the_scan_early(
     assert await _all_available(pool)
 
 
+async def test_a_clipped_window_is_refused(
+    pool: AsyncConnectionPool[Conn], session_migrated_db: str
+) -> None:
+    """Bounds given to ``read_series`` clip the windows; the reader refuses
+    them rather than renumber bars from the clip point."""
+    bounds = (session_start_ns(FIRST) + 30 * SEC, None)
+    async with pool.connection() as conn:
+        with pytest.raises(ValueError, match="was clipped"):
+            await read_series(
+                conn, _plan_for(session_migrated_db), _bars_reader(5), 10**6, bounds
+            )
+    assert await _all_available(pool)
+
+
 async def test_stop_after_the_first_batch_abandons_the_read(
     pool: AsyncConnectionPool[Conn],
     session_migrated_db: str,

@@ -6,23 +6,17 @@ bounds. The production read and request run only in Phase 7 (#75).
 
 from __future__ import annotations
 
-import importlib
-import sys
 from datetime import date
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
-
-SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
+from tick_support.measure_script import measure_script
 
 
 @pytest.fixture(scope="module")
 def measure() -> ModuleType:
-    if str(SCRIPTS) not in sys.path:
-        sys.path.insert(0, str(SCRIPTS))
-    return importlib.import_module("measure_tick_bars")
+    return measure_script()
 
 
 def _rows(measure: ModuleType, counts: list[int]) -> list[Any]:
@@ -123,14 +117,29 @@ def test_check_totals_flags_bars_outside_the_range(measure: ModuleType) -> None:
 
 
 def test_judge_applies_both_bounds(measure: ModuleType) -> None:
-    fast = measure.Timing(2.0, [0.06] * 7, [0.15] * 7, True)
+    fast = measure.Timing(2.0, [0.06] * 7, [0.15] * 7)
     assert measure.judge(fast, []) == []
-    slow = measure.Timing(measure.BOUND_S, [0.06] * 7, [0.40] * 7, True)
+    slow = measure.Timing(measure.BOUND_S, [0.06] * 7, [0.40] * 7)
     failures = measure.judge(slow, ["totals"])
     assert failures[0] == "totals"
     assert any("bound" in f for f in failures)
     assert any("catalog probe" in f for f in failures)
-    unprobed = measure.Timing(1.0, [0.06] * 7, [], False)
+    unprobed = measure.Timing(1.0, [0.06] * 7, [0.15, 0.15])
     assert measure.judge(unprobed, []) == [
-        "the request finished before any concurrent probe"
+        "only 2 probe(s) ran beside the request, fewer than 3"
     ]
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "ten"])
+@pytest.mark.parametrize("flag", ["--ticks-per-bar", "--limit"])
+def test_bad_numeric_arguments_are_usage_errors(
+    measure: ModuleType, flag: str, value: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    argv = ["--base-url", "http://x", "--product", "ES", "--rule", "v.0",
+            "--start", "2024-09-03", "--end", "2025-01-01",
+            "--ticks-per-bar", "1000", "--limit", "2000000"]  # fmt: skip
+    argv[argv.index(flag) + 1] = value
+    with pytest.raises(SystemExit) as exited:
+        measure.main(argv)
+    assert exited.value.code == 2
+    assert flag in capsys.readouterr().err

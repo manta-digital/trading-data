@@ -71,13 +71,16 @@ class TickWindow:
     """One session of one instrument: ticks with ``open_ns <= ts_event <=
     close_ns``. Closed, as ``Session`` is: ingest files a tick stamped at the
     close under that session, so the ledger and ``coverage`` count it, and
-    the read must too. The one segment type; ``get_plan`` plans these."""
+    the read must too. The one segment type; ``get_plan`` plans these.
+    ``clipped`` is true when ``clip`` narrowed it: it no longer spans its
+    session, so a tick-bar read refuses it (308 D3)."""
 
     session_date: date
     instrument_id: int
     raw_symbol: str
     open_ns: int
     close_ns: int
+    clipped: bool = False
 
 
 #: Half-open instant bounds in epoch ns, ``[from, until)``; ``None`` = open.
@@ -100,7 +103,15 @@ def clip(windows: Sequence[TickWindow], bounds: Bounds) -> tuple[TickWindow, ...
             window.close_ns if until_ns is None else min(window.close_ns, until_ns - 1)
         )
         if open_ns <= close_ns:
-            clipped.append(replace(window, open_ns=open_ns, close_ns=close_ns))
+            narrowed = (open_ns, close_ns) != (window.open_ns, window.close_ns)
+            clipped.append(
+                replace(
+                    window,
+                    open_ns=open_ns,
+                    close_ns=close_ns,
+                    clipped=window.clipped or narrowed,
+                )
+            )
     return tuple(clipped)
 
 
