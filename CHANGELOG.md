@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-12
+
 ### Added
 - **Futures tick bars at any N** (slice 308). `GET /api/v1/futures/contracts/{symbol}/tick-bars?ticks_per_bar=N` and `GET /api/v1/futures/products/{product}/tick-bars?ticks_per_bar=N&rule=` serve bars of N trades, any `N` ≥ 1, cut from the stored ticks by one module (`data/tick/tick_bars.py`, standard library only, so the live stream and trading-engine can run the same code). Each bar has `session_date` and an `index` restarting at every session open, `open_time`/`close_time`, OHLC, `volume`, `trade_count`, `buy_volume`/`sell_volume` by aggressor side, the quote at its last trade and `partial` (only a session's last bar with fewer than N trades). `from`/`until` select bars by `open_time` and never change a bar. Stored ticks that break the rule are a logged `500` naming the session.
 - **`MT_API_MAX_TICK_BAR_TRADES`** (slice 308, default `2000000`). A tick-bar request is refused with a `422` before any tick is read when the ingest ledger's trades over the sessions it overlaps exceed it; the bars returned still count against `MT_API_MAX_BARS_PER_REQUEST`.
