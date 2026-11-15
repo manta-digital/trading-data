@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The tick pass asks Databento about every wanted day, history wants included** (slice 307). The availability capture took its span from the tier ranges only, so a history want older than the tier (2010 to 2024) was never checked, stayed `pending` and was never bought: the 307 plan held 26 requests instead of the history. The span now covers the history wants too.
+
 ## [0.27.1] - 2026-11-14
 
 ### Changed

@@ -7,10 +7,10 @@ is new or differs from the stored one, and a *changed* day
 (``condition`` or ``last_modified_date``) reopens that day's holed units in the
 same transaction. All writes of one capture commit together.
 
-The span is ``[min, max]`` over the universe's tier ranges, every tier day the
-manifest owns and every holed unit's day, narrowed by ``--start/--end`` and
-clipped to the dataset's available range. A span that ends up empty makes no
-condition call.
+The span is ``[min, max]`` over the universe's tier and history ranges, every
+tier day the manifest owns and every holed unit's day, narrowed by
+``--start/--end`` and clipped to the dataset's available range. A span that
+ends up empty makes no condition call.
 """
 
 from __future__ import annotations
@@ -64,6 +64,13 @@ def _bounds(
         (entry.start, entry.end if entry.end is not None else edge_end)
         for entry in entries
         if entry.tier is not None and entry.start is not None
+    ]
+    # History wants (302): without their days here the planner never learns they
+    # are available and leaves them pending, so nothing before the tier is bought.
+    bounds += [
+        (want.start, want.end if want.end is not None else edge_end)
+        for entry in entries
+        for want in entry.history
     ]
     days = [key.day for key in owned if key.dataset == dataset]
     days += [day for held_dataset, day in holed if held_dataset == dataset]
