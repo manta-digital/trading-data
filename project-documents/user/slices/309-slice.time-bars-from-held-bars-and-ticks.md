@@ -59,7 +59,9 @@ Bars keep their fields (`time`, session, contract, open, high, low, close, volum
 
 A session with neither ticks nor usable provider bars returns no bars and is listed in `incomplete` with the reason, as today.
 
-`mt data tick get <size>` follows the same rule and prints the same sources.
+`mt data tick get <size>` follows the same source rule and prints the same sources. The limit on trades read (below) does not apply to it: the limit protects the shared API server, and the command is run by an operator, streams its output with flat memory, and has never limited a tick read.
+
+**Default range.** When `start` or `end` is left out, the range is everything held in either kind of data: from the earliest held session to the day after the latest, over ticks and provider bars together. So a session held only in provider bars is served by a default request. Raw ticks and bars of N trades keep their tick-only default.
 
 ## How the source is chosen
 
@@ -134,8 +136,8 @@ Running it automatically is not built in this slice. It is listed in the slice p
 1. On production, `/products/ES/bars` and `/products/GC/bars` for 2024-12-02 return bars at `1h`, `1m`, `15s` and `1d`, with `sources` naming `ticks` and `applied` listing every parameter.
 2. For one ES session, the one-minute bars cut from ticks equal the same session's trades summed by hand: same count of non-empty minutes, same open, high, low, close and volume. Checked in a test against real held ticks, not an invented fixture.
 3. A test database that holds provider one-minute bars for a session serves `5m` from them (`sources` says `ohlcv-1m`) and `15s` for the same session from ticks.
-4. A session with neither returns no bars and is listed in `incomplete`.
-5. A tick-cut request over the trade limit is refused before any tick is read. The limit's default and the measured times (one ES session at `1m`; the widest range the default admits) are recorded in a note.
+4. A session with neither returns no bars and is listed in `incomplete`. A session held only in provider bars is served by a request that names no range.
+5. A tick-cut request over the trade limit is refused before any tick is read. The limit's default and the measured times at `1m` (one median ES session; and a run of consecutive sessions whose trades sum to 95-100% of the default, which is the largest read the limit lets through) are recorded in a note.
 6. Bars of N trades and raw ticks return exactly what they returned before; their tests pass unchanged.
 7. `mt data health` on production shows no bar or statistics rows and no new failure.
 8. trading-ui and trading-engine are told the shape is published, with the document to read.
