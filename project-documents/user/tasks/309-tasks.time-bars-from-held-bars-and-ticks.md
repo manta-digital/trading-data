@@ -437,7 +437,7 @@ Each removal follows a green verification and has its own marker, so any one can
 
 - [ ] **9.1 `docs/api/reference.md`**
   - [ ] Find every statement about futures bars (`grep -n -iE "provider bars|no provider
-    bars|ohlcv-1m|six sizes|`source`"`) and replace it with the new rule, the grammar (any
+    bars|ohlcv-1m|six sizes|sources?"`) and replace it with the new rule, the grammar (any
     whole number of seconds, minutes or hours up to 24h, and `1d`), the 422 for other sizes,
     `sources` (a list; example with two runs), `applied` (with the defaulted-parameters
     example), the cost note, the new `MT_API_MAX_TIME_BAR_TRADES` row beside the 308 one, the
