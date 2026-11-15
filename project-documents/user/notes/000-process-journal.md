@@ -5,7 +5,7 @@ project: trading-data
 audience: [human, ai]
 description: Append-only log of process decisions and design reasoning that has no home in other document types
 dateCreated: 20260719
-dateUpdated: 20261101
+dateUpdated: 20261115
 status: in_progress
 ---
 
@@ -20,9 +20,30 @@ file-naming-conventions (`-1`, `-2`, …).
 
 # Entries
 
+## 20261115 — ADR: ticks are the primary futures data; time bars come from held provider bars where we have them and from ticks everywhere else; nothing is bought without a named use
+
+**Context.** The 20261101 entry decided that time bars come only from Databento's bars and that ticks never produce served time bars. Slice 306 built that. No provider bars have ever been bought into production, so since release 0.27.0 the futures time-bar routes return no bars for ES or GC, although production holds 27.7 million ES and 4.0 million GC tick records. The same thinking led to a slice (307) whose job was to buy bars, statistics and definitions back to 2010 for $94, with no use named for them. The PM rejected both on 2026-11-15: they put a cheap byproduct (provider minute bars) in charge and made the expensive primary data (ticks) second-class.
+
+**Decision.**
+1. **Ticks are the primary data** for futures and for any other instrument we hold ticks for. Provider bars and statistics are optional extras: used where held, never required.
+2. **Time bars, source order.** For the range asked for, serve stored provider bars where we hold them (they are faster to read), and cut bars from ticks everywhere else. A coarser size is added up from a finer stored size. Where there are neither ticks nor stored bars there are no bars, and the response says so.
+3. **Any time size.** A time bar may be any whole number of seconds, minutes or hours, or the session day. There is no fixed menu and no banned size today. If performance, storage or bandwidth later give a reason, the sizes may be limited to a predefined set (for example if 30-second bars are precomputed); see decision 7. Bars of N trades at any N are unchanged.
+4. **Every bars response names the source it used.**
+5. **The comparison of tick-built minutes with provider minutes is kept as an automatic background check**, run where both are held. It is not a command an operator types.
+6. **Nothing is bought because it is available.** A purchase needs a use named by the PM. The engine and the UI test on the ticks already held (ES 2024-08-30 to 09-29 and 2024-11-01 to 12-31; GC 2024-11-04 to 12-31); 30 days to 6 months of data is enough for testing. History back to 2010 is a possible later bonus, not a goal. The production configuration wants no history.
+7. **Stored aggregates of bars are not built now.** They are an option if a real read is too slow.
+
+**Supersedes.** Decisions 1 and 2 of the 20261101 entry, and that entry's rationale sentence "Databento already sells every time interval worth having, so ticks are worth holding only for what bars cannot give". Decisions 3 to 9 of that entry stand (bars of N trades at any N, one rollup rule, one incremental implementation, identical bars for the engine and the chart, compact raw ticks, one shared store, the scaling limit).
+
+**Rationale.** Ticks are what the project exists to hold, and they already answer every bar question for the ranges we have. Provider bars are worth using when held because reading them is cheaper than scanning ticks, not because they are more authoritative. Mixing sources is handled by naming the source in the response, not by refusing to serve.
+
+**Follow-ups.** The 300 architecture is amended. Slice 306's provider-only rule is removed from code, tests and API documents; its session-anchored buckets (issue #47) and source label are kept. Slice 307 is deleted. Slice 304 is recorded as built and never run; its spend-limit script, reconciliation script and purchase runner are kept. Issues #69, #70 and #74 are closed as resting on the old premise; issue #40 (1-second bars) is answered from ticks; issue #77 (echo every applied parameter on bars responses) is folded into the bars change.
+
 ## 20261101 — ADR: what futures ticks are for — time bars come from Databento, tick bars take any N, one incremental rollup, compact raw ticks
 
 **Context.** The futures bars routes build 1m–1d bars from `tick_trade` with `time_bucket`. That throws away what makes a tick worth more than a bar (aggressor side, the quote at the trade, exact order), and it duplicates bars Databento sells and the Standard plan includes. trading-ui needs futures charts and asked whether trading-data would serve N-tick bars. The 300 architecture named a bars source rule but never said what ticks are for.
+
+**Superseded in part (20261115):** decisions 1 and 2 below and the first sentence of the rationale are replaced by the 20261115 entry. Decisions 3 to 9 stand.
 
 **Decision.**
 1. **Time bars come from Databento.** `ohlcv-1s` and `ohlcv-1m` are stored and coarser intervals are rolled up from them on the CME session. Ticks never produce served time bars. Tick-derived time bars are kept only as the parity check against provider bars. No 5s/15s intervals. Provider `ohlcv-1h`/`1d` stay unserved (PM, 2026-10-28).
