@@ -326,7 +326,8 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
   - [ ] They build one `TimeBarRead` per request, call `read_series(..., admit=reader.admit)`,
     and map: `TimeBarScanExceeded` to 422, `RowCeilingExceeded` to the existing 422,
     `ReadAbandoned` to the bodiless 499 (reuse `CLIENT_CLOSED_REQUEST` and the 308
-    handling, moved to one shared place if needed), `LedgerCountExceeded` to a logged `500`
+    handling; share it only if `test_futures_tick_bars.py` then passes with no edit, otherwise
+    leave the 308 route alone and repeat the small mapping here), `LedgerCountExceeded` to a logged `500`
     naming the session ("see the server log", as `_uncuttable` does), a cancelled statement
     to the existing 504 through `tick_errors`.
   - [ ] Build the response model in the executor (`run_in_executor`), as the ticks and
@@ -370,10 +371,11 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     unit and its ingest) into a `seed_ticks_only` helper in `test/tick_support/parity_seed.py`
     that `seed_parity` calls first. **Both**: `seed_parity` as it is (the same day complete in
     ticks and in provider one-minute bars).
-  - [ ] Ticks-only fixture, contract route and product route: `1h`, `1m`, `15s` and `1d`
-    return bars with `sources` naming `ticks` and `applied` listing every parameter
-    (criterion 1 at test scale).
-  - [ ] Both fixture, both routes: `1m`, `1h` and `1d` return `sources` naming `ohlcv-1m` (a
+  - [ ] Ticks-only fixture, product route: `1h`, `1m`, `15s` and `1d` return bars with
+    `sources` naming `ticks` and `applied` listing every parameter (criterion 1 at test
+    scale). Contract route: `1h` only, since the two routes differ only in how the plan is
+    built.
+  - [ ] Both fixture, product route: `5m` and `1d` return `sources` naming `ohlcv-1m` (a
     provider width divides them and the bar verdict is complete, task 4.1's rule), and `15s`
     returns `sources` naming `ticks` (criterion 3 at the route).
   - [ ] `0s`, `2d` and `5x` return 422 naming the accepted form.
@@ -389,8 +391,6 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
   - [ ] `1s` with `from`/`until` five minutes apart returns bars equal to the task 2.2 oracle
     at one second for that window, `sources` naming `ticks`, and `applied` echoing `from`
     and `until`.
-  - [ ] A `1s` request whose bars exceed the row ceiling (lower the ceiling in the test
-    settings rather than relying on the day's size) is the existing row-ceiling 422.
 
 - [ ] **6.7 Route error-mapping tests** (same file), one test per mapping, with the
   technique of the 308 tests. Each reads through the tick cut, so each requests `15s` (the

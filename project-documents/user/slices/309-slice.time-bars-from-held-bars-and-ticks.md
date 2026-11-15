@@ -95,6 +95,8 @@ This statement already exists at one size: the minute comparison built in slice 
 - **The client disconnects mid-read.** The read checks for a disconnect between sessions and stops; the remaining sessions are not read. This is the bodiless `499` that bars of N trades already return.
 - **The ledger has no trade count for a planned session, or the count is wrong.** A session with no ledger row is not `complete`, so it is listed in `incomplete` and adds nothing to the admission count. If a session returns more trades than its ledger says, the read fails with a logged `500` naming the session, because admission trusted a number that was false.
 
+**Load test.** This is a new heavy read on a shared server, and the project's rule is that such a path gets a load test. One test holds a time bound for a busy ES session at `1m` and checks that another request stays responsive while it runs, which is what proves the response is built off the server's event loop. Nothing runs it automatically yet (issue #32).
+
 Stored aggregates (for example precomputed 30-second or 1-minute bars from ticks) are not built here. They are the next step if these reads are too slow for real use (journal 20261115, decision 7).
 
 ## What is removed

@@ -7,99 +7,114 @@ conventionsSource: AGENTS.md
 projectRules: []
 project: trading-data
 verdict: FAIL
-verdictSource: derived
+verdictSource: stated
 sourceDocument: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md
 aiModel: claude-haiku-5-5
 aiProfile: sdk
 status: complete
 dateCreated: 20261115
 dateUpdated: 20261115
-reviewedSha: 78a6e5234d2298765ec9ee2b6a1fb5feca2ed566
+reviewedSha: ffb25a61f4ff9d0df86f5747339a56f28af29f80
 revision_number: 2
 toolsGiven: [read_file, list_files, grep]
-toolCallsMade: 14
+toolCallsMade: 18
 effort: xhigh
-turns: 15
-promptTokens: 578086
-cachedTokens: 405329
-cacheWriteTokens: 172747
-completionTokens: 73941
-durationSeconds: 321.5
-costUsd: 0.211624
+turns: 19
+promptTokens: 1346308
+cachedTokens: 1171625
+cacheWriteTokens: 174663
+completionTokens: 81883
+durationSeconds: 357.7
+costUsd: 0.296838
 costBasis: provider
 runId: run-20261115-p5-353fa79c
-squadronVersion: 0.24.28
+squadronVersion: 0.24.31
 findings:
   - id: F001
     severity: fail
-    category: test-design
-    summary: "Route tests expect `ticks` for sizes the fixture serves from bars"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:309"
+    category: sequencing
+    summary: "The 6.2–6.5 commit marker leaves the unit tier red"
+    location: "docs/api/reference.md:1882"
   - id: F002
     severity: concern
-    category: spec-conflict
-    summary: "Measured run is the first run in the band, but criterion 5 asks for the widest"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:143"
+    category: verification
+    summary: "The load test has no CI wiring task"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:410"
   - id: F003
     severity: concern
-    category: ci-gating
-    summary: "No CI job gates the load test"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:368"
+    category: completeness
+    summary: "The trade-limit default loop has no stop condition"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:157"
   - id: F004
     severity: concern
-    category: scope
-    summary: "`mt data tick get` skips the trade limit, and the design does not allow that"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:338"
+    category: completeness
+    summary: "No-ledger sessions fail the whole request, against the design"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:257"
   - id: F005
     severity: concern
-    category: coverage
-    summary: "The default range is held ticks, so sessions held only in bars are never planned"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:286"
+    category: completeness
+    summary: "1-second bars have no test beyond parsing"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:114"
   - id: F006
     severity: concern
-    category: sizing
-    summary: "Section 6 is one commit covering about 30 items"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:330"
+    category: format
+    summary: "Production checks and criteria 1 and 8 are not checkable"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:550"
   - id: F007
-    severity: note
-    category: sizing
-    summary: "Section 9.1 packs about eight replacements into one checkbox"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:438"
+    severity: concern
+    category: scope
+    summary: "The task file is overweight and prescriptive"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md"
   - id: F008
     severity: note
-    category: coverage
-    summary: "\"A bar never crosses a session\" has no test"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:119"
+    category: completeness
+    summary: "The CLI's handling of LedgerCountExceeded is unspecified"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:388"
   - id: F009
     severity: note
-    category: coverage
-    summary: "Criterion 2 says \"summed by hand\"; the task uses a Python oracle"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:116"
+    category: testability
+    summary: "Criterion 2 is tested against a reinterpreted oracle"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:115"
   - id: F010
     severity: note
-    category: commit-cadence
-    summary: "Two commit subjects exceed the 72-character guideline"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:465"
+    category: clarity
+    summary: "The 8.1 grep also matches `BAR_SOURCE_NAME`"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:423"
   - id: F011
     severity: note
-    category: commit-cadence
-    summary: "Section 11 has no commit marker"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:480"
+    category: clarity
+    summary: "7.1 does not name the file that defines `TICK_GET_CHOICES`"
+    location: "src/manta_trading/data/tick/constants.py:408"
   - id: F012
     severity: note
-    category: scope
-    summary: "Task 10.1 adds the 300 architecture document, which the design does not list"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:470"
+    category: completeness
+    summary: "3.1's script placement conflicts with its import"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:142"
   - id: F013
-    severity: pass
-    category: coverage
-    summary: "Every success criterion maps to a task or a handoff step"
-    location: "project-documents/user/slices/309-slice.time-bars-from-held-bars-and-ticks.md:132"
+    severity: note
+    category: format
+    summary: "Two commits are labelled `refactor` but change behavior"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:453"
   - id: F014
+    severity: note
+    category: verification
+    summary: "Validation hardcodes `main` as the base"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:529"
+  - id: F015
+    severity: pass
+    category: completeness
+    summary: "Criteria 2 through 7 each trace to a task"
+    location: "project-documents/user/slices/309-slice.time-bars-from-held-bars-and-ticks.md:136"
+  - id: F016
     severity: pass
     category: sequencing
-    summary: "Sequencing holds and the referenced code exists"
-    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:63"
+    summary: "Sequencing, test pairing and commit markers hold"
+    location: "project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md"
+  - id: F017
+    severity: pass
+    category: verification
+    summary: "Referenced symbols and files exist"
+    location: "src/manta_trading/api_server/routes/futures_params.py:29"
 ---
 
 # Review: tasks — slice 309
@@ -109,69 +124,101 @@ findings:
 
 ## Findings
 
-### [FAIL] Route tests expect `ticks` for sizes the fixture serves from bars
+### [FAIL] The 6.2–6.5 commit marker leaves the unit tier red
 
-Task 4.3 (line 195) defines the fixture as "the real tick day complete in both families", and says `5m` chooses `ohlcv-1m`. Under the rule in 4.1 (line 173), any size with a provider width that divides it, where the bar verdict is complete, chooses the provider. `1m` (60 s), `1h` and `1d` all qualify, so on this fixture they choose `ohlcv-1m`. Task 6.4 still says `1h`, `1m`, `15s` and `1d` return `sources` naming `ticks`. Only `15s` is right. An implementer will either break the 4.1 rule to satisfy 6.4 or write a failing test.
+Task 6.3 deletes `TickBarGranularity` (`src/manta_trading/api_server/routes/futures_params.py:29`) and makes `granularity` a plain string. Task 6.2 changes the response shape. Several checks then fail until section 9, yet the marker at task line 333 says this commit is green (task lines 57–58 make the same promise):
+- `docs/api/reference.md:1882` and `docs/api/agents.md:628` hold `<!-- from: …futures_params.TickBarGranularity -->` markers. `reference.md:1872,1934` and `agents.md:379,384` document `granularity:TickBarGranularity`. `scripts/check_api_docs.py:112` resolves these markers, and `test/unit/api_server/test_api_docs.py:51` runs the gate on the committed tree. The gate's own tests cover unresolvable markers and retyped parameters, so this should fail.
+- `docs/api/openapi.json:4096` still has the `TickBarGranularity` schema and the old `source` field. `test/unit/api_server/test_openapi_artifact.py:56` asserts that the committed artifact equals the generated one. Regeneration is only in 9.3 (task lines 498–500), so every marker from 6.2 to 9 is red for this test.
+- The 9.1 grep (task lines 482–483) does not match `TickBarGranularity` or `from:` markers, so section 9 could miss them too.
 
-Also, no route-level test asserts `sources` naming `ohlcv-1m`. SC3's response-level clause is covered only at the choice level (4.3) and the reader level (5.4). Fix: assert `ohlcv-1m` for `1h`, `1m` and `1d`, and `ticks` for `15s`, on the fixture. Add a route assertion for the provider source.
+Fix: move the OpenAPI regeneration and the reference and agents parameter and marker edits into the 6.2–6.5 commit. Add `TickBarGranularity|<!-- from:|granularity:` to the 9.1 and 9.2 greps.
 
-### [CONCERN] Measured run is the first run in the band, but criterion 5 asks for the widest
+### [CONCERN] The load test has no CI wiring task
 
-Design criterion 5 (slice design line 138) requires the note to record "the widest range the default admits". Task 3.1(b) measures "the run `pick_range` returns": the first run of consecutive sessions whose ledger counts sum to 95–100% of the limit. These are not the same run. An earlier review round raised this as FAIL. The revision changed the task to match `pick_range` but left the criterion as "widest". Either name the largest-trade admitted run and how to select it, or amend criterion 5 and say why the first in-band run bounds the 10 s budget.
+Task 7.3 defers gating to issue #32. The claim that CI has no test job is correct: `.github/workflows/ci.yml:5` triggers only on `v*` tags and runs publish steps. The project rule requires a CI wiring task whenever a load test task exists. "Deferred to an issue" is explicit, but it is not a wiring task. Slices 146 and 167 shipped NFR tests that never ran automatically. Slice 907 exists to fix exactly that (`project-documents/user/slices/907-slice.ci-pipeline-and-load-test-gating.md:18`, status not_started). The earlier review (`project-documents/user/reviews/309-review.tasks.time-bars-from-held-bars-and-ticks.md:124`) raised the same point.
+Fix: add a CI wiring item to 7.3, or name slice 907 as the owner and record that the gate is manual until it lands.
 
-### [CONCERN] No CI job gates the load test
+### [CONCERN] The trade-limit default loop has no stop condition
 
-Task 7.3 adds `test/load/test_309_time_bars_nfr.py` with a bound, then defers the gate to issue #32. I checked `.github/workflows/ci.yml`: it has no pytest, unit, integration or load step. The project rule is that a load test has a CI wiring task. Add one that runs the file in CI, or name the specific blocker (for example, CI cannot reach the test cluster). Otherwise the 308 and 309 bounds are checked only by hand in 11.1.
+Task 3.1 lowers the limit to `floor(2,000,000 × 10 / seconds)` and re-measures "repeat until it holds". If the median session (a) alone takes more than 10 s, no limit holding one session passes, and the loop never ends. It may also push the limit below one median session, which nothing in the design can serve. Changing the default also changes which run meets the 95–100% criterion, and the rule does not say how criterion 5 applies at each step.
+Fix: state the stop. If one median session exceeds 10 s, write `BLOCKED:` with the measured time and stop before 5.2. Set a minimum limit, and say whether the 95% run is re-applied at each limit.
 
-### [CONCERN] `mt data tick get` skips the trade limit, and the design does not allow that
+### [CONCERN] No-ledger sessions fail the whole request, against the design
 
-Task 7.1 passes `max_trades=None` for the CLI, so `mt data tick get <size>` reads with no admission. The design says the CLI "follows the same rule" (slice design line 62), and its cost section refuses tick-cut reads over the limit before any tick is read. The design names no operator exemption. A month of `1s` bars on production is the cost case the limit exists for. Either apply the same admission to the CLI with a refusal message, or record the exemption in the design before building it.
+The design (`project-documents/user/slices/309-slice.time-bars-from-held-bars-and-ticks.md:94`) says a session with no ledger row "is not complete, so it is listed in `incomplete` and adds nothing to the admission count." Task 4.1 (lines 183–187) reads any tick-sourced session whose tick verdict is not `missing`. Task 5.3 (lines 261–262) gives a no-ledger session a count of 0, so any trade read from it raises `LedgerCountExceeded` and the request returns 500. Unless no-ledger sessions always have verdict `missing` (I did not verify this), a routine state fails a whole request that the design calls incomplete.
+Fix: in 4.1, a session with no ledger row resolves to `None` (not read, listed incomplete, matching 5.2's "adds nothing"). Keep the 500 for a count mismatch on a session that has a ledger row, and say so in 5.3.
 
-### [CONCERN] The default range is held ticks, so sessions held only in bars are never planned
+### [CONCERN] 1-second bars have no test beyond parsing
 
-Task 6.2 plans both bars routes on `SchemaFamily.TICK_TIER`, with "their default range is the held ticks". A session held only in provider bars is outside that range, so a default request skips it. The design says provider bars are used where held (rule 2), and that the same routes will serve bars back to 2010 with no change for the consumer. That second claim fails for a default request if bars are bought without ticks. No test in 5.4 or 6.4 covers a bars-only session through a route with the default range. Decide whether the default range is the union of tick and bar sessions and state it in 6.2, or record that a later slice owns it. This does not affect production today, since no bars are held.
+The design's Value section (`project-documents/user/slices/309-slice.time-bars-from-held-bars-and-ticks.md:33`) promises the 1-second bars that trading-engine asked for (issue #40). The cut is tested at 1m, 90m, 4h and 1d (2.2). The route is tested at 1h, 1m, 15s and 1d (6.6). `1s` appears only in the parser tests (1.3). Nothing checks that a `1s` cut buckets per second, and nothing checks a `1s` route response. A full session at 1s is about 82,800 bars, over the 75,000 row ceiling, so the route test needs a narrow window.
+Fix: add a `1s` case on a short window to 2.2 (oracle with width 1 s) and a `1s` route test on a narrow range to 6.6. Add a full-day `1s` 422 to 6.7.
 
-### [CONCERN] Section 6 is one commit covering about 30 items
+### [CONCERN] Production checks and criteria 1 and 8 are not checkable
 
-Section 6 covers the response model, the routes, the model tests, the route success and refusal tests, the error mapping and the existing-test updates. Its single marker spans about 30 checkboxes and bullets across roughly ten files. The tree cannot be green after 6.1 alone, but it can be green at two points: 6.1, 6.2, 6.3 and 6.6 together (existing tests move to the new shape), then 6.4 and 6.5 as additive route tests. Put a marker at the first point so a route-test bisect does not undo the response change.
+Criterion 1 (production), the production half of criterion 7, and criterion 8 (messages to two peers) appear only as prose under "Phase 7 handoff (not tasks)" (lines 550–569). They are agent steps: check, message, record evidence, close issues. Because they have no `[ ]`, task-checker cannot track them, the file's checklist rule is broken, and the file cannot show the slice complete.
+Fix: turn the checks, the two messages, the evidence note and the issue closures into checkbox items with the release as their precondition. Keep the release and merge out of the list, per the rule against writing pushes as tasks.
 
-### [NOTE] Section 9.1 packs about eight replacements into one checkbox
+### [CONCERN] The task file is overweight and prescriptive
 
-The earlier review flagged this as too large. It still is. Splitting it into routes and grammar, sources and applied examples, and config, cost and removals would make each item checkable.
+The file has roughly 130 checkbox items and 18 commit markers, against a design of about 155 lines. Most of the length is breadth that the slice needs. Some of it is implementation prescription the design does not require:
+- exact user-facing text (5.2 lines 239–240, 7.1 `GET_EPILOG` lines 387–388)
+- the sliding-window algorithm and script internals in 3.1 (lines 149–156)
+- 7.3, the load test. The design restates no NFR and has no load criterion, so the breakdown adds a test beyond what the criteria need. The rule allows that, but it adds five timed runs and a probe, and it pulls the full 77-minute load tier into 10.1.
 
-### [NOTE] "A bar never crosses a session" has no test
+Cuts: specify 3.1's outputs only (ledger sums, timings, runs, default chosen). Drop exact message text unless a test asserts it. Replace 9.1's six-bullet list with "every grep hit is replaced and listed in the note." Keep 7.3 only if you can name the design sentence it serves.
 
-The design states this rule (slice design line 58). 2.2 checks anchors and totals but not boundaries. Add one assertion for a size that does not divide the session evenly (for example `90m` or `4h`): the last bucket ends at or before the session close, and no bucket includes trades from another session.
+### [NOTE] The CLI's handling of LedgerCountExceeded is unspecified
 
-### [NOTE] Criterion 2 says "summed by hand"; the task uses a Python oracle
+The ledger guard in 5.3 runs in the CLI too, since `max_trades=None` only exempts the limit. It can fire after rows are already written. 7.1 says exit codes are unchanged but gives no requirement for this error, and 7.2 has no test for it.
+Fix: state the exit code and what the footer shows in that case, and add a test.
 
-2.2 reuses `tick_minutes` (`test/tick_support/parity_seed.py:54`), an independent Python bucketing of the tick rows, not a manual sum. That is independent of the SQL, so it meets the intent. Say so in 2.2 so an implementer does not read "by hand" as a manual check.
+### [NOTE] Criterion 2 is tested against a reinterpreted oracle
 
-### [NOTE] Two commit subjects exceed the 72-character guideline
+Criterion 2 says "summed by hand" (design line 137). Task 2.2 substitutes a Python bucketing oracle with the same floor rule as the SQL. The file says so openly. The oracle checks the SQL against Python, not the bucketing rule itself.
+Fix: accept it, but add one boundary case checked by hand (a first and last trade either side of a bucket edge), so the rule is not checked only against itself.
 
-The docs subject on line 465 is about 95 characters. The feat subject on line 330 is about 78. Shorten both, for example `docs: document time bars from held bars or ticks; regenerate OpenAPI`.
+### [NOTE] The 8.1 grep also matches `BAR_SOURCE_NAME`
 
-### [NOTE] Section 11 has no commit marker
+The pattern `BAR_SOURCE` is a substring match for `BAR_SOURCE_NAME`, which 8.3 keeps. Read literally, 8.1's "fix it, do not keep the symbol" would send the agent to change `overview_futures`.
+Fix: grep for `\bBAR_SOURCE\b`, and list `BAR_SOURCE_NAME` in 8.1's kept items.
 
-This file uses markers, so the implementation rule allows commits only at them. If validation in 11.1 finds a failure that needs a fix, there is no permitted commit point. Add a marker for a `fix:` commit made during 11.1, or say where such fixes go.
+### [NOTE] 7.1 does not name the file that defines `TICK_GET_CHOICES`
 
-### [NOTE] Task 10.1 adds the 300 architecture document, which the design does not list
+7.1 (lines 376–378) says to delete `TICK_GET_CHOICES` but lists only the CLI files. The symbol is defined here and imported at `src/manta_trading/cli/commands/tick_get_cmds.py:43`.
+Fix: add this file to 7.1.
 
-The design's cleanup list (slice design line 128) names the slice and task files for 302–305 and 308. Task 10.1 also covers the 300 architecture, conditionally, where it contradicts the ticks-primary rule. The condition limits the risk, but the architecture is the parent document. Either drop it from 10.1 or have the design list it.
+### [NOTE] 3.1's script placement conflicts with its import
 
-### [PASS] Every success criterion maps to a task or a handoff step
+3.1 says to write the script outside the repo and also that it "may import `pick_range`" from `scripts/measure_tick_bars.py:97`. An import from outside the repo fails unless the path is set up, and the task does not say how.
+Fix: say to copy `pick_range`, or to put the repo's `scripts` directory on the path.
 
-SC2 is covered by 2.2. SC3 by 4.3 and 5.4. SC4 by 4.3 and 6.4. SC5 by 3.1, 5.2, 5.4 and 6.5. SC6 by 6.6 and 11.1. SC7 at test scale by 8.3. SC1, SC8 and SC7's production half sit in the Phase 7 handoff, which is an accepted location. The only route-level gap is the one in the first finding.
+### [NOTE] Two commits are labelled `refactor` but change behavior
 
-### [PASS] Sequencing holds and the referenced code exists
+8.2 removes the `mt data tick parity` command, and 8.3 changes production wants, which changes `mt data health` and overview output. The project defines `refactor` as no behavior change.
+Fix: use `chore:` for 8.3 (configuration). For 8.2, pick a type from the CLAUDE.md list that fits a removed user-facing command.
 
-The order is BarSize (1), then the cut (2), the measurement (3, which uses 2.1), source choice (4), reader (5), routes (6), removals (8) and docs (9). The parity deletions in 8.2 come after every reader. I checked these references and they exist: `_TICK_MINUTES` (`bar_parity.py:37`), `_DAY_BUCKET` (`bar_reads.py:44`), `tick_bar_reads._entry` (line 246), `pick_range` (`scripts/measure_tick_bars.py:97`), `tick_minutes` (`parity_seed.py:54`), the `TickBarGranularity` users (`futures_series.py` and `futures_params.py`), and the line references in `test_tick_access.py` and `test_futures_models.py`. The load tier lives under `test/load/`, which matches the task. The earlier round's ledger-guard, BLOCKED-scope and `BAR_SOURCE_NAME` items are addressed in the current text.
+### [NOTE] Validation hardcodes `main` as the base
+
+10.1 uses `git diff main` three times. The project rule says the target is `cf config get git.integration_branch`, or `main` when empty. I could not read that value from this session, and it is not in `.git/config`. If it is set, these checks compare against the wrong base.
+Fix: read the target at the top of 10.1 and use it throughout.
+
+### [PASS] Criteria 2 through 7 each trace to a task
+
+Criterion 2 maps to 2.2. Criterion 3 maps to 4.3, 5.4 and 6.6. Criterion 4 maps to 4.3, 6.1 and 6.6. Criterion 5 maps to 3.1, 5.2 and 5.4. Criterion 6 maps to 6.5 and 10.1. Criterion 7 at test scale maps to 8.3. Criteria 1 and 8 are covered only by the handoff prose (see the checkbox finding). The CHANGELOG, issue closures and other-slice cleanup trace to the design's "Documents and issues cleaned up" section. I found no scope creep beyond 7.3.
+
+### [PASS] Sequencing, test pairing and commit markers hold
+
+The trade limit is measured (3.1) before any task reads it (5.2). Every implementation task sits in the same commit as its tests, or is followed by them. The 18 markers fall at working points, and I found no circular dependencies. The `**Commit**:` lines are plain text, not checkboxes.
+
+### [PASS] Referenced symbols and files exist
+
+These symbols exist where the task says: `ledger_totals`, `sessions_dated`, `verdicts_for`, `ReadAbandoned`, `_entry`, `product_plan`, `TICK_JIT_OPTION`, `_TICK_MINUTES`, `_DAY_BUCKET`, `tick_minutes`, `seed_parity`, `run_parity`, `pick_range`, `tick_errors`, `CLIENT_CLOSED_REQUEST`, `GET_EPILOG`, `_HISTORY_WANTS`, and the 308 limit plumbing (`constants.py:1401`, `deps.py:55`, `app.py:100`). The files to delete or edit exist, and the new modules are absent as expected. `TickBarGranularity` is used only by the futures time-bar routes, so its removal does not touch the N-trade tests that criterion 6 keeps unchanged.
 
 ### Run Digest
 
-- Response length: 10202 chars
+- Response length: 14830 chars
 - Response is newline-free: no
-- Tool calls made: 14
+- Tool calls made: 18
 - Tool calls failed: 0
 - Stop reason: end_turn
 - Output budget: backend default
@@ -179,115 +226,13 @@ The order is BarSize (1), then the cut (2), the measurement (3, which uses 2.1),
 - Settings sources: project
 - Reasoning characters: 0
 - Effort: xhigh
-- Turns: 15
-- Tokens — prompt / cached / cache write / completion / reasoning: 578086 / 405329 / 172747 / 73941 / not computed
-- Duration: 321.5 s
-- Cost: $0.21 (provider)
+- Turns: 19
+- Tokens — prompt / cached / cache write / completion / reasoning: 1346308 / 1171625 / 174663 / 81883 / not computed
+- Duration: 357.7 s
+- Cost: $0.30 (provider)
 - `## Summary` located: yes
 - `## Findings` located: yes
-- Finding-shaped matches — whole response: 14
+- Finding-shaped matches — whole response: 17
 - Finding-shaped matches — inside fences: 0
-- Finding-shaped matches — in findings section: 14
-- Finding-shaped matches — surviving validation: 14
-
-### Raw Response
-
-Both documents are read. Next I'll check the code references the task file depends on, since a plan that cites a missing file or symbol gives a junior AI a dead end.
-The code references mostly check out (`tick_minutes` signature, `pick_range`, the `test_futures_models.py:201` and `test_tick_access.py:18,21` line numbers, `test/load/` layout, the 308 note, `ci.yml`). The grep output was capped, so I need targeted checks on `_TICK_MINUTES`, `tick_bar_reads._entry`, the CI workflow, and the test files the task says must pass unchanged.
-Two things came out of that batch that change the picture:
-
-- The CI workflow has no pytest/unit/integration/load reference, so "CI has no test job" is accurate and the load test is not gated anywhere.
-- A review of an earlier revision exists in `project-documents/user/reviews/`. Its open items are the widest-vs-earliest measurement issue, the CI gate and the 9.1 size. I'll check whether the current text resolves them rather than re-raising them blindly.
-
-Next I'll check the remaining symbols the task relies on, and the test files I could not find.
-## Summary
-
-**Verdict: FAIL.** Success-criteria coverage is nearly complete and the sequencing holds, but the route expectations in 6.4 contradict the fixture defined in 4.3 and the source rule in 4.1. That has to be fixed before the section 6 commit is built. Five concerns follow. I reviewed the working-tree copy; git status at session start showed the task file modified and uncommitted.
-
-## Findings
-
-### [FAIL] Route tests expect `ticks` for sizes the fixture serves from bars
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:309
-category: test-design
-
-Task 4.3 (line 195) defines the fixture as "the real tick day complete in both families", and says `5m` chooses `ohlcv-1m`. Under the rule in 4.1 (line 173), any size with a provider width that divides it, where the bar verdict is complete, chooses the provider. `1m` (60 s), `1h` and `1d` all qualify, so on this fixture they choose `ohlcv-1m`. Task 6.4 still says `1h`, `1m`, `15s` and `1d` return `sources` naming `ticks`. Only `15s` is right. An implementer will either break the 4.1 rule to satisfy 6.4 or write a failing test.
-
-Also, no route-level test asserts `sources` naming `ohlcv-1m`. SC3's response-level clause is covered only at the choice level (4.3) and the reader level (5.4). Fix: assert `ohlcv-1m` for `1h`, `1m` and `1d`, and `ticks` for `15s`, on the fixture. Add a route assertion for the provider source.
-
-### [CONCERN] Measured run is the first run in the band, but criterion 5 asks for the widest
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:143
-category: spec-conflict
-
-Design criterion 5 (slice design line 138) requires the note to record "the widest range the default admits". Task 3.1(b) measures "the run `pick_range` returns": the first run of consecutive sessions whose ledger counts sum to 95–100% of the limit. These are not the same run. An earlier review round raised this as FAIL. The revision changed the task to match `pick_range` but left the criterion as "widest". Either name the largest-trade admitted run and how to select it, or amend criterion 5 and say why the first in-band run bounds the 10 s budget.
-
-### [CONCERN] No CI job gates the load test
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:368
-category: ci-gating
-
-Task 7.3 adds `test/load/test_309_time_bars_nfr.py` with a bound, then defers the gate to issue #32. I checked `.github/workflows/ci.yml`: it has no pytest, unit, integration or load step. The project rule is that a load test has a CI wiring task. Add one that runs the file in CI, or name the specific blocker (for example, CI cannot reach the test cluster). Otherwise the 308 and 309 bounds are checked only by hand in 11.1.
-
-### [CONCERN] `mt data tick get` skips the trade limit, and the design does not allow that
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:338
-category: scope
-
-Task 7.1 passes `max_trades=None` for the CLI, so `mt data tick get <size>` reads with no admission. The design says the CLI "follows the same rule" (slice design line 62), and its cost section refuses tick-cut reads over the limit before any tick is read. The design names no operator exemption. A month of `1s` bars on production is the cost case the limit exists for. Either apply the same admission to the CLI with a refusal message, or record the exemption in the design before building it.
-
-### [CONCERN] The default range is held ticks, so sessions held only in bars are never planned
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:286
-category: coverage
-
-Task 6.2 plans both bars routes on `SchemaFamily.TICK_TIER`, with "their default range is the held ticks". A session held only in provider bars is outside that range, so a default request skips it. The design says provider bars are used where held (rule 2), and that the same routes will serve bars back to 2010 with no change for the consumer. That second claim fails for a default request if bars are bought without ticks. No test in 5.4 or 6.4 covers a bars-only session through a route with the default range. Decide whether the default range is the union of tick and bar sessions and state it in 6.2, or record that a later slice owns it. This does not affect production today, since no bars are held.
-
-### [CONCERN] Section 6 is one commit covering about 30 items
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:330
-category: sizing
-
-Section 6 covers the response model, the routes, the model tests, the route success and refusal tests, the error mapping and the existing-test updates. Its single marker spans about 30 checkboxes and bullets across roughly ten files. The tree cannot be green after 6.1 alone, but it can be green at two points: 6.1, 6.2, 6.3 and 6.6 together (existing tests move to the new shape), then 6.4 and 6.5 as additive route tests. Put a marker at the first point so a route-test bisect does not undo the response change.
-
-### [NOTE] Section 9.1 packs about eight replacements into one checkbox
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:438
-category: sizing
-
-The earlier review flagged this as too large. It still is. Splitting it into routes and grammar, sources and applied examples, and config, cost and removals would make each item checkable.
-
-### [NOTE] "A bar never crosses a session" has no test
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:119
-category: coverage
-
-The design states this rule (slice design line 58). 2.2 checks anchors and totals but not boundaries. Add one assertion for a size that does not divide the session evenly (for example `90m` or `4h`): the last bucket ends at or before the session close, and no bucket includes trades from another session.
-
-### [NOTE] Criterion 2 says "summed by hand"; the task uses a Python oracle
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:116
-category: coverage
-
-2.2 reuses `tick_minutes` (`test/tick_support/parity_seed.py:54`), an independent Python bucketing of the tick rows, not a manual sum. That is independent of the SQL, so it meets the intent. Say so in 2.2 so an implementer does not read "by hand" as a manual check.
-
-### [NOTE] Two commit subjects exceed the 72-character guideline
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:465
-category: commit-cadence
-
-The docs subject on line 465 is about 95 characters. The feat subject on line 330 is about 78. Shorten both, for example `docs: document time bars from held bars or ticks; regenerate OpenAPI`.
-
-### [NOTE] Section 11 has no commit marker
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:480
-category: commit-cadence
-
-This file uses markers, so the implementation rule allows commits only at them. If validation in 11.1 finds a failure that needs a fix, there is no permitted commit point. Add a marker for a `fix:` commit made during 11.1, or say where such fixes go.
-
-### [NOTE] Task 10.1 adds the 300 architecture document, which the design does not list
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:470
-category: scope
-
-The design's cleanup list (slice design line 128) names the slice and task files for 302–305 and 308. Task 10.1 also covers the 300 architecture, conditionally, where it contradicts the ticks-primary rule. The condition limits the risk, but the architecture is the parent document. Either drop it from 10.1 or have the design list it.
-
-### [PASS] Every success criterion maps to a task or a handoff step
-location: project-documents/user/slices/309-slice.time-bars-from-held-bars-and-ticks.md:132
-category: coverage
-
-SC2 is covered by 2.2. SC3 by 4.3 and 5.4. SC4 by 4.3 and 6.4. SC5 by 3.1, 5.2, 5.4 and 6.5. SC6 by 6.6 and 11.1. SC7 at test scale by 8.3. SC1, SC8 and SC7's production half sit in the Phase 7 handoff, which is an accepted location. The only route-level gap is the one in the first finding.
-
-### [PASS] Sequencing holds and the referenced code exists
-location: project-documents/user/tasks/309-tasks.time-bars-from-held-bars-and-ticks.md:63
-category: sequencing
-
-The order is BarSize (1), then the cut (2), the measurement (3, which uses 2.1), source choice (4), reader (5), routes (6), removals (8) and docs (9). The parity deletions in 8.2 come after every reader. I checked these references and they exist: `_TICK_MINUTES` (`bar_parity.py:37`), `_DAY_BUCKET` (`bar_reads.py:44`), `tick_bar_reads._entry` (line 246), `pick_range` (`scripts/measure_tick_bars.py:97`), `tick_minutes` (`parity_seed.py:54`), the `TickBarGranularity` users (`futures_series.py` and `futures_params.py`), and the line references in `test_tick_access.py` and `test_futures_models.py`. The load tier lives under `test/load/`, which matches the task. The earlier round's ledger-guard, BLOCKED-scope and `BAR_SOURCE_NAME` items are addressed in the current text.
+- Finding-shaped matches — in findings section: 17
+- Finding-shaped matches — surviving validation: 17
