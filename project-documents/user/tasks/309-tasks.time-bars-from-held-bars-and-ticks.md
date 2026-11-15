@@ -17,21 +17,21 @@ projectState: Slice design committed and its review answered. The futures bars r
 dateCreated: 20261115
 dateUpdated: 20261115
 status: not_started
-turns: 63
-promptTokens: 7226110
-cachedTokens: 7000937
-cacheWriteTokens: 225073
-completionTokens: 74226
-durationSeconds: 547.6
-costUsd: 2.343146
-usageRounds: 3
-pricedRounds: 3
+turns: 71
+promptTokens: 7681211
+cachedTokens: 7389751
+cacheWriteTokens: 291344
+completionTokens: 88834
+durationSeconds: 651.6
+costUsd: 2.793463
+usageRounds: 4
+pricedRounds: 4
 usageByModel:
   claude-sonnet-5-5:
-    rounds: 3
-    costUsd: 2.343146599999999
-    completionTokens: 74226
-revision_number: 2
+    rounds: 4
+    costUsd: 2.7934637999999987
+    completionTokens: 88834
+revision_number: 4
 ---
 
 # Tasks: Time Bars from Held Bars and Ticks
@@ -112,6 +112,8 @@ revision_number: 2
   - [ ] Update the `bar_parity.py` module docstring: it no longer says "the only
     surviving use of bars built from `tick_trade`".
 - [ ] **2.2 Tests against real held ticks** (`test/integration/data/test_time_bar_cut.py`)
+  - [ ] Design criterion 2 says "summed by hand". The oracle is that sum: `tick_minutes`
+    buckets the tick rows in Python, independently of the SQL, so no manual sum is made.
   - [ ] Use the real ingested `tbbo` day (`TBBO_DAY`), seeded as `test/tick_support/parity_seed.py`
     does. Reuse its Python bucketing oracle `tick_minutes(url, window)`: give it a
     `width_ns` parameter (default one minute, so its current callers are unchanged) rather
@@ -121,17 +123,16 @@ revision_number: 2
   - [ ] Two more sizes, each for a path `1m` does not reach: `4h` (buckets start at the
     session open, 17:00 Chicago, not on a UTC multiple) and `1d` (the day bucket, one row).
   - [ ] `trade_count` summed over rows equals `SELECT count(*)` for the day, at each size.
-  - [ ] A bar never crosses a session: at `90m` (a size that does not divide the session
-    evenly) every bucket start is at or after the session open and before the session close,
-    and no row includes a trade from outside the window (seed one trade just before the open
-    and one just after the close; neither changes any bar).
-  - [ ] The design's "summed by hand" is met by the oracle: `tick_minutes` buckets the tick
-    rows in Python, independently of the SQL. No manual sum is wanted.
+  - [ ] A bar never crosses a session (the design's "A bar never crosses a session"): at
+    `90m` (a size that does not divide the session evenly) every bucket start is at or after
+    the session open and before the session close, and no row includes a trade from outside
+    the window (seed one trade just before the open and one just after the close; neither
+    changes any bar, and `trade_count` summed over rows still equals the window's count).
   - [ ] The existing `test/integration/data/test_bar_parity_sql.py` (ties at the close,
     volume, other instrument, empty window) passes unchanged: it now exercises the moved
     statement through `read_tick_minute_bars`.
 
-**Commit**: `refactor: move the tick-cut statement to its own module with any interval`
+**Commit**: `refactor: move the tick-cut statement to its own module`
 
 ## 3. The trade limit, measured on production
 
@@ -146,10 +147,13 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     builds (`product_plan` over `TICK_TIER`), and times `cut_time_bars` at `1m`. It writes
     nothing to any database.
   - [ ] Measure (a) one median ES session (the session whose ledger count is the median of
-    the held sessions), and (b) the run `pick_range` returns for `--limit 2000000`: the first
-    run of consecutive sessions whose ledger counts sum to 95-100% of the limit, cut session
-    by session in the route's order. Per session, `sum(trade_count)` must equal the ledger
-    count.
+    the held sessions), and (b) the widest run of consecutive sessions the limit lets through
+    (design criterion 5): among all runs whose ledger counts sum to 95-100% of 2,000,000,
+    the one with the largest sum (the earliest on a tie), cut session by session in the
+    route's order. `pick_range` returns the first such run, so the script enumerates the
+    runs itself (a sliding window over the ledger counts) and takes the largest. If no run
+    reaches 95%, measure the largest run under the limit and say so in the note. Per
+    session, `sum(trade_count)` must equal the ledger count.
   - [ ] Rule for the default: 2,000,000 when (b) completes within 10 s (the bound slice 308
     used). If it does not, lower the limit to `floor(2,000,000 × 10 / seconds)` rounded down
     to a round number and re-measure (b) at that limit; repeat until it holds. Never raise it.
@@ -216,7 +220,7 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     here: no provider bars, no bars".
   - [ ] Keep the tree green: its three current callers (`futures_series._bars_reader`,
     `tick_get_cmds._stream`, `tick_parity_cmds`) pass `parse_bar_size(<their token>)`.
-    Tasks 6.2 and 7.1 replace the first two; task 8.2 deletes the third.
+    Tasks 6.3 and 7.1 replace the first two; task 8.2 deletes the third.
   - [ ] Update `test/integration/data/test_bar_reads.py` and `test_bar_reads_sessions.py`
     for the new argument; their expectations (rollups, `1d` stamped at the open) stay.
     Add `90m` (a size that was not served before) rolled from the stored minutes.
@@ -274,7 +278,19 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 ## 6. Routes and response shape
 
-- [ ] **6.1 Response models** (`api_server/models/futures.py`)
+- [ ] **6.1 Default range over ticks and bars** (`data/tick/get_plan.py`)
+  - [ ] One function returns everything held in either kind of data: from the earliest held
+    session to the day after the latest, taken over the tick ledger AND the bar ledger (call
+    the existing held-bounds read once per family and take the min and max). The bars routes
+    and `mt data tick get <size>` use it; ticks and tick bars keep the tick-only default.
+    A session held only in provider bars must be planned by a default request.
+  - [ ] Integration test: bounds with ticks only, bars only (a session with no ticks) and
+    both; the result spans both sessions in the last case and is empty-handled as the
+    existing read is when nothing is held.
+
+**Commit**: `feat: default the bars range over held ticks and bars`
+
+- [ ] **6.2 Response models** (`api_server/models/futures.py`)
   - [ ] `FuturesBarsResponse`: remove `source: str`; add `sources: list[SourceRunRecord]`
     (`first_session`, `last_session`, `source`) and `applied: AppliedBarParams`
     (`granularity`, `rule` only for a product request and omitted for a contract, `start`,
@@ -284,18 +300,14 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     the response format.
   - [ ] `from_plan` takes the served plan (task 4.1), the `BarSize`, the runs, the applied
     values and the rows. The `BAR_COLUMNS` mapping and the bar record are unchanged.
-- [ ] **6.2 Routes** (`api_server/routes/futures_series.py`, `futures_params.py`)
+- [ ] **6.3 Routes** (`api_server/routes/futures_series.py`, `futures_params.py`)
   - [ ] `granularity` becomes a plain string query parameter whose description gives the
     grammar. Parse with `parse_bar_size` before any read; a `ValueError` is an
     `HTTPException` 422 carrying its message (as `parse_rule` does). Remove the
     `TickBarGranularity` enum and its use.
-  - [ ] Both bars routes plan with `SchemaFamily.TICK_TIER`. Their default range (`start` or
-    `end` omitted) is everything held in either kind of data: from the earliest held session
-    to the day after the latest, taken over the tick ledger AND the bar ledger (call the
-    existing held-bounds read once per family and take the min and max; add this as one
-    function in `get_plan.py` and use it for the bars routes and `mt data tick get <size>`
-    only; ticks and tick bars keep the tick-only default). A session held only in provider
-    bars must be planned by a default request. They build one `TimeBarRead` per request, call `read_series(..., admit=reader.admit)`,
+  - [ ] Both bars routes plan with `SchemaFamily.TICK_TIER` and, when `start` or `end` is
+    omitted, take the default range from task 6.1.
+  - [ ] They build one `TimeBarRead` per request, call `read_series(..., admit=reader.admit)`,
     and map: `TimeBarScanExceeded` to 422, `RowCeilingExceeded` to the existing 422,
     `ReadAbandoned` to the bodiless 499 (reuse `CLIENT_CLOSED_REQUEST` and the 308
     handling, moved to one shared place if needed), `LedgerCountExceeded` to a logged `500`
@@ -305,36 +317,50 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     tick-bar routes do: validating tens of thousands of rows blocks the loop. Add the new
     limit dependency to the routes. Update `_BARS_RESPONSES` and the route docstrings:
     "provider bars" becomes "time bars from held bars or ticks".
-- [ ] **6.3 Model and parameter unit tests**
+- [ ] **6.4 Model and parameter unit tests**
   - [ ] `test/unit/api_server/test_futures_models.py`: `sources` replaces `source` (include a
     two-run list); `applied` includes defaulted parameters; a contract response has no `rule`
     key; the parametrized sizes (line 201) come from a literal list of sizes, not
     `TICK_BAR_GRANULARITIES`.
   - [ ] `test/unit/api_server/test_tick_access.py`: delete the test pinning `TickBarGranularity`
     to `TICK_BAR_GRANULARITIES` and both imports (lines 18, 21).
-**Commit** (do task 6.6 before this commit, so the existing tests are on the new shape and the tree is green): `feat: serve futures time bars from held bars or ticks`
+- [ ] **6.5 Existing tests**
+  - [ ] Update `test_futures_series.py` and `test/integration/test_operations_serving.py`
+    where they assert provider-only bars.
+  - [ ] Design criterion 6: `test_futures_tick_bars.py`, `test_futures_ticks_columnar.py`,
+    `test_tick_bar_reads.py` and `test/unit/data/tick/test_tick_bars*.py` pass unchanged.
 
-- [ ] **6.4 Route success and refusal tests**
+**Commit** (tasks 6.2 to 6.5: the response shape, routes and the tests of the old shape change together, so the tree is green): `feat: serve futures time bars from held bars or ticks`
+
+- [ ] **6.6 Route success and refusal tests**
   - [ ] Replace `test/integration/api_server/test_futures_bars_provider.py` with
     `test_futures_time_bars.py` (delete the old file: its "no provider bars, no bars" tests
     are the ones removed by this slice). Reader behaviour is covered by task 5.4; this file
     tests the route's own work only.
-  - [ ] On a fixture that holds the real tick day and NO provider bars (production's state
-    today), on the contract route and the product route: `1h`, `1m`, `15s` and `1d` return
-    bars with `sources` naming `ticks` and `applied` listing every parameter (criterion 1 at
-    test scale).
-  - [ ] On `parity_seed.py`'s fixture (the same day complete in both ticks and provider
-    one-minute bars), on both routes: `1m`, `1h` and `1d` return `sources` naming `ohlcv-1m`
-    (a provider width divides them and the bar verdict is complete, task 4.1's rule), and
-    `15s` returns `sources` naming `ticks` (criterion 3 at the route).
+  - [ ] Two fixtures. **Ticks only**: the real tick day with no provider bars (production's
+    state today). `seed_parity` always seeds a bar day, so split its first part (the `tbbo`
+    unit and its ingest) into a `seed_ticks_only` helper in `test/tick_support/parity_seed.py`
+    that `seed_parity` calls first. **Both**: `seed_parity` as it is (the same day complete in
+    ticks and in provider one-minute bars).
+  - [ ] Ticks-only fixture, contract route and product route: `1h`, `1m`, `15s` and `1d`
+    return bars with `sources` naming `ticks` and `applied` listing every parameter
+    (criterion 1 at test scale).
+  - [ ] Both fixture, both routes: `1m`, `1h` and `1d` return `sources` naming `ohlcv-1m` (a
+    provider width divides them and the bar verdict is complete, task 4.1's rule), and `15s`
+    returns `sources` naming `ticks` (criterion 3 at the route).
   - [ ] `0s`, `2d` and `5x` return 422 naming the accepted form.
   - [ ] A session with neither ticks nor bars returns no bars and is in `incomplete`
     (criterion 4).
   - [ ] Default range: seed provider one-minute bars for a session that has no ticks, next
     to the tick day. A request with no `start` and no `end` returns that session's bars at
     `5m` with `sources` naming `ohlcv-1m`, and the `applied` range covers both sessions.
-- [ ] **6.5 Route error-mapping tests** (same file), one test per mapping, with the
-  technique of the 308 tests:
+
+**Commit**: `test: add route success and refusal tests for futures time bars`
+
+- [ ] **6.7 Route error-mapping tests** (same file), one test per mapping, with the
+  technique of the 308 tests. Each reads through the tick cut, so each requests `15s` (the
+  size no provider width makes) on the ticks-only fixture; a size a provider serves would
+  never reach the cut.
   - [ ] A trade limit below the scan gives 422 with the count.
   - [ ] A disconnect gives 499 with no body (`monkeypatch.setattr(Request, "is_disconnected",
     ...)`, as `test_futures_tick_bars.py` does).
@@ -342,13 +368,8 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     `test_composed_lines.py` does).
   - [ ] The ledger guard gives 500 and an ERROR log record naming the session (`caplog`, as
     `test_futures_tick_bars.py` does).
-- [ ] **6.6 Existing tests**
-  - [ ] Update `test_futures_series.py` and `test/integration/test_operations_serving.py`
-    where they assert provider-only bars.
-  - [ ] Design criterion 6: `test_futures_tick_bars.py`, `test_futures_ticks_columnar.py`,
-    `test_tick_bar_reads.py` and `test/unit/data/tick/test_tick_bars*.py` pass unchanged.
 
-**Commit** (tasks 6.4 and 6.5): `test: add route tests for futures time bars`
+**Commit**: `test: add route error-mapping tests for futures time bars`
 
 ## 7. `mt data tick get` and the load check
 
@@ -356,9 +377,9 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
   - [ ] `WHAT` is `ticks` or a size accepted by `parse_bar_size`; anything else refuses with
     the accepted-form message. Delete `TICK_GET_CHOICES`, `family_for` and `bar_source`:
     ticks and sizes both plan `TICK_TIER`; the `WHAT` help text gives the grammar.
-  - [ ] For a size, `_stream` builds the same `TimeBarRead` with `max_trades=None` (the
-    design exempts the command: the limit protects the shared API server, see the design's
-    cost section), runs its `admit` once for the choices, reads
+  - [ ] For a size, `_stream` takes its default range from task 6.1 and builds the same `TimeBarRead` with `max_trades=None` (the
+    design exempts the command: "What changes for a consumer" says the limit protects the
+    shared API server and the command has never limited a tick read), runs its `admit` once for the choices, reads
     each window through it, prints the `served_plan` lists, and tracks the sessions that
     returned rows.
   - [ ] Writers: `source` is replaced by `sources`, printed after the rows (text footer,
@@ -388,9 +409,9 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     over the 75,000 row ceiling.
   - [ ] The file carries the gate line of the 308 test
     (`MT_RUN_LOAD_TESTS=1 uv run python scripts/run_tests.py load -- <file>`). CI has no test
-    job; running the load tier automatically is issue #32 ("Run the integration and load
-    tiers on a schedule against the test cluster"), which this slice does not do. Until then
-    task 11.1 runs this file.
+    job, so nothing gates this file automatically. That is deferred to issue #32 ("Run the
+    integration and load tiers on a schedule against the test cluster", open), which covers
+    every load test and not this one alone. Until it is done, task 10.1 runs this file.
 
 **Commit**: `test: add the time-bar load test`
 
@@ -459,15 +480,19 @@ Each removal follows a green verification and has its own marker, so any one can
 
 - [ ] **9.1 `docs/api/reference.md`**
   - [ ] Find every statement about futures bars (`grep -n -iE "provider bars|no provider
-    bars|ohlcv-1m|six sizes|sources?"`) and replace it with the new rule, the grammar (any
-    whole number of seconds, minutes or hours up to 24h, and `1d`), the 422 for other sizes,
-    `sources` (a list; example with two runs), `applied` (with the defaulted-parameters
-    example), the cost note, the new `MT_API_MAX_TIME_BAR_TRADES` row beside the 308 one, the
-    422/499/500/504 behaviour of tick-cut reads, and the removal of `mt data tick parity`.
-    Statements about the families a product wants (tick tier, `ohlcv-1m`, `statistics`) say
-    production wants the tick tier only. Say in the changed text why `source` became `sources`
+    bars|ohlcv-1m|six sizes|sources?"`) and list them; each is replaced by one of the
+    items below, so none is left.
+  - [ ] The rule (held provider bars where they can make the size, else ticks), the size
+    grammar (any whole number of seconds, minutes or hours up to 24h, and `1d`) and the 422
+    for other sizes.
+  - [ ] `sources` (a list; example with two runs) and `applied` (with the
+    defaulted-parameters example). Say in the changed text why `source` became `sources`
     without a version change (the routes returned nothing in production and no consumer had
     coded against them).
+  - [ ] The cost note, the new `MT_API_MAX_TIME_BAR_TRADES` row beside the 308 one, and the
+    422/499/500/504 behaviour of tick-cut reads.
+  - [ ] The removal of `mt data tick parity`, and every statement about the families a
+    product wants (tick tier, `ohlcv-1m`, `statistics`): production wants the tick tier only.
 - [ ] **9.2 `docs/api/agents.md` and `README.md`**
   - [ ] The same grep and the same replacements, kept short as those files are.
 - [ ] **9.3 OpenAPI**
@@ -486,23 +511,11 @@ Each removal follows a green verification and has its own marker, so any one can
 
 **Commit**: `docs: document time bars from held bars or ticks; regenerate OpenAPI`
 
-## 10. Cleanup of other slices' documents (its own commit)
-
-- [ ] **10.1 Slice and task files**
-  - [ ] In `user/slices/` and `user/tasks/` for 302, 303, 304, 305 and 308, find sentences
-    that say time bars are provider-only, that ticks never make time bars, or that history to
-    2010 is to be bought (`grep -n -iE "provider-only|never built from ticks|no provider
-    bars|2010|ohlcv-1m"`). Reword each to what is now true or mark it as superseded by 309.
-    Facts about what was built stay. Do not edit 309's own files or any `## User-Provided
-    Concept` section.
-
-**Commit**: `docs: reword 302-308 documents for the ticks-primary rule`
-
-## 11. Full validation
+## 10. Full validation
 
 A failure found in this section that needs a code change is committed on the slice branch as `fix: {summary}`, one commit per fix.
 
-- [ ] **11.1 Tiers and checks**
+- [ ] **10.1 Tiers and checks**
   - [ ] `ruff format --check` and `ruff check` on the touched files; `mypy` on the touched
     subpackages (`data/tick`, `api_server`, `cli`, `config`) and `test/` helpers, zero errors.
   - [ ] Unit tier green. Integration tier green apart from known failures that exist on the
@@ -516,7 +529,23 @@ A failure found in this section that needs a code change is committed on the sli
     no edits to those files (`git diff main --stat` on them is empty).
   - [ ] `git diff main` has no unintended deletions in files `ruff` touched.
   - [ ] Criteria 2, 3, 4, 5, 6 and 7 (at test scale) each name their test in the commits
-    above. Working tree clean; the work is committed on the slice branch.
+    above.
+
+**Commit**: none of its own: validation changes no file. Each fix it needs is its own
+`fix:` commit (above); this section's check-offs ride in the section 11 commit.
+
+## 11. Cleanup of other slices' documents (its own commit)
+
+- [ ] **11.1 Slice and task files**
+  - [ ] In `user/slices/` and `user/tasks/` for 302, 303, 304, 305 and 308, find sentences
+    that say time bars are provider-only, that ticks never make time bars, or that history to
+    2010 is to be bought (`grep -n -iE "provider-only|never built from ticks|no provider
+    bars|2010|ohlcv-1m"`). Reword each to what is now true or mark it as superseded by 309.
+    Facts about what was built stay. Do not edit 309's own files or any `## User-Provided
+    Concept` section.
+  - [ ] Working tree clean after the commit; the work is committed on the slice branch.
+
+**Commit** (with the check-offs of section 10): `docs: reword 302-308 documents for the ticks-primary rule`
 
 ## Phase 7 handoff (not tasks)
 
