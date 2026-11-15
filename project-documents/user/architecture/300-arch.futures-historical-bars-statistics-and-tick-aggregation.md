@@ -12,8 +12,8 @@ dependencies:
 relatedSlices: []
 riskLevel: medium
 dateCreated: 20261028
-dateUpdated: 20261108
-status: not_started
+dateUpdated: 20261115
+status: complete
 ---
 
 # Futures Historical Bars, Statistics and Tick Aggregation Architecture

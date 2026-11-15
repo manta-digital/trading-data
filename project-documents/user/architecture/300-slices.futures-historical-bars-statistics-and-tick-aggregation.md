@@ -3,8 +3,8 @@ docType: slice-plan
 parent: user/architecture/300-arch.futures-historical-bars-statistics-and-tick-aggregation.md
 project: trading
 dateCreated: 20261028
-dateUpdated: 20261108
-status: not_started
+dateUpdated: 20261115
+status: complete
 ---
 
 # Slice Plan: Futures Historical Bars, Statistics and Tick Aggregation
