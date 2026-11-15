@@ -17,6 +17,20 @@ projectState: Slice design committed and its review answered. The futures bars r
 dateCreated: 20261115
 dateUpdated: 20261115
 status: not_started
+turns: 42
+promptTokens: 3125949
+cachedTokens: 2964090
+cacheWriteTokens: 161801
+completionTokens: 37461
+durationSeconds: 293.6
+costUsd: 1.31864
+usageRounds: 1
+pricedRounds: 1
+usageByModel:
+  claude-sonnet-5-5:
+    rounds: 1
+    costUsd: 1.3186398999999998
+    completionTokens: 37461
 ---
 
 # Tasks: Time Bars from Held Bars and Ticks
