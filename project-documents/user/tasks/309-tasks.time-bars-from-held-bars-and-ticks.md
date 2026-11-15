@@ -122,6 +122,9 @@ revision_number: 4
     open, high, low, close, volume per minute as the oracle.
   - [ ] Two more sizes, each for a path `1m` does not reach: `4h` (buckets start at the
     session open, 17:00 Chicago, not on a UTC multiple) and `1d` (the day bucket, one row).
+  - [ ] `1s` (issue #40): on a five-minute window inside the day (pass `from`/`until`
+    bounds to the window), the bars equal the oracle at a width of one second: one bar per
+    second that has a trade, none for an empty second.
   - [ ] `trade_count` summed over rows equals `SELECT count(*)` for the day, at each size.
   - [ ] A bar never crosses a session (the design's "A bar never crosses a session"): at
     `90m` (a size that does not divide the session evenly) every bucket start is at or after
@@ -156,7 +159,11 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     session, `sum(trade_count)` must equal the ledger count.
   - [ ] Rule for the default: 2,000,000 when (b) completes within 10 s (the bound slice 308
     used). If it does not, lower the limit to `floor(2,000,000 × 10 / seconds)` rounded down
-    to a round number and re-measure (b) at that limit; repeat until it holds. Never raise it.
+    to a round number and re-measure (b) at that limit, re-picking the 95-100% run for the new limit each time;
+    repeat until it holds. Never raise it. Stop condition: the limit must admit at least one
+    median ES session. If the median session (a) alone takes more than 10 s, or the limit
+    would fall below the median session's trade count, write `BLOCKED:` under this task
+    with the measured times and stop before task 5.2.
   - [ ] Add `API_MAX_TIME_BAR_TRADES` to `constants.py` beside `API_MAX_TICK_BAR_TRADES`, set
     to the result, its docstring recording the date, range and seconds and naming
     `MT_API_MAX_TIME_BAR_TRADES`.
@@ -182,7 +189,9 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     `plan.target.product` (the lookup in `tick_bar_reads._entry`; make it public and reuse it).
   - [ ] Rule per session: provider schema if `provider_schema_for(size)` is not `None`
     and the bar verdict is `complete`; else `TICKS_SOURCE` unless the tick verdict is
-    `missing`, in which case `None` (nothing is read; it is already in `incomplete`).
+    `missing` or the session has no row in the tick ingest ledger, in which case `None`
+    (nothing is read; it is already in `incomplete`, and it adds nothing to admission, as
+    the design says).
     A tick-sourced session in any other non-complete tick state is still read (design:
     "served from the ticks that are loaded").
   - [ ] `served_plan(plan, sources) -> GetPlan`: the plan with `incomplete` reduced to the
@@ -258,8 +267,9 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     before passing rows on, and compare with that session's ledger count
     (`status_reads.ledger_totals` for the one session). More trades than the ledger says
     raises `LedgerCountExceeded(session_date, raw_symbol, instrument_id, ledger, read)`.
-    A session with no ledger row has a ledger count of 0, so any trade read from it raises
-    too (admission counted it as nothing, so it trusted a number that was false). A smaller
+    A session with no ledger row is never read (task 4.1), so the check only ever applies to
+    a session that has a ledger count; the `500` is for a count that is wrong, not for a
+    session that is not loaded. A smaller
     count is not an error (a partial load).
 - [ ] **5.4 Tests** (`test/integration/data/test_time_bar_reads.py`)
   - [ ] Through `read_series(..., admit=reader.admit)` on the seeded fixture: `5m` returns
@@ -301,6 +311,12 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
   - [ ] `from_plan` takes the served plan (task 4.1), the `BarSize`, the runs, the applied
     values and the rows. The `BAR_COLUMNS` mapping and the bar record are unchanged.
 - [ ] **6.3 Routes** (`api_server/routes/futures_series.py`, `futures_params.py`)
+  - [ ] Both bars routes take `from` and `until` (the `FromParam`/`UntilParam` the ticks and
+    tick-bar routes already use; update their descriptions, which say "Ticks and tick bars
+    only"). They select bars by bar start time, half-open, and are echoed in `applied`. The
+    plan's windows already carry instant bounds (`TickWindow.clipped`); a bar whose bucket
+    starts inside the bounds is returned whole, never cut. Without them a busy session at
+    `1s` cannot be fetched under the row ceiling.
   - [ ] `granularity` becomes a plain string query parameter whose description gives the
     grammar. Parse with `parse_bar_size` before any read; a `ValueError` is an
     `HTTPException` 422 carrying its message (as `parse_rule` does). Remove the
@@ -330,7 +346,19 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
   - [ ] Design criterion 6: `test_futures_tick_bars.py`, `test_futures_ticks_columnar.py`,
     `test_tick_bar_reads.py` and `test/unit/data/tick/test_tick_bars*.py` pass unchanged.
 
-**Commit** (tasks 6.2 to 6.5: the response shape, routes and the tests of the old shape change together, so the tree is green): `feat: serve futures time bars from held bars or ticks`
+- [ ] **6.5b Keep the document gates green in this commit**
+  - [ ] Two unit tests read the committed documents and fail the moment the routes change:
+    `test/unit/api_server/test_api_docs.py` (runs `scripts/check_api_docs.py`, which
+    resolves the `<!-- from: ...futures_params.TickBarGranularity -->` markers and the
+    `granularity:TickBarGranularity` parameter lines in `docs/api/reference.md` and
+    `docs/api/agents.md`) and `test/unit/api_server/test_openapi_artifact.py` (the committed
+    `docs/api/openapi.json` must equal the generated one).
+  - [ ] So in this commit: regenerate `docs/api/openapi.json` (the generator is named in
+    `test_openapi_artifact.py`), and change only the markers and parameter lines those two
+    tests check (`grep -n "TickBarGranularity\|<!-- from:\|granularity:" docs/api/reference.md
+    docs/api/agents.md`). The prose rewrite stays in section 9. Both tests pass.
+
+**Commit** (tasks 6.2 to 6.5b: the response shape, routes, the tests of the old shape and the document gates change together, so the tree is green): `feat: serve futures time bars from held bars or ticks`
 
 - [ ] **6.6 Route success and refusal tests**
   - [ ] Replace `test/integration/api_server/test_futures_bars_provider.py` with
@@ -356,6 +384,13 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     `5m` with `sources` naming `ohlcv-1m`, and the `applied` range covers both sessions.
 
 **Commit**: `test: add route success and refusal tests for futures time bars`
+
+- [ ] **6.6b 1-second bars at the route** (same file, ticks-only fixture)
+  - [ ] `1s` with `from`/`until` five minutes apart returns bars equal to the task 2.2 oracle
+    at one second for that window, `sources` naming `ticks`, and `applied` echoing `from`
+    and `until`.
+  - [ ] A `1s` request whose bars exceed the row ceiling (lower the ceiling in the test
+    settings rather than relying on the day's size) is the existing row-ceiling 422.
 
 - [ ] **6.7 Route error-mapping tests** (same file), one test per mapping, with the
   technique of the 308 tests. Each reads through the tick cut, so each requests `15s` (the
@@ -386,7 +421,9 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     CSV on stderr, JSON tail member) from `source_runs`; `partial` prints the runs for the
     rows written. Update `GET_EPILOG` ("Bars are cut from ticks unless provider bars that
     can make the size are held; the output names the source of each run of sessions").
-    Exit codes and the partial handling are unchanged.
+    Exit codes and the partial handling are unchanged. `LedgerCountExceeded` in the command
+    prints the session and the two counts to stderr and exits with the database-failure
+    code the command already uses.
 - [ ] **7.2 Tests** (`test/integration/data/test_tick_get_cli.py`,
   `test/unit/cli/commands/test_tick_get_writers.py`)
   - [ ] Replace the tests asserting provider-only output. New: `mt data tick get 15s` on the
@@ -411,7 +448,8 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     (`MT_RUN_LOAD_TESTS=1 uv run python scripts/run_tests.py load -- <file>`). CI has no test
     job, so nothing gates this file automatically. That is deferred to issue #32 ("Run the
     integration and load tiers on a schedule against the test cluster", open), which covers
-    every load test and not this one alone. Until it is done, task 10.1 runs this file.
+    every load test and not this one alone; slice 907 (CI pipeline and load-test gating, not
+    started) owns the gate. Until it lands the gate is manual: task 10.1 runs this file.
 
 **Commit**: `test: add the time-bar load test`
 
@@ -496,8 +534,8 @@ Each removal follows a green verification and has its own marker, so any one can
 - [ ] **9.2 `docs/api/agents.md` and `README.md`**
   - [ ] The same grep and the same replacements, kept short as those files are.
 - [ ] **9.3 OpenAPI**
-  - [ ] Regenerate `docs/api/openapi.json` the way slice 308 did (the generator is named in
-    `test_openapi_artifact.py`); the artifact test passes.
+  - [ ] `docs/api/openapi.json` was regenerated in task 6.5b. Regenerate it again here only
+    if a description changed since; the artifact test passes.
 - [ ] **9.4 Example tests**
   - [ ] Run `test/unit/api_server/test_api_docs.py` and `test/integration/test_api_docs_examples.py`;
     update the examples they check.

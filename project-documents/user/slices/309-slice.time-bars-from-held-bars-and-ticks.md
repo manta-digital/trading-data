@@ -44,7 +44,9 @@ Today rule 2 never applies, because no provider bars are held. So after this sli
 
 The six sizes served today (`1m`, `5m`, `15m`, `1h`, `4h`, `1d`) keep their spelling, so an existing request does not change. A size longer than 24 hours, a zero, or an unknown unit is refused with a `422` that names the accepted form. If performance, storage or bandwidth later give a reason, the sizes may be limited to a predefined set (journal 20261115, decision 3).
 
-Everything else in the request is unchanged: `start`, `end`, `rule`, `format`.
+`from` and `until` are added to the bars routes: instants, half-open, the same two parameters the ticks and tick-bar routes take. They select bars by bar start time; a bar that starts inside the bounds is returned whole. They are needed because small sizes produce many bars: a full ES session at `1s` can be over the 75,000-row ceiling of one response, so a consumer reads it in pieces.
+
+The rest of the request is unchanged: `start`, `end`, `rule`, `format`.
 
 ### The response
 
