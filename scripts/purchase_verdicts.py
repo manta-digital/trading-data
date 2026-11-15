@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -34,31 +34,9 @@ from manta_trading.data.tick.universe import TICK_UNIVERSE  # noqa: E402
 ACQUISITION_FAILED = "acquisition failed"  # D6's label for a retry-exhausted request
 PUBLICATION_AFTER_WANT_END = "publication after want end"  # D1, D6
 NO_ERROR_TEXT = "(the manifest holds no error text)"
-ISSUE_CLOSED = "CLOSED"  # the ``state`` ``gh issue view`` prints for a closed issue
 # ``status`` exits 3 for a verdict (a roll line), not a failure; any other
 # non-zero code is one.
 STATUS_ACCEPTED_EXITS = (EXIT_OK, EXIT_PARTIAL)
-
-
-def check_gate_issue(number: int, view: Callable[[int], str]) -> None:
-    """Stop unless issue ``number`` is closed; every doubt is a stop.
-
-    ``view`` runs ``gh issue view <number> --json state`` and returns its text.
-    """
-    try:
-        text = view(number)
-    except (subprocess.CalledProcessError, OSError) as exc:
-        raise CutoverError(f"gate issue #{number}: gh failed: {exc}") from exc
-    try:
-        state = json.loads(text)["state"]
-    except json.JSONDecodeError as exc:
-        raise CutoverError(f"gate issue #{number}: gh printed no JSON: {exc}") from exc
-    except (KeyError, TypeError) as exc:
-        raise CutoverError(f"gate issue #{number}: gh output has no state") from exc
-    if state != ISSUE_CLOSED:
-        raise CutoverError(
-            f"gate issue #{number} is {state}: the invoice comparison is not done"
-        )
 
 
 def latest_want_end() -> datetime:

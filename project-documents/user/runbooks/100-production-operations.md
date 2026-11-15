@@ -1257,18 +1257,18 @@ the release.
    (the 30-day value is trailing spend plus the planned figure, likewise). That
    is the only root command the PM runs.
 3. **Cutover.** `uv run python scripts/cutover_304_first_purchase.py --slice
-   <n> --gate-issue <n> [--estimate] <tag>` (agent work; the file keeps 304's
+   <n> [--estimate] <tag>` (agent work; the file keeps 304's
    name and is shared by every purchase slice). What it buys comes from
    `TICK_UNIVERSE`; `--slice` names the state files
    `{slice}-cutover-start.txt` and `{slice}-cutover-baseline.json` and the
    narration log `cutover-{slice}-<tag>-<stamp>.log`, all under
-   `project-documents/user/notes/`. `--gate-issue` is required and has no skip:
-   the cutover stops unless that GitHub issue is closed (the invoice comparison
-   of the previous purchase), and unless the dataset edge `mt data tick status`
-   reports has reached the universe's latest want end. Both refusals come before
-   the install and before any state is written. Slice 307's run is
-   `uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue
-   69 <tag>`. Run it first with `--estimate`:
+   `project-documents/user/notes/`. The cutover stops, before the
+   install and before any state is written, unless the dataset edge `mt data tick
+   status` reports has reached the universe's latest want end. Nothing waits on
+   an invoice: the per-request check against Databento's own charge is
+   `scripts/reconcile_tick_spend.py`. Slice 307's run is
+   `uv run python scripts/cutover_304_first_purchase.py --slice 307 <tag>`.
+   Run it first with `--estimate`:
    preflight and the free estimate only (buys nothing, writes no state), which
    prints the planned figure and the PM's ceiling command, so unset ceilings are
    not an error there. The full run: preflight (no plan configured, both ceilings
@@ -1366,6 +1366,8 @@ runs unchanged against a newer additive schema.
 
 ## Revision Log
 
+- 2026-11-14: the cutover no longer takes `--gate-issue`; the invoice
+  comparison is a later audit, not a gate.
 - 2026-11-09 (slice 307): "Purchase slices" now documents the cutover's
   `--slice`, `--gate-issue` and `--estimate` arguments, the state and log file
   names, and ceiling values taken from the estimate.

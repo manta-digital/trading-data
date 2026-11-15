@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The purchase cutover no longer waits for an invoice** (slice 307). `scripts/cutover_304_first_purchase.py` drops `--gate-issue`; issue #69 (November's invoice against 304's reconciliation) becomes a later audit, since `reconcile_tick_spend.py` already checks each request against Databento's own charge.
+- **Futures history wants end 2026-11-10, not 2026-12-01** (slice 307). The old end could not be reached by the dataset until December, so the purchase would have waited on the calendar. Later days are one edit of `_HISTORY_END`.
+
 ## [0.27.0] - 2026-11-12
 
 ### Added

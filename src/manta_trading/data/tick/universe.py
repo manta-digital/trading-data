@@ -75,16 +75,17 @@ class TickUniverseEntry:
 # ranges are defined once. Slice 304 bought ES bars for 2024 only; the planner
 # drops covered days, so one want over the whole range does not buy them twice.
 # Every end is a fixed date, never None: an open end would buy the newest days
-# on every later pass, spend nobody chose. The end is a whole month, 2026-12-01,
-# because it is past by the time the purchase can run (the cutover checks the
-# dataset reaches it). With a fixed end the purchase is bounded and a re-run
-# plans nothing.
+# on every later pass, spend nobody chose. The end, 2026-11-10, is already past
+# and inside what Databento has published (the cutover still checks the dataset
+# reaches it), so the purchase never waits on the calendar. With a fixed end the
+# purchase is bounded and a re-run plans nothing; buying later days is one edit
+# of this date.
 # 2010-06-08, not the dataset start 2010-06-06: the calendars are populated from
 # 2010-06-06T22:00Z, and the planner and status read them from each want's start
 # day (coverage from the day before), so an earlier start raises
 # OutOfPopulatedRangeError. The first sessions (2010-06-07) are not bought.
 _HISTORY_START = date(2010, 6, 8)
-_HISTORY_END = date(2026, 12, 1)
+_HISTORY_END = date(2026, 11, 10)
 _HISTORY_WANTS = (
     HistoryWant(TickSchema.DEFINITION, _HISTORY_START, _HISTORY_END),
     HistoryWant(TickSchema.STATISTICS, _HISTORY_START, _HISTORY_END),

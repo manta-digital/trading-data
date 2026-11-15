@@ -30,7 +30,7 @@ usageByModel:
 
 ## Overview
 
-This slice buys the rest of the ES and GC history through the purchase path slice 304 proves, then verifies all of it. It buys `ohlcv-1m`, `statistics` and `definition` from 2010-06-08 to a fixed end of 2026-12-01, minus what 304 already bought.
+This slice buys the rest of the ES and GC history through the purchase path slice 304 proves, then verifies all of it. It buys `ohlcv-1m`, `statistics` and `definition` from 2010-06-08 to a fixed end of 2026-11-10, minus what 304 already bought.
 
 304 bought (D1 of 304): `definition` and `statistics` for ES and GC from 2010-06-08 to 2026-11-01, and ES `ohlcv-1m` for calendar 2024 only. Two corrections are made with this design, in the slice plan entry and in the architecture (its first design goal, and the purchase-test entry under Anticipated Slices):
 
@@ -39,9 +39,9 @@ This slice buys the rest of the ES and GC history through the purchase path slic
 
 The remainder is:
 
-- ES `ohlcv-1m` outside 2024: 2010-06-08 to 2024-01-01, and 2025-01-01 to 2026-12-01;
-- GC `ohlcv-1m` in full, 2010-06-08 to 2026-12-01;
-- `statistics` and `definition` for both products, 2026-11-01 to 2026-12-01.
+- ES `ohlcv-1m` outside 2024: 2010-06-08 to 2024-01-01, and 2025-01-01 to 2026-11-10;
+- GC `ohlcv-1m` in full, 2010-06-08 to 2026-11-10;
+- `statistics` and `definition` for both products, 2026-11-01 to 2026-11-10.
 
 Costs were measured on 2026-11-08 with free `metadata.get_cost` and `get_record_count` calls (`GLBX.MDP3`, parent symbols, end exclusive). The dataset's last available day was 2026-11-07, so November is measured through that day:
 
@@ -68,7 +68,7 @@ After the purchase, every session is verified. The exit criterion is the slice p
 **Included**
 
 - `TICK_UNIVERSE`: the wants of D1, as one edit. No other pipeline change.
-- Parameterising 304's cutover scripts in place, so 307 runs them (D3). Two checks are added that 304 did not need: the issue #69 gate (D2) and the dataset-edge check (D1).
+- Parameterising 304's cutover scripts in place, so 307 runs them (D3). One check is added that 304 did not need: the dataset-edge check (D1).
 - Failed requests (D5). Already in 304's scripts: a pass exit 2 (failed-retryable) stops the cutover non-zero. New: the estimate judgement accepts a resubmit of a request made since the cutover's start instant (304 refuses every resubmit), and a retry-exhausted request is reported as `acquisition failed` instead of failing the exit rule.
 - Evidence (D6). Already in 304's scripts: reconciliation, `status` and `coverage` reads, unit counts per finding class, definition growth, durations. New: the per-session not-caught-up list, the health and accounting rows, and the `traded_vs_cleared` counts.
 - The new D5 and D6 code goes in one new module, `scripts/purchase_verdicts.py`, so each of the four scripts stays within about 300 lines without a split at review time.
@@ -90,7 +90,7 @@ After the purchase, every session is verified. The exit criterion is the slice p
 ### Prerequisites
 
 - **304** (first real purchase): its Phase 7 purchase has run, its evidence note is complete, and its cutover and reconciliation scripts exist. 307 changes those scripts, so 304's own run must have finished first.
-- **Issue #69**: November's Databento invoice compared with 304's reconciliation, with any difference resolved. It is closed before 307's purchase, and the cutover checks that (D2). The invoice is issued after the month ends, so 307's purchase runs in December at the earliest.
+- **Issue #69**: November's Databento invoice compared with 304's reconciliation, with any difference resolved. It does not gate 307's purchase (D2); it is a later audit.
 - **305** (completeness surfaces): every family's verdict and caught up in health, accounting and `/api/v1/status`, the `traded_vs_cleared` counts, and its manifest-scale measurement at about 30,000 units. If a 305 bound missed and an issue was filed, 307 also depends on that issue (305 D10).
 - **301** (calendar history), **302** (`ohlcv-1m`), **303** (statistics): unchanged.
 - The Databento account with no subscription. Every request is usage-billed, and `MT_TICK_DATABENTO_PLAN` is unset in `/etc/manta-trading.env`.
@@ -112,7 +112,7 @@ After the purchase, every session is verified. The exit criterion is the slice p
 universe.py (TICK_UNIVERSE wants, D1)                 ── code, released
 deploy/set-tick-spend-ceilings.sh                     ── PM, root, once (D4)
 scripts/cutover_304_first_purchase.py <tag> --slice 307 ...  ── agent, after release (D3)
-   ├─ preflight: cutover_common, env file, issue #69 closed, dataset edge
+   ├─ preflight: cutover_common, env file, dataset edge
    ├─ install: hold timers, install the ref, release timers
    ├─ estimate: sudo mt-run data tick pass --estimate-only --json, judged
    ├─ buy and ingest: sudo mt-run tick, repeated while it exits 6
@@ -150,12 +150,12 @@ Status: decided
 
 | Entry | `definition` | `statistics` | `ohlcv-1m` |
 |---|---|---|---|
-| ES | 2010-06-08 – 2026-12-01 | 2010-06-08 – 2026-12-01 | 2010-06-08 – 2026-12-01 |
-| GC | 2010-06-08 – 2026-12-01 | 2010-06-08 – 2026-12-01 | 2010-06-08 – 2026-12-01 |
+| ES | 2010-06-08 – 2026-11-10 | 2010-06-08 – 2026-11-10 | 2010-06-08 – 2026-11-10 |
+| GC | 2010-06-08 – 2026-11-10 | 2010-06-08 – 2026-11-10 | 2010-06-08 – 2026-11-10 |
 
-- **One want per schema, over the whole range.** Universe validation keys wants by schema, so ES cannot hold two `ohlcv-1m` wants around 2024. It does not need to: the planner drops covered days, so the 2024 bars are not bought again. `_HISTORY_START` stays 2010-06-08 (304 D1, the calendars' populated range). `_HISTORY_END` becomes 2026-12-01, and ES and GC both use the shared tuple with `ohlcv-1m` added, so the four ranges are defined once.
-- **Fixed end 2026-12-01, not open.** 304 D1 left the choice to 307. An open end would make every later `mt-run tick` buy the newest days, which is spend nobody chose. There is no tick timer, and the PM has said there is no tick cadence code yet. A daily pull is a separate decision. The end is a whole month and is past by the time the purchase can run (D2).
-- **The dataset must reach the end before buying.** If the cutover ran before Databento published through 2026-11-30, the pass would buy a partial November and a later run would buy the rest, splitting the reconciliation. So the preflight stops unless the dataset edge `status` reports is at or after the latest want end in `TICK_UNIVERSE` (2026-12-01T00:00Z), read from the universe and not passed in, so the end is defined once. The edge needs to reach only the want end: the statistics published on 2026-12-01 for the last session are outside the want either way (next bullet).
+- **One want per schema, over the whole range.** Universe validation keys wants by schema, so ES cannot hold two `ohlcv-1m` wants around 2024. It does not need to: the planner drops covered days, so the 2024 bars are not bought again. `_HISTORY_START` stays 2010-06-08 (304 D1, the calendars' populated range). `_HISTORY_END` becomes 2026-11-10, and ES and GC both use the shared tuple with `ohlcv-1m` added, so the four ranges are defined once.
+- **Fixed end 2026-11-10, not open.** 304 D1 left the choice to 307. An open end would make every later `mt-run tick` buy the newest days, which is spend nobody chose. There is no tick timer, and the PM has said there is no tick cadence code yet. A daily pull is a separate decision. The end is a whole month and is past by the time the purchase can run (D2).
+- **The dataset must reach the end before buying.** If the cutover ran before Databento published through 2026-11-30, the pass would buy a partial November and a later run would buy the rest, splitting the reconciliation. So the preflight stops unless the dataset edge `status` reports is at or after the latest want end in `TICK_UNIVERSE` (2026-11-10T00:00Z), read from the universe and not passed in, so the end is defined once. The edge needs to reach only the want end: the statistics published on 2026-11-10 for the last session are outside the want either way (next bullet).
   - The edge is one value per dataset (`tick_dataset_edge.available_end` for `GLBX.MDP3`), not per product, so ES and GC share it. The stop names that edge.
   - A missing or unreadable edge stops the cutover, as a `gh` failure does in D2. That covers `status` failing or timing out (the stop gives its exit code and error), the edge absent or null, and an edge that does not parse as a UTC instant (the stop quotes the text). It is never read as reached.
 - **The last statistics sessions.** A session's statistics are published during the next session (303), so the final session or two before the end have statistics in a UTC day past the want. They stay not complete, as at 304's end. They are expected findings and are recorded by name (D6). Extending only `statistics` would not help, because the new last session would have the same property.
@@ -163,14 +163,14 @@ Status: decided
 - *Rejected: end at the purchase date.* It is a code edit made at cutover time, and a re-run on a later day would plan more.
 - *Rejected: leave older ES bars for later.* The architecture's first design goal is bars from the start of the dataset for both products, and the ES bars before 2024 are $26 of the $89.
 
-### D2 — Issue #69 gates the purchase
-Status: decided
+### D2 — The invoice comparison does not gate the purchase
+Status: decided (revised 2026-11-14: the PM rejected waiting for the invoice)
 
-The slice plan makes issue #69 a prerequisite: 304's reconciliation compared with November's invoice. A difference there means the manifest's cost record is wrong, and the guard would be counting the wrong figure on a purchase 14 times larger.
+The slice plan first made issue #69 (304's reconciliation compared with November's invoice) a prerequisite. The invoice is issued after the month ends, so that put the purchase two weeks or more away. The PM rejected the wait.
 
-- The cutover's preflight runs `gh issue view 69 --json state` and stops unless the state is `CLOSED`. The stop says the invoice comparison is not done.
-- The check is in the preflight, before any spend, and not a task, so no task waits on a date. Phase 7 runs once the issue is closed.
-- The issue number is passed as `--gate-issue 69` (D3), not written into the script.
+- There is no gate. The cutover does not read issue #69 and has no `--gate-issue` argument.
+- The check the invoice would give is already made per request: `scripts/reconcile_tick_spend.py` sets each request's estimate and manifest actual against the charge Databento reports for its job, and the spend guard counts the manifest. The invoice is a later audit of the same figures.
+- Issue #69 stays open as a follow-up. When the invoice arrives, compare it with 304's and 307's reconciliation totals and record the result in the evidence notes; a difference is a finding about the cost record.
 
 ### D3 — Parameterise 304's cutover in place
 Status: decided
@@ -178,7 +178,6 @@ Status: decided
 304's cutover is three files (`cutover_304_first_purchase.py`, `cutover_304_checks.py`, `cutover_304_evidence.py`) with 304's values in them. A copy for 307 would duplicate about 640 lines. Instead the files keep their names and their tests, and take 307's values as arguments:
 
 - `--slice 307` (required): the prefix of the state files (`307-cutover-start.txt`, `307-cutover-baseline.json`) and of the narration log, `cutover-307-<tag>-<stamp>.log`. The script reads and writes nothing else under the notes directory; the evidence note is completed from the log by hand in Phase 7, so the script never needs its name.
-- `--gate-issue 69` (required): the issue must be closed (D2). There is no argument that skips the gate. 304's tests call the preflight function with no gate issue directly; the CLI never offers that.
 - The edge check (D1) always runs, against the latest want end in the universe. No argument.
 - `--estimate`: preflight and the estimate only (D4).
 
@@ -199,7 +198,7 @@ Status: decided
 
 The ceilings are reserved to the PM (runbook 100, "No agent edits them"), and `set-tick-spend-ceilings.sh` is not in the operator's sudoers. That is the one root step, as in 304. The slice plan's "No PM host steps" note said no slice needed a PM-run command; it is amended with this design to name the ceiling command in purchase slices (304, 307) as the exception.
 
-The values cannot be fixed at design time, because 304's spend ages out of the 30-day window on a date set by when 304 runs. So the agent runs the free estimate first: `uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue 69 --estimate <tag>` runs preflight and the estimate only, and prints the PM's command:
+The values cannot be fixed at design time, because 304's spend ages out of the 30-day window on a date set by when 304 runs. So the agent runs the free estimate first: `uv run python scripts/cutover_304_first_purchase.py --slice 307 --estimate <tag>` runs preflight and the estimate only, and prints the PM's command:
 
 - per-pass = the planned figure rounded up to the next `CEILING_STEP_USD` (5);
 - 30-day = trailing spend plus the planned figure, rounded up to the next 5.
@@ -239,11 +238,11 @@ The evidence step writes these to the narration log, and they are copied into `u
 ### D7 — The December invoice is a follow-up issue
 Status: decided
 
-The architecture applies invoice reconciliation to every usage-billed request. 307's purchase is billed on a monthly invoice issued after the month ends, and a slice cannot wait for it. When the purchase is done, the closing step files an issue like #69: compare the invoice's usage total for the purchase window with the reconciliation total in 307's evidence note. The next purchase slice gates on it with `--gate-issue`.
+The architecture applies invoice reconciliation to every usage-billed request. 307's purchase is billed on a monthly invoice issued after the month ends, and a slice cannot wait for it. When the purchase is done, the closing step files an issue like #69: compare the invoice's usage total for the purchase window with the reconciliation total in 307's evidence note. Nothing gates on it.
 
 ### Technology Choices
 
-- No new dependencies. The issue gate uses `gh`, already used by the release skill, called through `cutover_common.out`. A `gh` failure stops the cutover with its error; it is never read as "closed".
+- No new dependencies.
 
 ### Patterns and Conventions
 
@@ -268,7 +267,7 @@ The architecture applies invoice reconciliation to every usage-billed request. 3
 ### Functional Requirements
 
 1. `TICK_UNIVERSE` holds D1's wants and passes import-time validation; a unit test pins them.
-2. The cutover with D3's 307 arguments stops before spending when issue #69 is open, when the dataset edge is before the latest want end (2026-12-01T00:00Z) or missing or unreadable, when `--gate-issue` is not given, when the ceilings are short (naming the D4 command), or when a planned request is outside the wanted set.
+2. The cutover with D3's 307 arguments stops before spending when the dataset edge is before the latest want end (2026-11-10T00:00Z) or missing or unreadable, when the ceilings are short (naming the D4 command), or when a planned request is outside the wanted set.
 3. `--estimate` prints the PM's ceiling command with values derived by D4 and buys nothing.
 4. In production, every request is delivered or retry-exhausted with its error named (D5), no request is failed-retryable, and every unit is final.
 5. `reconcile_tick_spend.py` exits 0 over the purchase.
@@ -277,7 +276,7 @@ The architecture applies invoice reconciliation to every usage-billed request. 3
 
 ### Technical Requirements
 
-- 304's tests pass, calling the preflight function with no gate issue, and new unit tests cover: `--gate-issue` not given (refused), an open gate issue (stop), a `gh` error (stop, never "closed"), a dataset edge before the latest want end (stop), the minimum edge read from the universe, a `status` failure, an absent or null edge and an unparseable edge (each stops, never read as reached), a missing `--slice` (refused), a request still failed-retryable after the pass (non-zero), a retry-exhausted request (listed, exit rule holds), ceiling values rounded up to the next 5, the session check run once per product with its calendar, and each unaccounted-for case of D6 item 3 failing the exit rule.
+- 304's tests pass, and new unit tests cover: a dataset edge before the latest want end (stop), the minimum edge read from the universe, a `status` failure, an absent or null edge and an unparseable edge (each stops, never read as reached), a missing `--slice` (refused), a request still failed-retryable after the pass (non-zero), a retry-exhausted request (listed, exit rule holds), ceiling values rounded up to the next 5, the session check run once per product with its calendar, and each unaccounted-for case of D6 item 3 failing the exit rule.
 - Each script stays within about 300 lines.
 - Format, lint and typecheck on touched files. Unit and integration tick tiers pass, apart from known flakes and pre-existing failures.
 - Runbook 100's purchase section gives the cutover's arguments.
@@ -289,7 +288,7 @@ The architecture applies invoice reconciliation to every usage-billed request. 3
 
 ### Verification Walkthrough
 
-Step 1 is Phase 6 and was run at implementation. Steps 2 to 6 run in Phase 7, after the release and once issue #69 is closed; they have not been run, because they need production at the release and spend money. Step 3 is the only step that spends money: about $89, usage-billed. The new arguments exist as of this slice.
+Step 1 is Phase 6 and was run at implementation. Steps 2 to 6 run in Phase 7, after the release; they have not been run, because they need production at the release and spend money. Step 3 is the only step that spends money: about $89, usage-billed. The new arguments exist as of this slice.
 
 1. **Tests.**
    ```bash
@@ -298,17 +297,17 @@ Step 1 is Phase 6 and was run at implementation. Steps 2 to 6 run in Phase 7, af
    uv run pytest test/integration/data -k tick -q
    uv run python scripts/cutover_304_first_purchase.py --slice 307 --estimate v0.0.0; echo "exit=$?"
    ```
-   Expected (run 2026-11-09): `914 passed` for the first command; `577 passed, 115 deselected` for the second (about five minutes); the third prints a usage error `the following arguments are required: --gate-issue` and `exit=2`, and touches nothing. The 914 include 304's cutover tests and the universe pin.
+   Expected (run 2026-11-09): `914 passed` for the first command; `577 passed, 115 deselected` for the second (about five minutes); the third stops at preflight because `v0.0.0` is not a tag, exits non-zero and touches nothing (as run 2026-11-09 it exited 2 on the then-required `--gate-issue`). The 914 include 304's cutover tests and the universe pin.
 
 2. **Estimate and ceilings.**
    ```bash
-   uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue 69 --estimate v0.x.y
+   uv run python scripts/cutover_304_first_purchase.py --slice 307 --estimate v0.x.y
    ```
-   Expected: preflight passes (issue #69 closed, dataset edge at or after 2026-12-01); about $89 planned over about 390 requests, only `ohlcv-1m`, `statistics` and `definition` for ES and GC; the PM's ceiling command printed, for example `--per-pass 90 --cap-30d 90`. The PM runs that one command. `--estimate` writes no state and does not stop on unset or short ceilings; it needs production already at the release carrying this slice, because the estimate reads the universe production runs. A `status` exit of 3 is a verdict, not a failure, and does not stop the edge check.
+   Expected: preflight passes (dataset edge at or after 2026-11-10); about $89 planned over about 390 requests, only `ohlcv-1m`, `statistics` and `definition` for ES and GC; the PM's ceiling command printed, for example `--per-pass 90 --cap-30d 90`. The PM runs that one command. `--estimate` writes no state and does not stop on unset or short ceilings; it needs production already at the release carrying this slice, because the estimate reads the universe production runs. A `status` exit of 3 is a verdict, not a failure, and does not stop the edge check.
 
 3. **Purchase.**
    ```bash
-   uv run python scripts/cutover_304_first_purchase.py --slice 307 --gate-issue 69 v0.x.y
+   uv run python scripts/cutover_304_first_purchase.py --slice 307 v0.x.y
    ```
    Expected: the estimate is `allowed`; `sudo mt-run tick` ends 0, or 3 with failed units named; re-running resumes after exit 6 or a stop. The narration lands in `project-documents/user/notes/cutover-307-<tag>-<stamp>.log`, and the evidence note is completed from it. It lists each family's accounting row, every not-caught-up session (the last statistics session is `publication after want end`), any retry-exhausted request as `acquisition failed`, and the `traded_vs_cleared` counts; an `over` session or a failed-retryable request makes it exit 1 (re-running resumes).
 
@@ -322,7 +321,7 @@ Step 1 is Phase 6 and was run at implementation. Steps 2 to 6 run in Phase 7, af
    ```bash
    sudo mt-run data health
    sudo mt-run data accounting --json | jq '.tick.products[] | {product, families: [.families[] | {schema, caught_up, sessions_complete, sessions_in_scope}]}'
-   sudo mt-run data tick coverage --product GC --schema ohlcv-1m --start 2010-06-08 --end 2026-12-01 --json
+   sudo mt-run data tick coverage --product GC --schema ohlcv-1m --start 2010-06-08 --end 2026-11-10 --json
    ```
    Expected: rows `futures ES ohlcv-1m`, `futures GC ohlcv-1m`, `futures ES statistics`, `futures GC statistics` are `OK`, or `INFO` with each not-caught-up session in the evidence note; no `FAIL`. GC `ohlcv-1m` coverage shows ledger equal to raw in every ingested session.
 
@@ -339,11 +338,11 @@ Step 1 is Phase 6 and was run at implementation. Steps 2 to 6 run in Phase 7, af
 Relative effort 2/5. One task file.
 
 1. `--slice`; derive products, wanted families and calendars from the universe; per-product session check; ceiling values from the estimate; `--estimate`. 304's tests updated for `--slice` and the preflight's gate parameter. Commit.
-2. `--gate-issue` and the edge check from the universe, with their failure cases and tests; the D5 handling of failed requests, in `purchase_verdicts.py`. Commit.
+2. The edge check from the universe, with their failure cases and tests; the D5 handling of failed requests, in `purchase_verdicts.py`. Commit.
 3. The D6 evidence items in `purchase_verdicts.py`: the not-caught-up list with the two cutover labels, health and accounting rows, cross-tier counts. Commit.
 4. The universe edit and its pin test; runbook 100; the evidence note skeleton. (The slice plan and architecture corrections are already made with this design.) Commit.
 
-Phase 7, after merge and release, once issue #69 is closed: the estimate, the PM's ceiling command, the cutover, the reconciliation and the follow-up invoice issue.
+Phase 7, after merge and release: the estimate, the PM's ceiling command, the cutover, the reconciliation and the follow-up invoice issue.
 
 ### Special Considerations
 

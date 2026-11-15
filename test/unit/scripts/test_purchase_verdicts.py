@@ -1,4 +1,4 @@
-"""Slice 307: the issue gate and the dataset-edge check of the purchase cutover."""
+"""Slice 307: the dataset-edge check of the purchase cutover."""
 
 from __future__ import annotations
 
@@ -31,41 +31,6 @@ def pv() -> ModuleType:
 def cutover_error() -> type[Exception]:
     error: type[Exception] = _load("cutover_common").CutoverError
     return error
-
-
-# -- the issue gate ---------------------------------------------------------------
-
-
-def test_a_closed_issue_passes(pv: ModuleType) -> None:
-    pv.check_gate_issue(69, lambda n: json.dumps({"state": "CLOSED"}))
-
-
-def test_an_open_issue_stops_naming_it(
-    pv: ModuleType, cutover_error: type[Exception]
-) -> None:
-    with pytest.raises(cutover_error, match=r"#69 is OPEN.*invoice comparison"):
-        pv.check_gate_issue(69, lambda n: json.dumps({"state": "OPEN"}))
-
-
-def test_a_gh_failure_stops_and_is_never_read_as_closed(
-    pv: ModuleType, cutover_error: type[Exception]
-) -> None:
-    def failing(number: int) -> str:
-        raise subprocess.CalledProcessError(1, ["gh"])
-
-    with pytest.raises(cutover_error, match="gh failed"):
-        pv.check_gate_issue(69, failing)
-
-
-@pytest.mark.parametrize(
-    ("text", "message"),
-    [("not json", "no JSON"), ("{}", "no state"), ("[]", "no state")],
-)
-def test_unreadable_gh_output_stops(
-    pv: ModuleType, cutover_error: type[Exception], text: str, message: str
-) -> None:
-    with pytest.raises(cutover_error, match=message):
-        pv.check_gate_issue(69, lambda n: text)
 
 
 # -- the dataset edge -------------------------------------------------------------

@@ -95,7 +95,7 @@ WITH_HISTORY = replace(GOOD, history=(DEFINITIONS, BARS))
 
 def test_production_universe_history_is_slice_307_d1() -> None:
     """307 D1's table exactly: every schema, both products, one fixed range."""
-    first, last = date(2010, 6, 8), date(2026, 12, 1)
+    first, last = date(2010, 6, 8), date(2026, 11, 10)
     got = {
         entry.product: [(w.schema, w.start, w.end) for w in entry.history]
         for entry in TICK_UNIVERSE

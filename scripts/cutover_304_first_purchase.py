@@ -2,7 +2,7 @@
 """A purchase slice's cutover: install the release, buy, ingest, collect evidence.
 
     uv run python scripts/cutover_304_first_purchase.py \\
-        --slice <n> --gate-issue <n> [--estimate] <release-tag>
+        --slice <n> [--estimate] <release-tag>
 
 Written for slice 304's first purchase and shared by every purchase slice: what
 is wanted comes from ``TICK_UNIVERSE``, and ``--slice`` names the state files
@@ -68,7 +68,6 @@ from cutover_common import (  # noqa: E402
 )
 from purchase_verdicts import (  # noqa: E402
     check_dataset_edge,
-    check_gate_issue,
     latest_want_end,
 )
 from upgrade_production import hold_timers, release_timers  # noqa: E402
@@ -123,17 +122,11 @@ def record_start_and_baselines(slice_id: str) -> tuple[str, dict[str, Any]]:
     return start, baseline
 
 
-def _view_issue(number: int) -> str:
-    return out(["gh", "issue", "view", str(number), "--json", "state"])
+def run_gates() -> None:
+    """The refusal made before the install, any state or any spend (D1).
 
-
-def run_gates(gate_issue: int) -> None:
-    """The two refusals made before the install, any state or any spend (D1, D2).
-
-    Separate from ``cutover_common.preflight`` so 304's tests can still call that
-    with no gate issue.
+    Separate from ``cutover_common.preflight`` so 304's tests can still call it.
     """
-    check_gate_issue(gate_issue, _view_issue)
     status = evidence.mt_run(["data", "tick", "status", "--json"])
     check_dataset_edge(status, latest_want_end())
 
@@ -216,12 +209,6 @@ def _parser() -> argparse.ArgumentParser:
         help="preflight and the free estimate only; print the PM's ceiling command",
     )
     parser.add_argument(
-        "--gate-issue",
-        required=True,
-        type=int,
-        help="issue that must be closed first (the invoice comparison); no skip flag",
-    )
-    parser.add_argument(
         "--slice", required=True, dest="slice_id", type=_nonempty, help="slice number"
     )
     return parser
@@ -239,8 +226,8 @@ def main(argv: list[str]) -> int:
     print(f"narration -> {start_log(log_path)}")
     try:
         if args.estimate:
-            return _estimate_only(ref, args.gate_issue)
-        return _steps(ref, slice_id, args.gate_issue)
+            return _estimate_only(ref)
+        return _steps(ref, slice_id)
     except PassStopped as exc:
         say(f"FAILED: {exc}")
         return exc.exit_code
@@ -253,7 +240,7 @@ def main(argv: list[str]) -> int:
         return 1
 
 
-def _estimate_only(ref: str, gate_issue: int) -> int:
+def _estimate_only(ref: str) -> int:
     """Preflight and the free estimate: buys nothing, writes no state (D4).
 
     The ceilings are usually unset here, so their env checks are skipped and a
@@ -264,7 +251,7 @@ def _estimate_only(ref: str, gate_issue: int) -> int:
     production_env = read_env_text()
     check_plan_unset(production_env)
     check_checkout_database(read_checkout_env_text(), production_env)
-    run_gates(gate_issue)
+    run_gates()
     say("2/2 estimate")
     summary = fetch_estimate()
     outcome = judge(summary, None, check_ceilings=False)
@@ -277,13 +264,13 @@ def _estimate_only(ref: str, gate_issue: int) -> int:
     return 0
 
 
-def _steps(ref: str, slice_id: str, gate_issue: int) -> int:
+def _steps(ref: str, slice_id: str) -> int:
     say(f"1/6 preflight — {ref}")
     commit = preflight(ref)
     production_env = read_env_text()
     per_pass: Decimal = check_env_text(production_env)
     check_checkout_database(read_checkout_env_text(), production_env)
-    run_gates(gate_issue)
+    run_gates()
     start, baseline = record_start_and_baselines(slice_id)
     say(f"2/6 install {ref}")
     install_release(ref, commit)
