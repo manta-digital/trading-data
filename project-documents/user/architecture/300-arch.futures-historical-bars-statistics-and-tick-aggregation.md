@@ -30,7 +30,6 @@ The shape of what Databento sells decides the design. Verified on the pricing pa
 
 ## Design Goals
 
-- **Deep history for ES and GC** — Bars from the start of the dataset (2010-06-06; bought from 2010-06-08, the first day the CME calendars cover, so the sessions dated 2010-06-07 are not held, slice 304 D1) and open interest and settlement over the same range, stored in the project's own database and kept.
 - **One bars read path that says where its bars came from** — A consumer asks for time bars and gets provider bars, and the response names the source interval they were rolled up from.
 - **Ticks serve what bars cannot** — Tick bars at any N the user or engine sets, and raw events for event-level views, with identical bars for the chart and the engine (journal 20261101 ADR).
 - **Every tier answers "what do I have, and is it complete"** — Ticks, bars and statistics each get a completeness verdict against the CME calendar, in the same surfaces operators already read.
