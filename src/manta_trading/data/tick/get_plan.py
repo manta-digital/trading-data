@@ -41,6 +41,10 @@ from manta_trading.data.tick.universe import TICK_UNIVERSE, TickUniverseEntry
 
 _DAY = timedelta(days=1)
 
+#: The families a time-bar request's default range spans (309): everything held
+#: in ticks or provider bars. Raw ticks and tick bars default over the tick tier.
+TIME_BAR_RANGE: tuple[SchemaFamily, ...] = (SchemaFamily.TICK_TIER, SchemaFamily.BAR_1M)
+
 
 class ContractNotFound(TickPreflightError):
     """No definition carries the raw symbol (in the range, when one is given)."""
@@ -144,6 +148,15 @@ def _window(session: Session, instrument_id: int, raw_symbol: str) -> TickWindow
     )
 
 
+def _span(found: Sequence[tuple[date, date] | None]) -> tuple[date, date] | None:
+    """The earliest first and latest last session over ``found``; ``None``
+    when every family holds nothing."""
+    held = [bounds for bounds in found if bounds is not None]
+    if not held:
+        return None
+    return min(b[0] for b in held), max(b[1] for b in held)
+
+
 def _check_range(start: date, end: date) -> None:
     if end <= start:
         raise TickPreflightError(
@@ -157,13 +170,21 @@ async def resolve_range(
     start: date | None,
     end: date | None,
     family: SchemaFamily,
+    range_over: Sequence[SchemaFamily] | None = None,
 ) -> tuple[date, date] | None:
-    """``start``/``end`` with a missing side defaulted to the sessions ``family``
-    holds (TD2; ``end`` exclusive, so the last held session plus a day). ``None``
-    when a side is missing and nothing is held. Raises ``TickPreflightError``
-    on an empty range. The product plan and 231's schedule route share it."""
+    """``start``/``end`` with a missing side defaulted to the sessions held in
+    ``range_over`` (``family`` alone unless given; TD2; ``end`` exclusive, so
+    the last held session plus a day). ``None`` when a side is missing and
+    nothing is held. Raises ``TickPreflightError`` on an empty range. The
+    product plan and 231's schedule route share it."""
     if start is None or end is None:
-        held = await held_session_bounds(conn, shape_of(entry), family)
+        shape = shape_of(entry)
+        held = _span(
+            [
+                await held_session_bounds(conn, shape, held_family)
+                for held_family in range_over or (family,)
+            ]
+        )
         if held is None:
             return None
         start = start or held[0]
@@ -240,14 +261,20 @@ async def contract_plan(
     start: date | None,
     end: date | None,
     family: SchemaFamily,
+    range_over: Sequence[SchemaFamily] | None = None,
 ) -> GetPlan:
     """The plan for ``--contract``; ``start``/``end`` default to its sessions
-    held in ``family`` (TD2)."""
+    held in ``range_over`` (``family`` alone unless given; TD2)."""
     candidate = _one(symbol, await _candidates(conn, symbol, start, end))
     entry = _entry_for(candidate, symbol)
     target = ContractTarget(symbol, candidate.instrument_id, entry.product)
     if start is None or end is None:
-        held = await _held(conn, candidate.instrument_id, family)
+        held = _span(
+            [
+                await _held(conn, candidate.instrument_id, held_family)
+                for held_family in range_over or (family,)
+            ]
+        )
         if held is None:
             return GetPlan(target, start, end, (), (), (), (), None)
         start = start or held[0]
@@ -288,14 +315,16 @@ async def product_plan(
     start: date | None,
     end: date | None,
     family: SchemaFamily,
+    range_over: Sequence[SchemaFamily] | None = None,
 ) -> GetPlan:
     """The plan for ``--product`` under ``rule``; ``start``/``end`` default to
-    the sessions held in ``family`` (TD2). ``urls`` is ``(tick_url, calendar_url)``:
-    ``build_schedule`` opens its own connections (229 TD9). Its failures
+    the sessions held in ``range_over`` (``family`` alone unless given; TD2).
+    ``urls`` is ``(tick_url, calendar_url)``: ``build_schedule`` opens its own
+    connections (229 TD9). Its failures
     (``RollRangeTooLong``, a calendar refusal, an outage) propagate."""
     tick_url, calendar_url = urls
     target = ProductTarget(entry.product, rule)
-    span = await resolve_range(conn, entry, start, end, family)
+    span = await resolve_range(conn, entry, start, end, family, range_over)
     if span is None:
         return GetPlan(target, start, end, (), (), (), (), None)
     start, end = span

@@ -295,15 +295,16 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 ## 6. Routes and response shape
 
-- [ ] **6.1 Default range over ticks and bars** (`data/tick/get_plan.py`)
-  - [ ] One function returns everything held in either kind of data: from the earliest held
+- [x] **6.1 Default range over ticks and bars** (`data/tick/get_plan.py`)
+  - [x] One function returns everything held in either kind of data: from the earliest held
     session to the day after the latest, taken over the tick ledger AND the bar ledger (call
     the existing held-bounds read once per family and take the min and max). The bars routes
     and `mt data tick get <size>` use it; ticks and tick bars keep the tick-only default.
     A session held only in provider bars must be planned by a default request.
-  - [ ] Integration test: bounds with ticks only, bars only (a session with no ticks) and
+  - [x] Integration test: bounds with ticks only, bars only (a session with no ticks) and
     both; the result spans both sessions in the last case and is empty-handled as the
     existing read is when nothing is held.
+  Note: Implemented as a range_over argument (TIME_BAR_RANGE) on the existing plan builders, so one function serves both plans.
 
 **Commit**: `feat: default the bars range over held ticks and bars`
 
