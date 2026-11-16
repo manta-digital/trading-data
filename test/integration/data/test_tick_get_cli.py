@@ -2,9 +2,10 @@
 
 The September 2024 roll is seeded (``roll_seed``) plus a few ESZ4 ticks in
 session 2024-09-18 (22:00 UTC 09-17 → 21:00 UTC 09-18), and beside them the same
-minutes as provider bars, priced apart (306: bar sizes read ``tick_ohlcv_1m``,
-ticks are read only for ``ticks``). Session 09-20 holds ticks and no bars. The
-calendar is the scratch production database's CME_EQUITY.
+minutes as provider bars, priced apart, so a session held in provider minutes is
+read from them at a size they make (``5m``, ``1h``, ``1d``) and from ticks at one
+they cannot (``15s``) (309). The calendar is the scratch production database's
+CME_EQUITY.
 """
 
 from __future__ import annotations
@@ -95,35 +96,58 @@ def test_product_bars_follow_the_schedule(seeded: SeededRoll) -> None:
     assert "2024-09-16 → 2024-09-17  ESU4 (118)" in result.stdout
     assert "2024-09-18 → 2024-09-19  ESZ4 (183748)" in result.stdout
     assert "1 row(s)" in result.stdout  # the five bars fall in one hour
-    assert "source ohlcv-1m" in result.stdout.splitlines()[0]
+    assert "source 2024-09-18 → 2024-09-18  ohlcv-1m" in result.stdout.splitlines()
 
 
-def test_ticks_and_no_provider_bars_print_no_rows_list_every_session_and_exit_three(
-    seeded: SeededRoll,
-) -> None:
-    """09-20 onward holds ticks and no bars: no bars, every session incomplete."""
-    span = ["--start", "2024-09-20", "--end", "2024-09-25"]
+#: The source footer line of a 09-18-only read.
+TICKS_LINE = "source 2024-09-18 → 2024-09-18  ticks"
 
-    result = _invoke("1h", "--contract", "ESZ4", *span, "--json")
+
+def test_15s_bars_are_cut_from_ticks_in_every_format(seeded: SeededRoll) -> None:
+    """One trade a minute: one 15 s bar per trade, each from ticks."""
+    text = _invoke("15s", "--contract", "ESZ4", *SESSION_0918)
+    csv_ = _invoke("15s", "--contract", "ESZ4", *SESSION_0918, "--csv")
+    json_ = _invoke("15s", "--contract", "ESZ4", *SESSION_0918, "--json")
+
+    assert text.exit_code == csv_.exit_code == json_.exit_code == 0, text.output
+    assert f"{N_TICKS} row(s)" in text.stdout and TICKS_LINE in text.stdout
+    assert len(csv_.stdout.splitlines()) == 1 + N_TICKS and TICKS_LINE in csv_.stderr
+    body = json.loads(json_.stdout)
+    assert body["row_count"] == N_TICKS
+    assert body["sources"] == [
+        {"first_session": "2024-09-18", "last_session": "2024-09-18", "source": "ticks"}
+    ]
+    assert body["rows"][0]["open"] == "5650.25"  # the ticks' price
+
+
+def test_5m_bars_come_from_the_held_provider_minutes(seeded: SeededRoll) -> None:
+    result = _invoke("5m", "--contract", "ESZ4", *SESSION_0918, "--json")
+
+    assert result.exit_code == 0, result.output
+    body = json.loads(result.stdout)
+    assert [run["source"] for run in body["sources"]] == ["ohlcv-1m"]
+    assert body["rows"][0]["open"] == "6000"  # the provider bar's price
+
+
+def test_a_session_with_no_data_is_listed_and_exits_three(seeded: SeededRoll) -> None:
+    span = ["--start", "2024-10-01", "--end", "2024-10-02"]
+
+    result = _invoke("15s", "--contract", "ESZ4", *span, "--json")
 
     assert result.exit_code == 3, result.output
     body = json.loads(result.stdout)
-    assert body["rows"] == [] and body["source"] == "ohlcv-1m"
-    assert [i["session_date"] for i in body["incomplete"]] == [
-        "2024-09-20",
-        "2024-09-23",
-        "2024-09-24",
-    ]
-    assert body["exit_code"] == 3
+    assert body["rows"] == [] and body["sources"] == []
+    assert [i["session_date"] for i in body["incomplete"]] == ["2024-10-01"]
 
 
-def test_the_csv_header_names_the_source_and_ticks_name_none(
+def test_the_csv_header_names_no_source_and_ticks_name_none(
     seeded: SeededRoll,
 ) -> None:
     bars = _invoke("1m", "--contract", "ESZ4", *SESSION_0918, "--csv")
     ticks = _invoke("ticks", "--contract", "ESZ4", *SESSION_0918, "--csv")
 
-    assert "1m  source ohlcv-1m" in bars.stderr.splitlines()[0]
+    assert "source" not in bars.stderr.splitlines()[0]
+    assert "source 2024-09-18 → 2024-09-18  ohlcv-1m" in bars.stderr.splitlines()
     assert "source" not in ticks.stderr
     assert len(bars.stdout.splitlines()) == 1 + N_TICKS
 
@@ -144,7 +168,7 @@ def test_product_bars_as_json(seeded: SeededRoll) -> None:
         N_TICKS,
         "6000",  # the provider bar's price, not the ticks' 5650.25
     )
-    assert json.loads(result.stdout)["source"] == "ohlcv-1m"
+    assert [r["source"] for r in json.loads(result.stdout)["sources"]] == ["ohlcv-1m"]
 
 
 def test_unresolved_sessions_print_and_exit_three(seeded: SeededRoll) -> None:
@@ -195,7 +219,7 @@ def test_an_incomplete_session_is_read_listed_and_exits_three(
         (["ticks", "--contract", "ESZ4", "--product", "ES"], "exactly one of"),
         (["ticks", "--contract", "ESZ4", "--rule", "v.0"], "--rule goes with"),
         (["ticks", "--contract", "ESZ4", "--csv", "--json"], "exclusive"),
-        (["2m", "--contract", "ESZ4"], "WHAT must be one of"),
+        (["2x", "--contract", "ESZ4"], "WHAT must be ticks or bar size"),
         (["1m", "--product", "ES", "--rule", "z.0"], "unknown roll method"),
         (["1m", "--product", "ZZ"], "--product ZZ is not in the universe"),
         (["ticks", "--contract", "ESZ9"], "no definition held for contract ESZ9"),

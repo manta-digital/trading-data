@@ -6,8 +6,9 @@ went out, ``partial(n_rows, error)``. Rows are written as they arrive, never
 collected: text is fixed-width lines (Rich would buffer a table), CSV keeps
 stdout to the header and rows, and JSON is one object written incrementally
 in TD5's key order. Every price goes through ``price_text`` and every
-nanosecond time through ``ts_text``. A bar size names its ``source`` (the
-provider schema, 306 D8) in the header line and the JSON head; ticks have none.
+nanosecond time through ``ts_text``. A bar size names the ``sources`` of the
+rows written (``ticks`` or a provider schema, per run of sessions, 309) after
+the rows: a text footer, CSV on stderr, a JSON tail member. Ticks have none.
 """
 
 from __future__ import annotations
@@ -33,6 +34,10 @@ from manta_trading.data.tick.tick_reads import (
     TICK_COLUMNS,
     Row,
 )
+from manta_trading.data.tick.time_bar_source import SourceRun
+
+#: A bar read's source runs; ``None`` for ticks, which have no source.
+Runs = Sequence[SourceRun] | None
 
 #: Text column widths; a column not listed is 8 wide.
 _WIDTHS = {
@@ -60,8 +65,8 @@ _TEXT_NULL = "-"
 class GetWriter(Protocol):
     def begin(self, plan: GetPlan) -> None: ...
     def rows(self, batch: Sequence[Row]) -> None: ...
-    def finish(self, exit_code: int) -> None: ...
-    def partial(self, n_rows: int, error: str) -> None: ...
+    def finish(self, exit_code: int, runs: Runs) -> None: ...
+    def partial(self, n_rows: int, error: str, runs: Runs) -> None: ...
 
 
 def columns_for(what: str) -> tuple[str, ...]:
@@ -96,7 +101,25 @@ def _segment_text(s: DisplaySegment) -> str:
     )
 
 
-def head_lines(plan: GetPlan, what: str, source: str | None) -> list[str]:
+def source_lines(runs: Runs) -> list[str]:
+    """One line per run of sessions and its source; none for ticks."""
+    return [
+        f"source {r.first_session} → {r.last_session}  {r.source}" for r in runs or ()
+    ]
+
+
+def sources_list(runs: Sequence[SourceRun]) -> list[dict[str, str]]:
+    return [
+        {
+            "first_session": r.first_session.isoformat(),
+            "last_session": r.last_session.isoformat(),
+            "source": r.source,
+        }
+        for r in runs
+    ]
+
+
+def head_lines(plan: GetPlan, what: str) -> list[str]:
     target = plan.target
     if isinstance(target, ContractTarget):
         name = contract_label(target.contract, target.instrument_id)
@@ -108,9 +131,8 @@ def head_lines(plan: GetPlan, what: str, source: str | None) -> list[str]:
         span = "nothing held"  # no range given, and no held session to default to
     else:
         span = f"{plan.start} → {plan.end} (end exclusive)"
-    origin = "" if source is None else f"  source {source}"
     return [
-        f"{name}  {what}{origin}  {span}",
+        f"{name}  {what}  {span}",
         *(f"  {_segment_text(s)}" for s in plan.display),
     ]
 
@@ -123,8 +145,8 @@ def _list_lines(plan: GetPlan) -> list[str]:
 
 
 class TextWriter:
-    def __init__(self, what: str, source: str | None, out: TextIO, err: TextIO) -> None:
-        self._what, self._source, self._out, self._err = what, source, out, err
+    def __init__(self, what: str, out: TextIO, err: TextIO) -> None:
+        self._what, self._out, self._err = what, out, err
         self._columns = columns_for(what)
         self._lists: list[str] = []
         self._n = 0
@@ -138,7 +160,7 @@ class TextWriter:
     def begin(self, plan: GetPlan) -> None:
         self._lists = _list_lines(plan)  # printed after the rows
         lines = [
-            *head_lines(plan, self._what, self._source),
+            *head_lines(plan, self._what),
             self._line(self._columns),
         ]
         self._out.write("\n".join(lines) + "\n")
@@ -158,31 +180,32 @@ class TextWriter:
             )
         )
 
-    def _write_lists(self) -> None:
-        if self._lists:
-            self._out.write("\n".join(self._lists) + "\n")
+    def _write_lists(self, runs: Runs) -> None:
+        lines = [*source_lines(runs), *self._lists]
+        if lines:
+            self._out.write("\n".join(lines) + "\n")
 
-    def finish(self, exit_code: int) -> None:
+    def finish(self, exit_code: int, runs: Runs) -> None:
         self._out.write(f"{self._n} row(s)\n")
-        self._write_lists()
+        self._write_lists(runs)
 
-    def partial(self, n_rows: int, error: str) -> None:
+    def partial(self, n_rows: int, error: str, runs: Runs) -> None:
         self._out.write(f"PARTIAL: {n_rows} row(s), then: {error}\n")
-        self._write_lists()
+        self._write_lists(runs)
         self._err.write(f"{error}\n")
 
 
 class CsvWriter:
     """Header and rows on stdout; everything else on stderr (FR10)."""
 
-    def __init__(self, what: str, source: str | None, out: TextIO, err: TextIO) -> None:
-        self._what, self._source, self._err = what, source, err
+    def __init__(self, what: str, out: TextIO, err: TextIO) -> None:
+        self._what, self._err = what, err
         self._columns = columns_for(what)
         self._csv = csv.writer(out, lineterminator="\n")
 
     def begin(self, plan: GetPlan) -> None:
         self._csv.writerow(self._columns)
-        lines = [*head_lines(plan, self._what, self._source), *_list_lines(plan)]
+        lines = [*head_lines(plan, self._what), *_list_lines(plan)]
         self._err.write("\n".join(lines) + "\n")
 
     def rows(self, batch: Sequence[Row]) -> None:
@@ -190,18 +213,24 @@ class CsvWriter:
             ["" if c is None else c for c in row_cells(self._columns, r)] for r in batch
         )
 
-    def finish(self, exit_code: int) -> None:
-        return None
+    def _write_sources(self, runs: Runs) -> None:
+        lines = source_lines(runs)
+        if lines:
+            self._err.write("\n".join(lines) + "\n")
 
-    def partial(self, n_rows: int, error: str) -> None:
+    def finish(self, exit_code: int, runs: Runs) -> None:
+        self._write_sources(runs)
+
+    def partial(self, n_rows: int, error: str, runs: Runs) -> None:
         self._err.write(f"partial output: {n_rows} rows written, then: {error}\n")
+        self._write_sources(runs)
 
 
 class JsonWriter:
     """One object, written as the rows arrive; valid even when cut short."""
 
-    def __init__(self, what: str, source: str | None, out: TextIO, err: TextIO) -> None:
-        self._what, self._source, self._out = what, source, out
+    def __init__(self, what: str, out: TextIO, err: TextIO) -> None:
+        self._what, self._out = what, out
         self._columns = columns_for(what)
         self._n = 0
 
@@ -209,7 +238,6 @@ class JsonWriter:
         head = {
             "target": target_dict(plan),
             "what": self._what,
-            **({} if self._source is None else {"source": self._source}),
             "start": iso_day(plan.start),
             "end": iso_day(plan.end),
             "segments": [
@@ -245,35 +273,36 @@ class JsonWriter:
         self._n += len(batch)
         self._out.write(lead + ",\n".join(objects))
 
-    def _close(self, complete: bool, error: str | None, exit_code: int) -> None:
+    def _close(
+        self, complete: bool, error: str | None, exit_code: int, runs: Runs
+    ) -> None:
         tail = {
             "row_count": self._n,
+            **({} if runs is None else {"sources": sources_list(runs)}),
             "complete": complete,
             "error": error,
             "exit_code": exit_code,
         }
         self._out.write("], " + _members(tail) + "}\n")
 
-    def finish(self, exit_code: int) -> None:
-        self._close(True, None, exit_code)
+    def finish(self, exit_code: int, runs: Runs) -> None:
+        self._close(True, None, exit_code, runs)
 
-    def partial(self, n_rows: int, error: str) -> None:
-        self._close(False, error, EXIT_STORAGE)
+    def partial(self, n_rows: int, error: str, runs: Runs) -> None:
+        self._close(False, error, EXIT_STORAGE, runs)
 
 
 def writer_for(
     what: str,
     *,
-    source: str | None,
     json_output: bool,
     csv_output: bool,
     out: TextIO,
     err: TextIO,
 ) -> GetWriter:
-    """The writer for ``what``; ``source`` is the provider schema a bar size was
-    built from (``None`` for ticks, which name none)."""
+    """The writer for ``what`` (``ticks`` or a bar size)."""
     if json_output:
-        return JsonWriter(what, source, out, err)
+        return JsonWriter(what, out, err)
     if csv_output:
-        return CsvWriter(what, source, out, err)
-    return TextWriter(what, source, out, err)
+        return CsvWriter(what, out, err)
+    return TextWriter(what, out, err)

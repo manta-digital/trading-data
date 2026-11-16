@@ -42,7 +42,6 @@ from manta_trading.data.tick.bar_parity_report import (
 )
 from manta_trading.data.tick.bar_reads import read_provider_bars
 from manta_trading.data.tick.parity_plan import ParityInputs, parity_inputs
-from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.time_bar_size import parse_bar_size
 
 if TYPE_CHECKING:
@@ -95,9 +94,7 @@ async def _run(
         await conn.set_isolation_level(psycopg.IsolationLevel.REPEATABLE_READ)
         await conn.set_read_only(True)
         async with conn.transaction():
-            plan = await plan_for_target(
-                conn, settings, target, rule, span, SchemaFamily.TICK_TIER
-            )
+            plan = await plan_for_target(conn, settings, target, rule, span, False)
             inputs = await parity_inputs(conn, calendar_url(settings), plan)
             return plan, await _compare(conn, inputs)
     finally:

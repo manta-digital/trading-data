@@ -1,11 +1,14 @@
-"""``mt data tick get``: stored ticks or provider bars (slices 230, 306).
+"""``mt data tick get``: stored ticks, or time bars from held bars or ticks
+(slices 230, 309).
 
 LLD 230 TD1, TD2, TD5, TD11. Provider-free, like ``status``: no Databento
 key, no archive, no lock. The tick track's migrations are checked first
 (``connect_migrated``), the plan is built (``get_plan``), then one
 ``REPEATABLE READ READ ONLY`` transaction reads the planned sessions in order
-and streams each batch to the writer. Registered on ``tick_app`` in
-``tick.py``.
+and streams each batch to the writer. A bar size reads each session from its
+source (``time_bar_source``) through the API's ``TimeBarRead``, with no trade
+limit: the limit protects the shared API server, and this command has never
+limited a read. Registered on ``tick_app`` in ``tick.py``.
 
 The writer's header waits for the first row, so a failure before any row
 takes the ordinary error path (``run_mapped``). After it, a dropped or timed
@@ -38,12 +41,22 @@ from manta_trading.cli.commands.tick_store_cmds import (
     read_storage,
     run_mapped,
 )
-from manta_trading.constants import Granularity
-from manta_trading.data.tick.bar_constants import BAR_SOURCE
-from manta_trading.data.tick.constants import TICK_GET_CHOICES, TICK_GET_TICKS
+from manta_trading.data.tick.constants import TICK_GET_TICKS
+from manta_trading.data.tick.get_plan import TIME_BAR_RANGE
 from manta_trading.data.tick.line_state import first_line
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE, RollRule
 from manta_trading.data.tick.schema_families import SchemaFamily
+from manta_trading.data.tick.time_bar_reads import LedgerCountExceeded, TimeBarRead
+from manta_trading.data.tick.time_bar_size import (
+    BAR_SIZE_FORM,
+    BarSize,
+    parse_bar_size,
+)
+from manta_trading.data.tick.time_bar_source import (
+    SourceRun,
+    served_plan,
+    source_runs,
+)
 
 if TYPE_CHECKING:
     from manta_trading.cli.commands.tick_get_writers import GetWriter
@@ -53,8 +66,8 @@ if TYPE_CHECKING:
     from manta_trading.data.tick.tick_reads import Row
 
 GET_EPILOG = (
-    "Bars are the provider's ohlcv-1m bars (rolled up per session for the "
-    "coarser sizes), never built from ticks; the output names its source.  "
+    "Bars are cut from ticks unless provider bars that can make the size are "
+    "held; the output names the source of each run of sessions.  "
     "Examples: mt data tick get 1m --product ES --start 2024-09-16 --end "
     "2024-09-20;  mt data tick get ticks --contract ESZ4 --start 2024-09-18 "
     "--end 2024-09-19 --csv > esz4.csv.  "
@@ -70,9 +83,7 @@ GET_EPILOG = (
 _WHAT_ARGUMENT = typer.Argument(
     ...,
     metavar="WHAT",
-    help=f"{TICK_GET_TICKS}, or a bar size: "
-    f"{' '.join(c for c in TICK_GET_CHOICES if c != TICK_GET_TICKS)} "
-    "(1d = the whole session).",
+    help=f"{TICK_GET_TICKS}, or a bar size: {BAR_SIZE_FORM} (1d = the whole session).",
     show_default=False,
 )
 CONTRACT_OPTION = typer.Option(
@@ -102,17 +113,14 @@ _CSV_OPTION = typer.Option(
 )
 
 
-def family_for(what: str) -> SchemaFamily:
-    """The family ``get WHAT`` plans and judges: ticks the tick tier, a bar size
-    the provider bar family (306 D8)."""
-    return SchemaFamily.TICK_TIER if what == TICK_GET_TICKS else SchemaFamily.BAR_1M
-
-
-def bar_source(what: str) -> str | None:
-    """The provider schema a bar size is built from; ``None`` for ticks."""
+def bar_size_of(what: str, json_output: bool) -> BarSize | None:
+    """``None`` for ticks; else ``what`` as a bar size, or a preflight refusal."""
     if what == TICK_GET_TICKS:
         return None
-    return BAR_SOURCE[Granularity(what)].value
+    try:
+        return parse_bar_size(what)
+    except ValueError as exc:
+        refuse(f"WHAT must be {TICK_GET_TICKS} or {exc}", json_output)
 
 
 def target_rule(
@@ -134,8 +142,10 @@ async def plan_for_target(
     target: tuple[str | None, ...],
     rule: RollRule,
     span: tuple[datetime | None, ...],
-    family: SchemaFamily,
+    timed: bool,
 ) -> GetPlan:
+    """Ticks plan and default over the tick tier; time bars (``timed``) plan
+    over it too and default over held ticks and provider bars."""
     from manta_trading.cli.commands.tick_store_cmds import universe_entries
     from manta_trading.data.tick.get_plan import contract_plan, product_plan
     from manta_trading.data.tick.store_context import database_url
@@ -144,39 +154,61 @@ async def plan_for_target(
     contract, product = target
     start, end = (None if d is None else d.date() for d in span)
     calendar = calendar_url(settings)
+    family = SchemaFamily.TICK_TIER
+    range_over = TIME_BAR_RANGE if timed else None
     if contract is not None:
-        return await contract_plan(conn, calendar, contract, start, end, family)
+        return await contract_plan(
+            conn, calendar, contract, start, end, family, range_over
+        )
     (entry,) = universe_entries(product)
     urls = (database_url(settings), calendar)
-    return await product_plan(conn, urls, entry, rule, start, end, family)
+    return await product_plan(conn, urls, entry, rule, start, end, family, range_over)
 
 
-async def _stream(conn: Conn, plan: GetPlan, what: str, writer: GetWriter) -> int:
-    """Read every planned session in one snapshot; return the exit code."""
-    from manta_trading.data.tick.bar_reads import read_provider_bars
+def _runs(reader: TimeBarRead | None, plan: GetPlan) -> list[SourceRun] | None:
+    """The source runs of the sessions read so far; ``None`` for ticks."""
+    if reader is None:
+        return None
+    return source_runs(plan, reader.sources, reader.returned)
+
+
+async def _stream(
+    conn: Conn, plan: GetPlan, reader: TimeBarRead | None, writer: GetWriter
+) -> int:
+    """Read every planned session in one snapshot; return the exit code.
+    ``reader`` reads time bars; ``None`` reads ticks."""
     from manta_trading.data.tick.tick_reads import read_ticks
-    from manta_trading.data.tick.time_bar_size import parse_bar_size
 
     written = 0
+    shown = plan  # the plan the writer lists: provider-served sessions are held
 
     def on_batch(batch: Sequence[Row]) -> None:
         nonlocal written
         if written == 0:
-            writer.begin(plan)
+            writer.begin(shown)
         writer.rows(batch)
         written += len(batch)
 
+    read = read_ticks if reader is None else reader.read
     try:
         await conn.set_isolation_level(psycopg.IsolationLevel.REPEATABLE_READ)
         await conn.set_read_only(True)
         async with conn.transaction():
+            if reader is not None:
+                await reader.admit(conn, plan)
+                shown = served_plan(plan, reader.sources)
             for window in plan.segments:
-                if what == TICK_GET_TICKS:
-                    await read_ticks(conn, window, on_batch)
-                else:
-                    await read_provider_bars(
-                        conn, window, parse_bar_size(what), on_batch
-                    )
+                await read(conn, window, on_batch)
+    except LedgerCountExceeded as exc:
+        # The stored ticks and the ledger disagree: a database fault. Rows
+        # already out are closed as partial so the output is never unmarked.
+        if written:
+            writer.partial(written, str(exc), _runs(reader, plan))
+        sys.stderr.write(
+            f"session {exc.session_date} of {exc.raw_symbol}: read {exc.read:,}"
+            f" trades, ledger {exc.ledger:,}\n"
+        )
+        return EXIT_STORAGE
     except psycopg.OperationalError as exc:  # QueryCanceled included
         if written == 0:
             raise  # nothing printed yet: the ordinary error path (run_mapped)
@@ -184,12 +216,12 @@ async def _stream(conn: Conn, plan: GetPlan, what: str, writer: GetWriter) -> in
         # boundary. The writer reports the error in the output itself
         # (PARTIAL footer, stderr line, or "complete": false) and the run
         # exits 4 (TD11); raising here would leave a truncated, unmarked file.
-        writer.partial(written, first_line(exc))
+        writer.partial(written, first_line(exc), _runs(reader, plan))
         return EXIT_STORAGE
     if written == 0:
-        writer.begin(plan)
-    code = EXIT_PARTIAL if plan.unresolved or plan.incomplete else EXIT_OK
-    writer.finish(code)
+        writer.begin(shown)
+    code = EXIT_PARTIAL if shown.unresolved or shown.incomplete else EXIT_OK
+    writer.finish(code, _runs(reader, plan))
     return code
 
 
@@ -212,25 +244,24 @@ def tick_get(
     csv_output: bool = _CSV_OPTION,
     json_output: bool = JSON_OPTION,
 ) -> None:
-    """Stored ticks, or the provider's bars, for one contract or for a product
-    under a roll rule (one contract per session, never merged).
+    """Stored ticks, or time bars from held bars or ticks, for one contract or
+    for a product under a roll rule (one contract per session, never merged).
 
     Dates are session dates; --end is EXCLUSIVE, unlike mt data get.
     """
     from manta_trading.cli.commands.tick_get_writers import writer_for
     from manta_trading.data.tick.active_contract import roll_conninfo
     from manta_trading.data.tick.store_context import connect_migrated, database_url
+    from manta_trading.data.tick.tick_calendar import calendar_url
 
-    if what not in TICK_GET_CHOICES:
-        refuse(f"WHAT must be one of {', '.join(TICK_GET_CHOICES)}", json_output)
+    size = bar_size_of(what, json_output)
     if csv_output and json_output:
         refuse("--csv and --json are exclusive", json_output)
     parsed = target_rule(contract, product, rule, json_output)
-    family = family_for(what)
     settings: Settings = ctx.obj["settings"]
+    what = what if size is None else size.token
     writer = writer_for(
         what,
-        source=bar_source(what),
         json_output=json_output,
         csv_output=csv_output,
         out=sys.stdout,
@@ -241,9 +272,19 @@ def tick_get(
         conn = await connect_migrated(roll_conninfo(database_url(settings)))
         try:
             plan = await plan_for_target(
-                conn, settings, (contract, product), parsed, (start, end), family
+                conn,
+                settings,
+                (contract, product),
+                parsed,
+                (start, end),
+                size is not None,
             )
-            return await _stream(conn, plan, what, writer)
+            reader = (
+                None
+                if size is None
+                else TimeBarRead(size, calendar_url(settings), max_trades=None)
+            )
+            return await _stream(conn, plan, reader, writer)
         finally:
             await conn.close()
 

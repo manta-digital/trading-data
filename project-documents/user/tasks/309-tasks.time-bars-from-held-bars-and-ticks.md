@@ -419,29 +419,30 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 ## 7. `mt data tick get` and the load check
 
-- [ ] **7.1 `mt data tick get <size>`** (`cli/commands/tick_get_cmds.py`, `tick_get_writers.py`)
-  - [ ] `WHAT` is `ticks` or a size accepted by `parse_bar_size`; anything else refuses with
+- [x] **7.1 `mt data tick get <size>`** (`cli/commands/tick_get_cmds.py`, `tick_get_writers.py`)
+  - [x] `WHAT` is `ticks` or a size accepted by `parse_bar_size`; anything else refuses with
     the accepted-form message. Delete `TICK_GET_CHOICES`, `family_for` and `bar_source`:
     ticks and sizes both plan `TICK_TIER`; the `WHAT` help text gives the grammar.
-  - [ ] For a size, `_stream` takes its default range from task 6.1 and builds the same `TimeBarRead` with `max_trades=None` (the
+  - [x] For a size, `_stream` takes its default range from task 6.1 and builds the same `TimeBarRead` with `max_trades=None` (the
     design exempts the command: "What changes for a consumer" says the limit protects the
     shared API server and the command has never limited a tick read), runs its `admit` once for the choices, reads
     each window through it, prints the `served_plan` lists, and tracks the sessions that
     returned rows.
-  - [ ] Writers: `source` is replaced by `sources`, printed after the rows (text footer,
+  - [x] Writers: `source` is replaced by `sources`, printed after the rows (text footer,
     CSV on stderr, JSON tail member) from `source_runs`; `partial` prints the runs for the
     rows written. Update `GET_EPILOG` ("Bars are cut from ticks unless provider bars that
     can make the size are held; the output names the source of each run of sessions").
     Exit codes and the partial handling are unchanged. `LedgerCountExceeded` in the command
     prints the session and the two counts to stderr and exits with the database-failure
     code the command already uses.
-- [ ] **7.2 Tests** (`test/integration/data/test_tick_get_cli.py`,
+  Note: Fixed in this commit: the tick cut handed on an empty batch, which made the CLI writer's header print twice; TimeBarRead now never hands on an empty batch.
+- [x] **7.2 Tests** (`test/integration/data/test_tick_get_cli.py`,
   `test/unit/cli/commands/test_tick_get_writers.py`)
-  - [ ] Replace the tests asserting provider-only output. New: `mt data tick get 15s` on the
+  - [x] Replace the tests asserting provider-only output. New: `mt data tick get 15s` on the
     fixture prints rows and `ticks` as its source in text, CSV and JSON; `5m` prints
     `ohlcv-1m`; an invalid size exits with the preflight code; a session with no data exits
     with the partial code and lists it.
-  - [ ] Writers unit test: the sources footer for text, CSV and JSON, including a partial
+  - [x] Writers unit test: the sources footer for text, CSV and JSON, including a partial
     run; remove the uses of `BAR_SOURCE`.
 
 **Commit**: `feat: serve mt data tick get time bars from held bars or ticks`

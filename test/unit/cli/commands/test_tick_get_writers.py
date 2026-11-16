@@ -25,6 +25,7 @@ from manta_trading.data.tick.roll_types import Unresolved
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_reads import BAR_COLUMNS, TICK_COLUMNS
 from manta_trading.data.tick.tick_status import TickSessionStatus
+from manta_trading.data.tick.time_bar_source import SourceRun
 
 D16, D17, D18 = date(2024, 9, 16), date(2024, 9, 17), date(2024, 9, 18)
 TS = 1_726_493_400_000_000_007  # 2024-09-16T13:30:00.000000007Z
@@ -49,8 +50,8 @@ TICK_ROWS = [
     (TS, D16, "ESZ4", 183748, PX, 2, "A", None, None, None, None, None, None, 9, 0),
     (TS + 1, D16, "ESZ4", 183748, PX, 1, "B", PX, UNDEF_INT64, 3, 0, 1, 0, 10, 1),
 ]
-#: What a bar size's output names as its source (306 D8).
-BAR_SOURCE_TEXT = "ohlcv-1m"
+#: A bar read's runs: two sessions from provider minutes, then one from ticks.
+RUNS = (SourceRun(D16, D17, "ohlcv-1m"), SourceRun(D18, D18, "ticks"))
 BAR_ROWS = [(TS, D16, "ESU4", 118, PX, PX + 250_000_000, PX, PX, 7)]
 
 
@@ -63,9 +64,9 @@ def _run(
     cut: str | None = None,
 ) -> tuple[str, str]:
     out, err = io.StringIO(), io.StringIO()
+    runs = None if what == TICK_GET_TICKS else RUNS
     writer = writer_for(
         what,
-        source=None if what == TICK_GET_TICKS else BAR_SOURCE_TEXT,
         json_output=fmt == "json",
         csv_output=fmt == "csv",
         out=out,
@@ -75,9 +76,9 @@ def _run(
     for batch in batches:
         writer.rows(batch)
     if cut is None:
-        writer.finish(3 if plan.unresolved or plan.incomplete else 0)
+        writer.finish(3 if plan.unresolved or plan.incomplete else 0, runs)
     else:
-        writer.partial(sum(map(len, batches)), cut)
+        writer.partial(sum(map(len, batches)), cut, runs)
     return out.getvalue(), err.getvalue()
 
 
@@ -149,8 +150,9 @@ def test_text_header_rows_footer_and_lists() -> None:
     assert lines[3].split()[:2] == ["time", "session_date"]
     assert lines[4].split()[4:6] == ["5650.25", "5650.5"]
     assert lines[5] == "1 row(s)"
-    assert lines[6].startswith("unresolved 2024-09-03")
-    assert lines[7] == "incomplete 2024-09-18  awaiting_ingest"
+    assert lines[6:8] == _SOURCE_LINES  # the sources, then the lists
+    assert lines[8].startswith("unresolved 2024-09-03")
+    assert lines[9] == "incomplete 2024-09-18  awaiting_ingest"
 
 
 def test_text_shows_undefined_as_a_dash() -> None:
@@ -213,23 +215,47 @@ def test_nothing_held_says_so_in_the_header() -> None:
     assert "None" not in out
 
 
-def test_a_bar_size_names_its_source_in_json_after_what() -> None:
+_SOURCES_JSON = [
+    {"first_session": "2024-09-16", "last_session": "2024-09-17", "source": "ohlcv-1m"},
+    {"first_session": "2024-09-18", "last_session": "2024-09-18", "source": "ticks"},
+]
+_SOURCE_LINES = [
+    "source 2024-09-16 → 2024-09-17  ohlcv-1m",
+    "source 2024-09-18 → 2024-09-18  ticks",
+]
+
+
+def test_a_bar_size_lists_its_sources_in_the_json_tail() -> None:
     body = json.loads(_run("1m", PRODUCT, [BAR_ROWS], "json")[0])
 
     keys = list(body)
-    assert body["source"] == "ohlcv-1m"
-    assert keys[keys.index("what") + 1] == "source"
+    assert body["sources"] == _SOURCES_JSON
+    assert keys.index("rows") < keys.index("sources") < keys.index("complete")
+    assert "source" not in body
 
 
 def test_ticks_name_no_source_in_any_format() -> None:
-    assert "source" not in json.loads(_run(TICK_GET_TICKS, CONTRACT, [], "json")[0])
+    assert "sources" not in json.loads(_run(TICK_GET_TICKS, CONTRACT, [], "json")[0])
     assert "source" not in _run(TICK_GET_TICKS, CONTRACT, [], "text")[0]
     assert "source" not in _run(TICK_GET_TICKS, CONTRACT, [], "csv")[1]
 
 
-def test_text_and_csv_headers_name_the_source_of_a_bar_size() -> None:
+def test_text_and_csv_list_the_sources_after_the_rows() -> None:
     text, _ = _run("1h", PRODUCT, [BAR_ROWS], "text")
     _, err = _run("1h", PRODUCT, [BAR_ROWS], "csv")
 
-    assert "1h  source ohlcv-1m  2024-09-16" in text.splitlines()[0]
-    assert "1h  source ohlcv-1m  2024-09-16" in err.splitlines()[0]
+    lines = text.splitlines()
+    assert lines[0].startswith("ES  ") and "1h  2024-09-16" in lines[0]
+    footer = lines.index("1 row(s)")
+    assert lines[footer + 1 : footer + 3] == _SOURCE_LINES
+    assert err.splitlines()[-2:] == _SOURCE_LINES
+
+
+@pytest.mark.parametrize("fmt", ["text", "csv", "json"])
+def test_a_partial_bar_read_lists_the_runs_written(fmt: str) -> None:
+    out, err = _run("1m", PRODUCT, [BAR_ROWS], fmt, cut="server closed")
+
+    if fmt == "json":
+        assert json.loads(out)["sources"] == _SOURCES_JSON
+    else:
+        assert all(line in (out if fmt == "text" else err) for line in _SOURCE_LINES)

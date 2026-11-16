@@ -154,7 +154,8 @@ class TimeBarRead:
         ledger = await self._ledger_count(conn, window)
         if traded > ledger:
             raise LedgerCountExceeded(window, ledger, traded)
-        on_batch(bars)
+        if bars:  # a batch is never empty, as ``stream_rows`` hands them on
+            on_batch(bars)
         return len(bars)
 
     async def _ledger_count(self, conn: Conn, window: TickWindow) -> int:

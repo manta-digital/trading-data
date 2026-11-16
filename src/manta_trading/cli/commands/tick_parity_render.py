@@ -107,7 +107,7 @@ def _skipped_line(skipped: SkippedSession) -> str:
 
 def text(plan: GetPlan, report: ParityReport) -> str:
     lines = [
-        *head_lines(plan, PARITY_WHAT, None),
+        *head_lines(plan, PARITY_WHAT),
         *(_session_line(s) for s in report.sessions),
         *(_skipped_line(s) for s in report.skipped),
         f"{len(report.sessions)} session(s) compared, {len(report.skipped)} skipped",
