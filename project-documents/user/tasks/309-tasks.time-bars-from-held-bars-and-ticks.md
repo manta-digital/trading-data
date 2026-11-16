@@ -16,7 +16,7 @@ projectState: Slice design committed and its review answered. The futures bars r
   history (definition, statistics, ohlcv-1m) back to 2010.
 dateCreated: 20261115
 dateUpdated: 20261115
-status: not_started
+status: in_progress
 turns: 71
 promptTokens: 7681211
 cachedTokens: 7389751
@@ -62,33 +62,33 @@ revision_number: 4
 
 ## 1. Bar size grammar and the provider-width rule
 
-- [ ] **1.1 `BarSize` and its parser**
-  - [ ] New module `src/manta_trading/data/tick/time_bar_size.py`. A frozen `BarSize`
+- [x] **1.1 `BarSize` and its parser**
+  - [x] New module `src/manta_trading/data/tick/time_bar_size.py`. A frozen `BarSize`
     holds `token` (normalized text, e.g. `90m`), `width_ns` (`None` for the session day)
     and `session_day: bool`.
-  - [ ] `parse_bar_size(text) -> BarSize`: strip and lowercase, then accept `<n>s`,
+  - [x] `parse_bar_size(text) -> BarSize`: strip and lowercase, then accept `<n>s`,
     `<n>m`, `<n>h` (whole `n >= 1`) and exactly `1d`. The unit table (suffix to
     nanoseconds) and the 24-hour ceiling are named constants in this module, each defined
     once.
-  - [ ] Raise `ValueError` for zero, a negative or fractional `n`, an unknown unit, an
+  - [x] Raise `ValueError` for zero, a negative or fractional `n`, an unknown unit, an
     empty string, or a width over 24 hours (`25h`, `2d`, `1441m`). The message names the
     accepted form ("a whole number of seconds, minutes or hours up to 24h, or 1d").
     `24h` is accepted.
-  - [ ] The six sizes served before (`1m 5m 15m 1h 4h 1d`) parse with their spelling
+  - [x] The six sizes served before (`1m 5m 15m 1h 4h 1d`) parse with their spelling
     unchanged.
-- [ ] **1.2 Provider-width rule in `bar_constants.py`**
-  - [ ] Replace nothing yet. Add `PROVIDER_BAR_WIDTH_NS: Mapping[TickSchema, int]` with the
+- [x] **1.2 Provider-width rule in `bar_constants.py`**
+  - [x] Replace nothing yet. Add `PROVIDER_BAR_WIDTH_NS: Mapping[TickSchema, int]` with the
     one entry `OHLCV_1M: 60 s`, and `TICKS_SOURCE = "ticks"` (the response's source label
     for tick-cut bars; a provider source is its `TickSchema.value`).
-  - [ ] `provider_schema_for(size: BarSize) -> TickSchema | None` in `time_bar_size.py`
+  - [x] `provider_schema_for(size: BarSize) -> TickSchema | None` in `time_bar_size.py`
     (or beside the table): the schema whose width divides `size.width_ns`
     (`size.session_day` is divisible by every provider width); with several, the widest;
     `None` when none divides (any size in seconds that is not a whole minute).
-- [ ] **1.3 Tests** (`test/unit/data/tick/test_time_bar_size.py`)
-  - [ ] Parametrized accepted forms: `1s 15s 1m 5m 90m 4h 24h 1d`, and `" 5M "` normalizes
+- [x] **1.3 Tests** (`test/unit/data/tick/test_time_bar_size.py`)
+  - [x] Parametrized accepted forms: `1s 15s 1m 5m 90m 4h 24h 1d`, and `" 5M "` normalizes
     to `5m`. Parametrized refusals: `0s -1m 1.5h 5x "" 25h 2d 1441m 86401s`, each asserting
     the accepted-form text appears in the message.
-  - [ ] `provider_schema_for`: `1m 5m 90m 4h 1d 120s` give `ohlcv-1m`; `1s 15s 90s` give
+  - [x] `provider_schema_for`: `1m 5m 90m 4h 1d 120s` give `ohlcv-1m`; `1s 15s 90s` give
     `None`.
 
 **Commit**: `feat: add the time-bar size grammar and the provider-width rule`

@@ -45,6 +45,16 @@ BAR_1M_COMPRESS_AFTER: Final[timedelta] = timedelta(days=14)
 BAR_1M_SEGMENT_BY: Final[tuple[str, ...]] = ("instrument_id",)
 BAR_1M_ORDER_BY: Final[tuple[str, ...]] = ("ts_event",)
 
+#: Width of each provider bar schema we can hold (309). A time bar comes from
+#: these when one divides its size and the session is held; else from ticks.
+PROVIDER_BAR_WIDTH_NS: Final[Mapping[TickSchema, int]] = {
+    TickSchema.OHLCV_1M: 60 * 1_000_000_000,
+}
+
+#: The response's source label for bars cut from ticks; a provider source is
+#: its ``TickSchema`` value.
+TICKS_SOURCE: Final = "ticks"
+
 #: The provider schema each served bar size is built from (306 D2). Keyed by
 #: ``TICK_BAR_GRANULARITIES`` so a new served size cannot be forgotten; the
 #: response's ``source`` is this value. ``1s`` will join here.
