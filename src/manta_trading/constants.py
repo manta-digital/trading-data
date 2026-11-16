@@ -1409,6 +1409,17 @@ at the limit (issue #75) misses the 10 s bound. Operator-settable via
 ``MT_API_MAX_TICK_BAR_TRADES``.
 """
 
+API_MAX_TIME_BAR_TRADES: Final[int] = 2_000_000
+"""Default ceiling on the stored trades one request may cut into time bars (309).
+
+A time-bar request whose sessions are cut from ticks is admitted on the trades
+it reads, from the ingest ledger, before any tick is read. Measured on
+production 2026-11-15 (``user/notes/309-time-bar-measurement.md``): ES ``c.0``
+at ``1m``, the run 2024-11-25..2024-12-03 (7 sessions, 1,995,794 trades) cut in
+1.09-1.14 s against the 10 s bound; a median session (346,615 trades) in 0.18 s.
+So the 308 value holds. Operator-settable via ``MT_API_MAX_TIME_BAR_TRADES``.
+"""
+
 INTRADAY_MINUTES_PER_TRADING_DAY: Final[int] = 960
 """Minutes of intraday coverage in a dense trading day, measured (not assumed).
 

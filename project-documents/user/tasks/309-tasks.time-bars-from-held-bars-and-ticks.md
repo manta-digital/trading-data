@@ -99,7 +99,7 @@ revision_number: 4
   - [x] New module `src/manta_trading/data/tick/time_bar_cut.py` with
     `cut_time_bars(conn, window, size: BarSize, on_batch) -> int`: the statement of
     `bar_parity._TICK_MINUTES` with the interval a parameter. Bucket by the same
-    `SESSION_BUCKET` and `bucket_params` (imported from `bar_reads`; make the private
+    `SESSION_BUCKET` and `scan_params` (imported from `bar_reads`; make the private
     `_DAY_BUCKET` public as `DAY_BUCKET` and use it for `session_day`). First price and
     last price by the full tick order (`ts_event, sequence, sequence_ordinal`), `max`,
     `min`, `sum(size)::bigint`; empty buckets produce no row.
@@ -143,15 +143,15 @@ revision_number: 4
 
 Done before anything reads the limit, so no later commit carries an unmeasured default.
 
-- [ ] **3.1 Measure and set the default**
-  - [ ] The number is a one-off, so the measuring script is not committed: write it outside
+- [x] **3.1 Measure and set the default**
+  - [x] The number is a one-off, so the measuring script is not committed: write it outside
     the repo (not inside a directory you run from), run it with `uv run python` from the dev
     checkout, URLs from `Settings`, never `os.environ`. Model it on `scripts/measure_tick_bars.py`
     (read it first); it may import `pick_range` from there. It opens a read-only transaction
     on the production tick database with `TICK_JIT_OPTION`, builds the product plan the route
     builds (`product_plan` over `TICK_TIER`), and times `cut_time_bars` at `1m`. It writes
     nothing to any database.
-  - [ ] Measure (a) one median ES session (the session whose ledger count is the median of
+  - [x] Measure (a) one median ES session (the session whose ledger count is the median of
     the held sessions), and (b) the widest run of consecutive sessions the limit lets through
     (design criterion 5): among all runs whose ledger counts sum to 95-100% of 2,000,000,
     the one with the largest sum (the earliest on a tie), cut session by session in the
@@ -159,21 +159,21 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     runs itself (a sliding window over the ledger counts) and takes the largest. If no run
     reaches 95%, measure the largest run under the limit and say so in the note. Per
     session, `sum(trade_count)` must equal the ledger count.
-  - [ ] Rule for the default: 2,000,000 when (b) completes within 10 s (the bound slice 308
+  - [x] Rule for the default: 2,000,000 when (b) completes within 10 s (the bound slice 308
     used). If it does not, lower the limit to `floor(2,000,000 × 10 / seconds)` rounded down
     to a round number and re-measure (b) at that limit, re-picking the 95-100% run for the new limit each time;
     repeat until it holds. Never raise it. Stop condition: the limit must admit at least one
     median ES session. If the median session (a) alone takes more than 10 s, or the limit
     would fall below the median session's trade count, write `BLOCKED:` under this task
     with the measured times and stop before task 5.2.
-  - [ ] Add `API_MAX_TIME_BAR_TRADES` to `constants.py` beside `API_MAX_TICK_BAR_TRADES`, set
+  - [x] Add `API_MAX_TIME_BAR_TRADES` to `constants.py` beside `API_MAX_TICK_BAR_TRADES`, set
     to the result, its docstring recording the date, range and seconds and naming
     `MT_API_MAX_TIME_BAR_TRADES`.
-  - [ ] Write `user/notes/309-time-bar-measurement.md` with front matter as the 308 note has
+  - [x] Write `user/notes/309-time-bar-measurement.md` with front matter as the 308 note has
     (`docType: notes`, `project`, `dateCreated`, `dateUpdated`, `status: complete`): the
     procedure (what the script read and timed), the ranges, ledger sums, timings, the checks
     and the default chosen. This is design criterion 5's record.
-  - [ ] If the tick database is unreachable from this checkout, write a line starting with
+  - [x] (not needed: the database was reachable) If the tick database is unreachable from this checkout, write a line starting with
     `BLOCKED:` and the reason here and leave this task unchecked. Sections 4 and task 5.1 do
     not read the constant and proceed; stop before task 5.2, the first that does.
 
