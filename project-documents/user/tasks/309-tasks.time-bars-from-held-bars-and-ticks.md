@@ -398,21 +398,21 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 **Commit**: `test: add route success and refusal tests for futures time bars`
 
-- [ ] **6.6b 1-second bars at the route** (same file, ticks-only fixture)
-  - [ ] `1s` with `from`/`until` five minutes apart returns bars equal to the task 2.2 oracle
+- [x] **6.6b 1-second bars at the route** (same file, ticks-only fixture)
+  - [x] `1s` with `from`/`until` five minutes apart returns bars equal to the task 2.2 oracle
     at one second for that window, `sources` naming `ticks`, and `applied` echoing `from`
     and `until`.
 
-- [ ] **6.7 Route error-mapping tests** (same file), one test per mapping, with the
+- [x] **6.7 Route error-mapping tests** (same file), one test per mapping, with the
   technique of the 308 tests. Each reads through the tick cut, so each requests `15s` (the
   size no provider width makes) on the ticks-only fixture; a size a provider serves would
   never reach the cut.
-  - [ ] A trade limit below the scan gives 422 with the count.
-  - [ ] A disconnect gives 499 with no body (`monkeypatch.setattr(Request, "is_disconnected",
+  - [x] A trade limit below the scan gives 422 with the count.
+  - [x] A disconnect gives 499 with no body (`monkeypatch.setattr(Request, "is_disconnected",
     ...)`, as `test_futures_tick_bars.py` does).
-  - [ ] A cancelled statement gives 504 (raise `psycopg.errors.QueryCanceled` as
+  - [x] A cancelled statement gives 504 (raise `psycopg.errors.QueryCanceled` as
     `test_composed_lines.py` does).
-  - [ ] The ledger guard gives 500 and an ERROR log record naming the session (`caplog`, as
+  - [x] The ledger guard gives 500 and an ERROR log record naming the session (`caplog`, as
     `test_futures_tick_bars.py` does).
 
 **Commit**: `test: add route error-mapping tests for futures time bars`

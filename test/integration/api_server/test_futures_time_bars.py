@@ -12,6 +12,7 @@ routes' work: parameters, the source rule at the route, ``sources``,
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -19,16 +20,22 @@ from typing import Any
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 from tick_support.parity_seed import (
     SESSION,
     ParityDb,
     seed_parity,
     seed_ticks_only,
+    tick_minutes,
 )
 from tick_support.roll_seed import seed_tier_days
 from tick_support.rows import insert_bar, insert_bar_ledger_row
 
+from manta_trading.api_server.deps import get_max_time_bar_trades
+from manta_trading.data.tick import time_bar_reads
 from manta_trading.data.tick.constants import TickSchema
+from manta_trading.data.tick.schema_families import FAMILY_LEDGER, SchemaFamily
+from manta_trading.data.tick.tick_format import ts_text
 from manta_trading.data.tick.time_bar_size import BAR_SIZE_FORM, NS_PER_SECOND
 
 CONTRACT = "/api/v1/futures/contracts/{}/bars"
@@ -178,3 +185,101 @@ def test_the_default_range_spans_held_ticks_and_bars(
     assert by_source[BARS]["first_session"] == str(BARS_ONLY)
     assert by_source["ticks"]["first_session"] == str(SESSION)
     assert any(b["session_date"] == str(BARS_ONLY) for b in body["bars"])
+
+
+# -- 1-second bars (issue #40) ---------------------------------------------------
+
+
+def test_one_second_bars_inside_from_until(
+    ticks_only: ParityDb, tick_client: TestClient
+) -> None:
+    from_ns = min(ticks_only.tick_minutes) + 60 * NS_PER_SECOND
+    until_ns = from_ns + 300 * NS_PER_SECOND
+    lower = datetime.fromtimestamp(from_ns / NS_PER_SECOND, UTC)
+    upper = datetime.fromtimestamp(until_ns / NS_PER_SECOND, UTC)
+
+    body = _get(
+        tick_client,
+        PRODUCT,
+        granularity="1s",
+        **ONE_SESSION,
+        **{"from": lower.isoformat(), "until": upper.isoformat()},
+    )
+
+    seconds = tick_minutes(ticks_only.url, ticks_only.window, NS_PER_SECOND)
+    expected = {b: m for b, m in seconds.items() if from_ns <= b < until_ns}
+    assert expected
+    assert [b["time"] for b in body["bars"]] == [ts_text(b) for b in sorted(expected)]
+    assert [b["volume"] for b in body["bars"]] == [
+        expected[b][4] for b in sorted(expected)
+    ]
+    assert _sources(body) == {"ticks"}
+    assert (body["applied"]["from"], body["applied"]["until"]) == (
+        lower.isoformat().replace("+00:00", "Z"),
+        upper.isoformat().replace("+00:00", "Z"),
+    )
+
+
+# -- error mapping: each reads through the tick cut, so 15s on ticks only ----------
+
+
+def _fifteen(client: TestClient) -> Any:
+    return client.get(PRODUCT, params={"granularity": "15s", **ONE_SESSION})
+
+
+def test_over_the_trade_limit_is_422_with_the_count(
+    ticks_only: ParityDb, tick_client: TestClient
+) -> None:
+    tick_client.app.dependency_overrides[get_max_time_bar_trades] = lambda: 10  # type: ignore[attr-defined]
+
+    response = _fifteen(tick_client)
+
+    assert response.status_code == 422
+    assert "trades to cut 15s bars, over the 10 trade limit" in response.text
+
+
+def test_a_disconnect_is_499_with_no_body(
+    ticks_only: ParityDb, tick_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def gone(self: Request) -> bool:
+        return True
+
+    monkeypatch.setattr(Request, "is_disconnected", gone)
+
+    response = _fifteen(tick_client)
+
+    assert response.status_code == 499 and response.content == b""
+
+
+def test_a_cancelled_statement_is_504(
+    ticks_only: ParityDb, tick_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def cancelled(*args: Any, **kwargs: Any) -> int:
+        raise psycopg.errors.QueryCanceled(
+            "canceling statement due to statement timeout"
+        )
+
+    monkeypatch.setattr(time_bar_reads, "cut_time_bars", cancelled)
+
+    assert _fifteen(tick_client).status_code == 504
+
+
+def test_more_trades_than_the_ledger_is_a_logged_500(
+    ticks_only: ParityDb, tick_client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    ledger = FAMILY_LEDGER[SchemaFamily.TICK_TIER]
+    with psycopg.connect(ticks_only.url, autocommit=True) as conn:
+        conn.execute(
+            f"UPDATE {ledger} SET record_count = record_count - 1 WHERE ctid ="
+            f" (SELECT ctid FROM {ledger} WHERE instrument_id = %s"
+            " AND session_date = %s AND record_count > 0 LIMIT 1)",
+            (ticks_only.window.instrument_id, SESSION),
+        )
+
+    with caplog.at_level(logging.ERROR):
+        response = _fifteen(tick_client)
+
+    assert response.status_code == 500
+    assert str(SESSION) in response.text and "see the server log" in response.text
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert any(str(SESSION) in r.getMessage() for r in errors)
