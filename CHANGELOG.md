@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.3] - 2026-11-16
+
 ### Changed
 - **Futures time bars at any size, from held provider bars or ticks** (slice 309). `GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars` and `mt data tick get <size>` take any whole number of seconds, minutes or hours up to `24h` (`1s`, `15s`, `90m`, `4h`), or `1d`; any other size is a `422` (a preflight refusal on the CLI) naming the accepted form. Each session comes from held provider bars that can make the size, else is cut from its ticks, buckets anchored at the session open. The bars routes gain `from`/`until`, selecting bars by start and keeping each bar whole, so a busy session at `1s` can be read in pieces under the row ceiling. A missing `start`/`end` defaults over everything held in ticks or provider bars.
 - **`source` becomes `sources`, and the bars response gains `applied`** (slice 309, issue #77). `sources` lists each run of consecutive sessions and where its bars came from (`ticks` or `ohlcv-1m`); `applied` echoes every parameter used, defaults included. No version change: the routes returned nothing in production before this, so no consumer had coded against `source`. `mt data tick get` prints the runs after the rows (a text footer, CSV on stderr, a JSON `sources` member).
