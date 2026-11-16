@@ -365,15 +365,19 @@ once, and one array per field. To decode a block:
 ### "Give me futures bars."
 
 `GET /api/v1/futures/contracts/{symbol}/bars?granularity=` or
-`GET /api/v1/futures/products/{product}/bars?granularity=&rule=`. Bars are the
-provider's one-minute bars (`source: "ohlcv-1m"` in the response), rolled up per
-session for `5m` `15m` `1h` `4h` `1d`; ticks never make time bars. Buckets start at
-the session open (`4h` at 17:00, 21:00, 01:00, 05:00, 09:00, 13:00 Chicago time;
-the last is short), a bar never crosses a session, and `1d` is the whole
-session. **No provider bars, no bars:** a session that has ticks and no provider
-bars returns no rows and appears in `incomplete`. On a regular session `5m`,
-`15m` and `1h` end with a one-minute bar stamped at the close; it is real data,
-not a fault.
+`GET /api/v1/futures/products/{product}/bars?granularity=&rule=`. Any whole
+number of seconds, minutes or hours up to `24h` (`1s`, `15s`, `90m`, `4h`), or
+`1d`. Each session comes from held provider bars that can make the size, else is
+cut from its ticks; production holds no provider bars, so today every bar is cut
+from ticks. `sources` lists each run of sessions and its source (`ticks` or
+`ohlcv-1m`); `applied` echoes every parameter used, defaults included. Buckets
+start at the session open (`4h` at 17:00, 21:00, 01:00, 05:00, 09:00, 13:00
+Chicago time; the last is short), a bar never crosses a session, and `1d` is the
+whole session. `from`/`until` select bars by start, each kept whole: a busy
+session at `1s` is over the row ceiling, so page it. A tick cut is refused with
+a `422` past `MT_API_MAX_TIME_BAR_TRADES` trades (default 2,000,000); narrow
+`start`/`end`. On a regular session `5m`, `15m` and `1h` can end with a stub bar
+stamped at the close; it is real data, not a fault.
 
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/bars
      params: granularity:string, start:date, end:date, from:date-time,
@@ -417,14 +421,15 @@ sessions before reading anything, so narrow `start`/`end`), or too many bars
 naming a session means the stored ticks are faulty: retrying will not help;
 report it. An `incomplete` session's bars can change once it is completed.
 
-**Not this:** `/bars` are time bars from the provider's one-minute bars; they
-never come from ticks.
+**Not this:** `/bars` are time bars (fixed durations); tick bars are fixed
+counts of trades.
 
 **Before trusting a product read, check three arrays:** `segments` (which
 contract served which sessions, and from which tier's data the roll was decided,
 `basis`), `unresolved` (sessions with no rows at all),
-and `incomplete` (sessions whose rows may be partial; for bars, sessions whose
-provider bars are not completely loaded). All three come with HTTP `200`.
+and `incomplete` (sessions whose rows may be partial: for bars, sessions cut from
+ticks that are not completely loaded, or holding neither ticks nor provider
+bars). All three come with HTTP `200`.
 
 ## 3. Choosing a window
 

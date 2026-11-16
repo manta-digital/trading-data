@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Futures time bars at any size, from held provider bars or ticks** (slice 309). `GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars` and `mt data tick get <size>` take any whole number of seconds, minutes or hours up to `24h` (`1s`, `15s`, `90m`, `4h`), or `1d`; any other size is a `422` (a preflight refusal on the CLI) naming the accepted form. Each session comes from held provider bars that can make the size, else is cut from its ticks, buckets anchored at the session open. The bars routes gain `from`/`until`, selecting bars by start and keeping each bar whole, so a busy session at `1s` can be read in pieces under the row ceiling. A missing `start`/`end` defaults over everything held in ticks or provider bars.
+- **`source` becomes `sources`, and the bars response gains `applied`** (slice 309, issue #77). `sources` lists each run of consecutive sessions and where its bars came from (`ticks` or `ohlcv-1m`); `applied` echoes every parameter used, defaults included. No version change: the routes returned nothing in production before this, so no consumer had coded against `source`. `mt data tick get` prints the runs after the rows (a text footer, CSV on stderr, a JSON `sources` member).
+- **`MT_API_MAX_TIME_BAR_TRADES`** (slice 309, default `2000000`, measured on production: seven ES sessions cut in about 1.1 s). A time-bar request is refused with a `422` before any tick is read when the trades of the sessions it cuts from ticks exceed it. `mt data tick get` has no such limit.
+
+### Fixed
+- **Futures time bars are served again** (slice 309). Since 0.27.0 the bars routes and `mt data tick get <size>` read provider bars only, and production holds none, so they returned no bars for ES and GC although 27.7 million ES and 4.0 million GC trades are held.
+
+### Removed
+- **`mt data tick parity`** (slice 309). The tick-versus-provider minute comparison stays in code; running it automatically is planned for when provider bars are held.
+- **The production history wants** (slice 309). ES and GC no longer want `definition`, `statistics` and `ohlcv-1m` back to 2010; nothing is bought without a named use, so the status, health and overview rows for those families are gone. The history mechanism and the purchase path stay.
+
 ## [0.27.2] - 2026-11-14
 
 ### Fixed

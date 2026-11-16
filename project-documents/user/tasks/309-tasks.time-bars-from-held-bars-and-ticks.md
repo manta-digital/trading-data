@@ -529,31 +529,32 @@ Each removal follows a green verification and has its own marker, so any one can
 
 ## 9. API documents, OpenAPI and changelog
 
-- [ ] **9.1 `docs/api/reference.md`**
-  - [ ] Find every statement about futures bars (`grep -n -iE "provider bars|no provider
+- [x] **9.1 `docs/api/reference.md`**
+  - [x] Find every statement about futures bars (`grep -n -iE "provider bars|no provider
     bars|ohlcv-1m|six sizes|sources?"`) and list them; each is replaced by one of the
     items below, so none is left.
-  - [ ] The rule (held provider bars where they can make the size, else ticks), the size
+  - [x] The rule (held provider bars where they can make the size), the size
     grammar (any whole number of seconds, minutes or hours up to 24h, and `1d`) and the 422
     for other sizes.
-  - [ ] `sources` (a list; example with two runs) and `applied` (with the
+  - [x] `sources` (a list; example with two runs) and `applied` (with the
     defaulted-parameters example). Say in the changed text why `source` became `sources`
     without a version change (the routes returned nothing in production and no consumer had
     coded against them).
-  - [ ] The cost note, the new `MT_API_MAX_TIME_BAR_TRADES` row beside the 308 one, and the
+  - [x] The cost note, the new `MT_API_MAX_TIME_BAR_TRADES` row beside the 308 one, and the
     422/499/500/504 behaviour of tick-cut reads.
-  - [ ] The removal of `mt data tick parity`, and every statement about the families a
+  - [x] The removal of `mt data tick parity`, and every statement about the families a
     product wants (tick tier, `ohlcv-1m`, `statistics`): production wants the tick tier only.
-- [ ] **9.2 `docs/api/agents.md` and `README.md`**
-  - [ ] The same grep and the same replacements, kept short as those files are.
-- [ ] **9.3 OpenAPI**
-  - [ ] `docs/api/openapi.json` was regenerated in task 6.5b. Regenerate it again here only
+- [x] **9.2 `docs/api/agents.md` and `README.md`**
+  - [x] The same grep and the same replacements, kept short as those files are.
+- [x] **9.3 OpenAPI**
+  - [x] `docs/api/openapi.json` was regenerated in task 6.5b. Regenerate it again here only
     if a description changed since; the artifact test passes.
-- [ ] **9.4 Example tests**
-  - [ ] Run `test/unit/api_server/test_api_docs.py` and `test/integration/test_api_docs_examples.py`;
+- [x] **9.4 Example tests**
+  - [x] Run `test/unit/api_server/test_api_docs.py` and `test/integration/test_api_docs_examples.py`;
     update the examples they check.
-- [ ] **9.5 Changelog**
-  - [ ] `CHANGELOG.md` under `[Unreleased]`: a **Changed** entry (futures time bars at any
+  Note: test_api_docs_examples.py's dated-curl check fails on main too (a Kalshi search example); not from this slice, left alone.
+- [x] **9.5 Changelog**
+  - [x] `CHANGELOG.md` under `[Unreleased]`: a **Changed** entry (futures time bars at any
     whole second, minute or hour size and `1d`, from held provider bars or ticks, with
     `sources` and `applied`; `source` replaced by `sources`), a **Fixed** entry (the bars
     routes and `mt data tick get` returned nothing in production since 0.27.0), and a

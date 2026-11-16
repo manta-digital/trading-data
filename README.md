@@ -166,6 +166,7 @@ data is acquired; the preflight needs only the key.
 |---|---|---|
 | `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Rows-per-response ceiling: equity bars, Kalshi candles and trades, and scoped Kalshi catalog lists |
 | `MT_API_MAX_TICK_BAR_TRADES` | `2000000` | Stored trades one futures tick-bar request may scan, counted from the ledger before any tick is read |
+| `MT_API_MAX_TIME_BAR_TRADES` | `2000000` | Stored trades one futures time-bar request may cut from ticks, counted from the ledger before any tick is read |
 | `MT_API_STATEMENT_TIMEOUT` | `20s` | Per-connection `statement_timeout` on the API's pools |
 
 ### Backup / offsite
@@ -742,7 +743,7 @@ rows for a date range: it counts `tick_trade` rows per contract and session
 and compares them with the ledger.
 
 A product that wants `ohlcv-1m` bars (a `history` want on its universe entry;
-production configures none yet) gets a second section in `status`, headed
+production wants none: ticks are primary, provider bars optional) gets a second section in `status`, headed
 `load-complete only`, with the same buckets over the bars' own range, and
 `status --json` gains a `families` list (the existing fields stay the tick
 tier's). `coverage --schema ohlcv-1m` compares the ledger's bar count and
@@ -764,22 +765,17 @@ the calendar's populated sessions: run `mt data extend`); `3` coverage
 found a mismatch (it names the contract and both counts); `4` the tick or
 production (calendar) database is unreachable.
 
-`mt data tick get <size>` serves the provider's `ohlcv-1m` bars (rolled up per
-session for the coarser sizes), never bars built from ticks, and names its
-`source`; a range with ticks and no provider bars prints no rows, lists the
-sessions as incomplete and exits `3`. `mt data tick parity` compares the minutes
-built from ticks with the provider's minutes for the sessions complete in both
-tiers, and marks the minute stamped at each session close:
+`mt data tick get <size>` serves time bars at any whole number of seconds,
+minutes or hours up to `24h`, or `1d`: each session from held provider bars that
+can make the size, else cut from its ticks. The output names the source of each
+run of sessions after the rows (`ticks` or `ohlcv-1m`); a session holding
+neither is listed as incomplete and the command exits `3`. Unlike the API it has
+no trade limit.
 
 ```sh
 mt data tick get 1h --product ES --start 2024-12-03 --end 2024-12-04 --json
-mt data tick parity --product ES --start 2024-12-03 --end 2024-12-04 --json
+mt data tick get 15s --contract ESZ4 --start 2024-12-03 --end 2024-12-04 --csv
 ```
-
-`parity` takes `--contract` or `--product [--rule]`, `--start`, `--end`
-(session dates, `--end` EXCLUSIVE) and `--json`. Exit codes: `0` every compared
-minute agrees; `3` a finished comparison with a minute that does not; `1` a bad
-rule, date, product or contract; `4` the database failed (no report is printed).
 
 ## Data Serving API
 
@@ -818,6 +814,7 @@ Interactive docs are served at `/docs` while the server runs.
 |---|---|---|
 | `MT_API_MAX_BARS_PER_REQUEST` | `75000` | Rows-per-response ceiling: equity bars, Kalshi candles and trades, and scoped Kalshi catalog lists. Bars estimate from the window; Kalshi paths count exactly. The `BARS` name is historical and is not renamed. |
 | `MT_API_MAX_TICK_BAR_TRADES` | `2000000` | Stored trades one futures tick-bar request may scan, summed from the ingest ledger over the whole sessions it overlaps before any tick is read; over it is a `422`. The bars returned still count against `MT_API_MAX_BARS_PER_REQUEST`. |
+| `MT_API_MAX_TIME_BAR_TRADES` | `2000000` | Stored trades one futures time-bar request may cut from ticks, summed from the ingest ledger over the sessions cut from ticks before any tick is read; over it is a `422`. Measured on production: seven ES sessions (about 2,000,000 trades) cut in about 1.1 s. |
 | `MT_API_STATEMENT_TIMEOUT` | `20s` | Per-connection `statement_timeout` on all three pools the API opens. A query that exceeds it becomes a `504`. |
 
 Both are read once at startup; changing either requires a server restart. Note
