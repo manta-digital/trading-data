@@ -4,7 +4,7 @@ parent: user/architecture/300-arch.futures-historical-bars-statistics-and-tick-a
 project: trading
 dateCreated: 20261028
 dateUpdated: 20261115
-status: complete
+status: in_progress
 ---
 
 # Slice Plan: Futures Historical Bars, Statistics and Tick Aggregation

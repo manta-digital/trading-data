@@ -9,7 +9,7 @@ dependencies:
 interfaces: []
 dateCreated: 20261115
 dateUpdated: 20261115
-status: not_started
+status: complete
 ---
 
 # Slice Design: Time Bars from Held Bars and Ticks
@@ -157,3 +157,28 @@ The cleanup of other slices' documents and the unrelated issues (step 5's last t
 4. Remove the provider-only rule, its tests, the parity command and the history wants.
 5. API documents, OpenAPI file, changelog, the other slice files, issues.
 6. Release, deploy, check production against criteria 1 and 7, tell the two projects.
+
+## Verification Walkthrough
+
+Run from the dev checkout root, whose `.env` points at the production tick and calendar databases. Every step reads only. Verified 2026-11-15 on the slice branch before merge; ES and GC held ticks, no provider bars.
+
+1. **CLI, time bars from ticks.**
+   ```sh
+   uv run mt data tick get 1h --product ES --start 2024-12-02 --end 2024-12-03
+   ```
+   Header `ES  v.0 (default)  definitions as of 2024-12-31  1h  2024-12-02 → 2024-12-03 (end exclusive)`, 23 rows, then the footer `23 row(s)` and `source 2024-12-02 → 2024-12-02  ticks`; exit `0`.
+   ```sh
+   uv run mt data tick get 15s --product GC --start 2024-12-02 --end 2024-12-03 --json
+   ```
+   `row_count` 5362, `sources` `[{"first_session": "2024-12-02", "last_session": "2024-12-02", "source": "ticks"}]`, `incomplete` `[]`, `exit_code` 0.
+2. **CLI refusal.** `uv run mt data tick get 2x --product ES` exits `1`: `WHAT must be ticks or bar size '2x' is not a whole number of seconds, minutes or hours up to 24h (e.g. 1s, 15s, 90m, 4h), or 1d`.
+3. **API (criterion 1 shape).** Start a local server on a spare port (`uv run mt serve --host 127.0.0.1 --port 8199`), then for each of ES and GC and each of `1h`, `1m`, `15s`, `1d`:
+   ```sh
+   curl -s 'http://127.0.0.1:8199/api/v1/futures/products/ES/bars?granularity=15s&start=2024-12-02&end=2024-12-03'
+   ```
+   Measured counts: ES 23 / 1,380 / 5,357 / 1; GC 23 / 1,379 / 5,362 / 1. Every response has `sources` naming `ticks` only and `applied` = `{"granularity", "rule": "v.0", "start": "2024-12-02", "end": "2024-12-03", "from": null, "until": null, "format": "json"}`.
+4. **API refusal and paging.** `granularity=0s` is `422`. `granularity=1s&start=2024-12-02&end=2024-12-03&from=2024-12-02T14:30:00Z&until=2024-12-02T14:35:00Z` returns 299 bars, first `2024-12-02T14:30:00.000000000Z`, last `2024-12-02T14:34:59.000000000Z`.
+5. **Trade limit.** The measurement behind `MT_API_MAX_TIME_BAR_TRADES` is `user/notes/309-time-bar-measurement.md` (seven ES sessions, 1,995,794 trades, 1.09-1.14 s at `1m`).
+6. **Tests.** `test/integration/data/test_time_bar_cut.py` (criterion 2), `test/integration/api_server/test_futures_time_bars.py` (criteria 3 and 4 at the route, every error mapping), `test/integration/data/test_time_bar_reads.py` (admission before any tick is read, criterion 5), `test/integration/data/test_health_tick.py::test_production_wants_show_no_bar_or_statistics_row` (criterion 7 at test scale), and the load test `MT_RUN_LOAD_TESTS=1 uv run python scripts/run_tests.py load -- test/load/test_309_time_bars_nfr.py` (15 s bars over the busiest session: median 0.485 s when the bound was set, 0.459 s on the final run, against a 1.0 s bound; catalog not starved).
+
+Caveats: criterion 1 on the production server, criterion 7 (`sudo mt-run data health` on production) and criterion 8 (messages to trading-ui and trading-engine) need the released slice; they are the Phase 7 handoff in the task file. `mt serve` from the dev checkout serves the dev code over production data; it is not the production server.

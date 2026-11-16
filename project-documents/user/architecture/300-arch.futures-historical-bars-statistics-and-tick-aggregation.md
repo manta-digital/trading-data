@@ -13,7 +13,7 @@ relatedSlices: []
 riskLevel: medium
 dateCreated: 20261028
 dateUpdated: 20261115
-status: complete
+status: in_progress
 ---
 
 # Futures Historical Bars, Statistics and Tick Aggregation Architecture

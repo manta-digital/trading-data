@@ -16,7 +16,7 @@ projectState: Slice design committed and its review answered. The futures bars r
   history (definition, statistics, ohlcv-1m) back to 2010.
 dateCreated: 20261115
 dateUpdated: 20261115
-status: in_progress
+status: complete
 turns: 71
 promptTokens: 7681211
 cachedTokens: 7389751
