@@ -371,29 +371,30 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 **Commit** (tasks 6.2 to 6.5b: the response shape, routes, the tests of the old shape and the document gates change together, so the tree is green): `feat: serve futures time bars from held bars or ticks`
 
-- [ ] **6.6 Route success and refusal tests**
-  - [ ] Replace `test/integration/api_server/test_futures_bars_provider.py` with
+- [x] **6.6 Route success and refusal tests**
+  - [x] Replace `test/integration/api_server/test_futures_bars_provider.py` with
     `test_futures_time_bars.py` (delete the old file: its "no provider bars, no bars" tests
     are the ones removed by this slice). Reader behaviour is covered by task 5.4; this file
     tests the route's own work only.
-  - [ ] Two fixtures. **Ticks only**: the real tick day with no provider bars (production's
+  - [x] Two fixtures. **Ticks only**: the real tick day with no provider bars (production's
     state today). `seed_parity` always seeds a bar day, so split its first part (the `tbbo`
     unit and its ingest) into a `seed_ticks_only` helper in `test/tick_support/parity_seed.py`
     that `seed_parity` calls first. **Both**: `seed_parity` as it is (the same day complete in
     ticks and in provider one-minute bars).
-  - [ ] Ticks-only fixture, product route: `1h`, `1m`, `15s` and `1d` return bars with
+  - [x] Ticks-only fixture, product route: `1h`, `1m`, `15s` and `1d` return bars with
     `sources` naming `ticks` and `applied` listing every parameter (criterion 1 at test
     scale). Contract route: `1h` only, since the two routes differ only in how the plan is
     built.
-  - [ ] Both fixture, product route: `5m` and `1d` return `sources` naming `ohlcv-1m` (a
+  - [x] Both fixture, product route: `5m` and `1d` return `sources` naming `ohlcv-1m` (a
     provider width divides them and the bar verdict is complete, task 4.1's rule), and `15s`
     returns `sources` naming `ticks` (criterion 3 at the route).
-  - [ ] `0s`, `2d` and `5x` return 422 naming the accepted form.
-  - [ ] A session with neither ticks nor bars returns no bars and is in `incomplete`
+  - [x] `0s`, `2d` and `5x` return 422 naming the accepted form.
+  - [x] A session with neither ticks nor bars returns no bars and is in `incomplete`
     (criterion 4).
-  - [ ] Default range: seed provider one-minute bars for a session that has no ticks, next
+  - [x] Default range: seed provider one-minute bars for a session that has no ticks, next
     to the tick day. A request with no `start` and no `end` returns that session's bars at
     `5m` with `sources` naming `ohlcv-1m`, and the `applied` range covers both sessions.
+  Note: Product-route tests pass rule=c.0 (the calendar rule needs only definitions, so the result does not hang on the fixture's volumes).
 
 **Commit**: `test: add route success and refusal tests for futures time bars`
 

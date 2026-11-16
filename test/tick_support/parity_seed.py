@@ -1,4 +1,4 @@
-"""Seed the 2024-12-03 ticks and a bar day for the parity tests (slice 306).
+"""Seed the 2024-12-03 ticks, and a bar day, for the parity and time-bar tests.
 
 The cut ``tbbo`` day is ingested for real. The bar day is either the derived
 real one or hand-built from the ticks' own minutes (``bars_for``), so a test can
@@ -89,9 +89,10 @@ def bar(instrument_id: int, ts_event: int, minute: Minute) -> dict[str, int]:
     }
 
 
-async def seed_parity(
-    url: str, calendar: str, tmp_path: Path, bars_for: BarsFor | None = None
-) -> ParityDb:
+async def seed_ticks_only(url: str, calendar: str, tmp_path: Path) -> ParityDb:
+    """The real ``tbbo`` day ingested (empty units on 12-02 and 12-04, so the
+    session dated 12-03 is complete) and no provider bars: production's state
+    when slice 309 shipped."""
     await seed_tier_unit(url, tmp_path, TickSchema.TBBO, TBBO_DAY, job_id="TICKS")
     inputs = ingest_inputs(url, calendar)
     assert (await run_ingest_phase(url, tmp_path, inputs)).summary["ingested"] == 1
@@ -103,14 +104,23 @@ async def seed_parity(
         ).fetchone()
     assert row is not None, "the tbbo fixture ingested no trades"
     window = session_window(calendar, SESSION, int(row[0]), row[1])
-    db = ParityDb(url, calendar, row[1], window, tick_minutes(url, window))
+    seed_tier_days(url, DAYS_AROUND, TickSchema.TBBO)
+    return ParityDb(url, calendar, row[1], window, tick_minutes(url, window))
+
+
+async def seed_parity(
+    url: str, calendar: str, tmp_path: Path, bars_for: BarsFor | None = None
+) -> ParityDb:
+    """``seed_ticks_only``, then the same day's provider bars, so the sessions
+    that touch 12-03 are complete in both families."""
+    db = await seed_ticks_only(url, calendar, tmp_path)
+    inputs = ingest_inputs(url, calendar)
     bar_file = None
     if bars_for is not None:
         bar_file = write_bar_file(tmp_path / "bars.dbn.zst", SESSION, bars_for(db))
     await seed_bar_units(url, tmp_path, job_id="BARS", bar_file=bar_file)
     assert (await run_ingest_phase(url, tmp_path, inputs)).summary["ingested"] == 1
-    for schema in (TickSchema.TBBO, TickSchema.OHLCV_1M):
-        seed_tier_days(url, DAYS_AROUND, schema)
+    seed_tier_days(url, DAYS_AROUND, TickSchema.OHLCV_1M)
     return db
 
 
