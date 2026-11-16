@@ -487,19 +487,19 @@ Each removal follows a green verification and has its own marker, so any one can
 
 **Commit**: `refactor: remove the provider-only bar table and size menu`
 
-- [ ] **8.2 Remove `mt data tick parity`** (comparison code stays)
-  - [ ] Delete `cli/commands/tick_parity_cmds.py` and `tick_parity_render.py`, the `parity`
+- [x] **8.2 Remove `mt data tick parity`** (comparison code stays)
+  - [x] Delete `cli/commands/tick_parity_cmds.py` and `tick_parity_render.py`, the `parity`
     registration and name in `cli/commands/tick.py` (including the command list in its help
     text), `data/tick/parity_plan.py`, and the command's tests
     (`test/integration/data/test_tick_parity.py`, `test_tick_parity_exit.py`, the parity
     lines of `test/unit/cli/commands/test_data_tick.py`).
-  - [ ] `test/tick_support/parity_seed.py` stays (tasks 2.2, 4.3 and 5.4 use it); remove its
+  - [x] `test/tick_support/parity_seed.py` stays (tasks 2.2, 4.3 and 5.4 use it); remove its
     `run_parity` and anything else left with no user.
-  - [ ] Keep `bar_parity.py`, `bar_parity_report.py` and their tests
+  - [x] Keep `bar_parity.py`, `bar_parity_report.py` and their tests
     (`test_bar_parity_classify.py`, `test_bar_parity_report.py`, `test_bar_parity_sql.py`);
     their docstrings say the command was removed in 309 and the automatic comparison is
     Future Work ("Automatic minute comparison", slice plan 300).
-  - [ ] `mt data tick --help` no longer lists `parity`; the tests of the help text pass.
+  - [x] `mt data tick --help` no longer lists `parity`; the tests of the help text pass.
 
 **Commit**: `refactor: remove mt data tick parity`
 

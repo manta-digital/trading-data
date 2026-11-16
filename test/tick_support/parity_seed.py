@@ -10,7 +10,6 @@ production URL.
 
 from __future__ import annotations
 
-import asyncio
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,15 +18,12 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
-from tick_support.cli import cli_settings
 from tick_support.ingest import ingest_inputs, run_ingest_phase
 from tick_support.reads import session_window
 from tick_support.roll_seed import seed_tier_days
 from tick_support.tick_bar_helpers import seed_bar_units, write_bar_file
 from tick_support.tier_units import TBBO_DAY, seed_tier_unit
-from typer.testing import CliRunner
 
-from manta_trading.cli.app import app
 from manta_trading.data.tick.constants import TickSchema
 from manta_trading.data.tick.tick_reads import TickWindow
 
@@ -122,14 +118,3 @@ async def seed_parity(
     assert (await run_ingest_phase(url, tmp_path, inputs)).summary["ingested"] == 1
     seed_tier_days(url, DAYS_AROUND, TickSchema.OHLCV_1M)
     return db
-
-
-_RUNNER = CliRunner(env={"COLUMNS": "200"})
-
-
-async def run_parity(db: ParityDb, *extra: str) -> Any:
-    """``mt data tick parity --contract <the busiest> --json`` in a worker thread
-    (the command owns an event loop of its own)."""
-    args = ["data", "tick", "parity", "--contract", db.symbol, "--json", *extra]
-    with cli_settings(db.url, db.calendar):
-        return await asyncio.to_thread(_RUNNER.invoke, app, args)

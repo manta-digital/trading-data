@@ -1,8 +1,10 @@
 """Tick-derived one-minute bars and their comparison with the provider's (306 D7).
 
-``mt data tick parity`` sets them against ``tick_ohlcv_1m`` where both are
-held. The minutes come from ``time_bar_cut``, the one statement that cuts time
-bars from ticks, so a tick minute and a provider minute meet on the same key.
+Sets them against ``tick_ohlcv_1m`` where both are held. The command that ran
+it (``mt data tick parity``) was removed in slice 309; running the comparison
+automatically is Future Work ("Automatic minute comparison", slice plan 300).
+The minutes come from ``time_bar_cut``, the one statement that cuts time bars
+from ticks, so a tick minute and a provider minute meet on the same key.
 
 - :func:`read_tick_minute_bars` is that cut at one minute.
 - :func:`classify_minutes` joins the two sides by bucket and classes each minute.

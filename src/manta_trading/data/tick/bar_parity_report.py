@@ -1,4 +1,6 @@
-"""The parity report, built in memory (306 D7).
+"""The parity report, built in memory (306 D7). Its command, ``mt data tick
+parity``, was removed in slice 309; running the comparison automatically is
+Future Work ("Automatic minute comparison", slice plan 300).
 
 Per compared session: minute counts by class, how many close-stamped minutes
 there are and how many of them agree, and both sides' volume totals. Sessions

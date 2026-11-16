@@ -186,7 +186,6 @@ def test_group_lists_its_verbs() -> None:
         "coverage",
         "active",
         "get",
-        "parity",
     ]
 
 
