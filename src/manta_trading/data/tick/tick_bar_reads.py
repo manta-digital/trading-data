@@ -243,7 +243,7 @@ async def _cut(
 # -- admission (D5) -----------------------------------------------------------
 
 
-def _entry(plan: GetPlan) -> TickUniverseEntry:
+def plan_entry(plan: GetPlan) -> TickUniverseEntry:
     product = plan.target.product
     for entry in TICK_UNIVERSE:
         if entry.product == product:
@@ -260,7 +260,7 @@ async def trades_to_scan(conn: Conn, plan: GetPlan, bounds: Bounds) -> int:
     first = min(w.session_date for w in windows)
     last = max(w.session_date for w in windows)
     totals = await ledger_totals(
-        conn, shape_of(_entry(plan)), SchemaFamily.TICK_TIER, first, last
+        conn, shape_of(plan_entry(plan)), SchemaFamily.TICK_TIER, first, last
     )
     # No ledger row for a window means no trades held for it: it scans nothing.
     return sum(totals.get((w.instrument_id, w.session_date), 0) for w in windows)

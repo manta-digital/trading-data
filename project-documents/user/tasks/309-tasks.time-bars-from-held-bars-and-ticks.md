@@ -181,43 +181,45 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 ## 4. Source choice per session
 
-- [ ] **4.1 `choose_sources`** (new `src/manta_trading/data/tick/time_bar_source.py`)
-  - [ ] `choose_sources(conn, calendar_url, plan, size) -> dict[date, str | None]`, keyed
+- [x] **4.1 `choose_sources`** (new `src/manta_trading/data/tick/time_bar_source.py`)
+  - [x] `choose_sources(conn, calendar_url, plan, size) -> dict[date, str | None]`, keyed
     by the plan's session dates in plan order (a product plan has one contract per
     session, so the date is unique). Look the planned `Session` objects up with
     `sessions_dated`, filtered to the planned windows, and get the bar verdicts with
     `verdicts_for(SchemaFamily.BAR_1M)`. Do not import from `parity_plan.py` (task 8.2
     deletes it): the lookup is a few lines here. Take the universe entry from
     `plan.target.product` (the lookup in `tick_bar_reads._entry`; make it public and reuse it).
-  - [ ] Rule per session: provider schema if `provider_schema_for(size)` is not `None`
+  - [x] Rule per session: provider schema if `provider_schema_for(size)` is not `None`
     and the bar verdict is `complete`; else `TICKS_SOURCE` unless the tick verdict is
     `missing` or the session has no row in the tick ingest ledger, in which case `None`
     (nothing is read; it is already in `incomplete`, and it adds nothing to admission, as
     the design says).
     A tick-sourced session in any other non-complete tick state is still read (design:
     "served from the ticks that are loaded").
-  - [ ] `served_plan(plan, sources) -> GetPlan`: the plan with `incomplete` reduced to the
+  - [x] `served_plan(plan, sources) -> GetPlan`: the plan with `incomplete` reduced to the
     sessions not served from a provider schema (a provider-served session is held, so it
     is not incomplete). Everything else is the original plan. Both the API and the CLI use
     it, so the lists agree.
-- [ ] **4.2 `source_runs`** (same module, pure)
-  - [ ] `SourceRun(first_session, last_session, source)` and `source_runs(plan, sources,
+- [x] **4.2 `source_runs`** (same module, pure)
+  - [x] `SourceRun(first_session, last_session, source)` and `source_runs(plan, sources,
     returned_sessions) -> list[SourceRun]`: walk the plan's windows in order; a run is
     consecutive planned sessions that returned at least one bar and share a source; a
     planned session that returned no bars ends the run. The entries cover exactly the
     sessions that returned bars.
-- [ ] **4.3 Tests**
-  - [ ] Unit (`test/unit/data/tick/test_time_bar_source.py`) for `source_runs` and
+- [x] **4.3 Tests**
+  - [x] Unit (`test/unit/data/tick/test_time_bar_source.py`) for `source_runs` and
     `served_plan` with hand-built plans: one source across the range gives one run; a
     switch from `ohlcv-1m` to `ticks` gives two runs; a session with no bars splits runs
     of the same source; a provider-served session leaves `incomplete`, a tick-served
     partial one stays.
-  - [ ] Integration (`test/integration/data/test_time_bar_source.py`) on
+  - [x] Integration (`test/integration/data/test_time_bar_source.py`) on
     `test/tick_support/parity_seed.py`'s fixture (the real tick day complete in both
     families): `5m` chooses `ohlcv-1m`, `15s` chooses `ticks`; with the bar day made
     partial (an unverified or missing unit) `5m` falls through to `ticks`; a session in
     neither family chooses `None` and remains in `incomplete` as `missing`; ticks partly
     loaded with no bars chooses `ticks` and keeps its tick status.
+  Note: Integration file is test_time_bar_source_choice.py (basename clash with the unit file).
+  Note: The neither-family session (12-05) has tick verdict edge_unknown in the fixture (past the dataset edge), not missing; it has no ledger row, so it is not read and stays in incomplete with that status.
 
 **Commit**: `feat: choose the source of each session's time bars`
 
