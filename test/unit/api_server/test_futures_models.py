@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from manta_trading.api_server.models.futures import (
+    AppliedBarParams,
     FuturesBarRecord,
     FuturesBarsResponse,
     TickAccountingRecord,
@@ -27,10 +28,8 @@ from manta_trading.api_server.models.futures_catalog import (
     ScheduleSegmentRecord,
 )
 from manta_trading.api_server.models.futures_ticks import FuturesTicksResponse
-from manta_trading.constants import Granularity
-from manta_trading.data.tick.bar_constants import BAR_SOURCE
-from manta_trading.data.tick.constants import TICK_BAR_GRANULARITIES
 from manta_trading.data.tick.get_plan import (
+    ContractTarget,
     DisplaySegment,
     GetPlan,
     Incomplete,
@@ -57,6 +56,7 @@ from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_accounting import TickAccountingLine
 from manta_trading.data.tick.tick_reads import BAR_COLUMNS
 from manta_trading.data.tick.tick_status import TickSessionStatus
+from manta_trading.data.tick.time_bar_source import SourceRun
 
 #: 2024-09-18 14:00 UTC plus 123456789 ns: past 2^53, as every 2024 stamp is.
 TS_2024 = 1_726_668_000_123_456_789
@@ -156,6 +156,17 @@ def _plan() -> GetPlan:
     )
 
 
+def _bars(
+    plan: GetPlan,
+    size: str,
+    rows: list[Any],
+    runs: tuple[SourceRun, ...] = (),
+    instants: tuple[datetime | None, datetime | None] = (None, None),
+) -> Any:
+    applied = AppliedBarParams.from_plan(plan, size, instants, "json")
+    return _json(FuturesBarsResponse.from_plan(plan, list(runs), applied, rows))
+
+
 def _tick(price: int) -> tuple[Any, ...]:
     return (TS_2024, date(2024, 9, 18), "ESZ4", 1, price, 2, "A")
 
@@ -177,7 +188,7 @@ def test_no_integer_on_the_wire_reaches_2_to_the_53() -> None:
     bar = (TS_2024, date(2024, 9, 18), "ESZ4", 1, *[5_950_250_000_000] * 4, 10)
 
     ticks = _json(FuturesTicksResponse.from_plan(_plan(), [row], (None, None)))
-    bars = _json(FuturesBarsResponse.from_plan(_plan(), "1m", [bar]))
+    bars = _bars(_plan(), "1m", [bar])
 
     assert max(_integers(ticks) + _integers(bars)) < 2**53
 
@@ -198,22 +209,57 @@ def test_from_and_until_are_on_the_wire_under_their_names() -> None:
     assert body["incomplete"] == [{"session_date": "2024-09-18", "status": "missing"}]
 
 
-@pytest.mark.parametrize("size", [g.value for g in TICK_BAR_GRANULARITIES])
-def test_every_served_size_names_its_provider_source(size: str) -> None:
-    body = _json(FuturesBarsResponse.from_plan(_plan(), size, []))
+@pytest.mark.parametrize("size", ["1s", "15s", "1m", "5m", "90m", "4h", "1d"])
+def test_sources_list_each_run_of_sessions(size: str) -> None:
+    runs = (
+        SourceRun(date(2024, 9, 16), date(2024, 9, 17), "ohlcv-1m"),
+        SourceRun(date(2024, 9, 18), date(2024, 9, 18), "ticks"),
+    )
+    body = _bars(_plan(), size, [], runs)
 
-    assert body["source"] == "ohlcv-1m"
-    assert body["source"] == BAR_SOURCE[Granularity(size)].value
-    assert list(FuturesBarsResponse.model_fields)[:3] == [
-        "target",
-        "granularity",
-        "source",
+    assert body["granularity"] == size
+    assert "source" not in body
+    assert body["sources"] == [
+        {
+            "first_session": "2024-09-16",
+            "last_session": "2024-09-17",
+            "source": "ohlcv-1m",
+        },
+        {
+            "first_session": "2024-09-18",
+            "last_session": "2024-09-18",
+            "source": "ticks",
+        },
     ]
+
+
+def test_applied_echoes_every_parameter_used_defaults_included() -> None:
+    """Issue #77: no rule and no range given; the server's choices are echoed."""
+    body = _bars(_plan(), "15s", [])
+
+    assert body["applied"] == {
+        "granularity": "15s",
+        "rule": str(DEFAULT_ROLL_RULE),
+        "start": "2024-09-18",
+        "end": "2024-09-19",
+        "from": None,
+        "until": None,
+        "format": "json",
+    }
+
+
+def test_a_contract_response_applies_no_rule() -> None:
+    plan = replace(_plan(), target=ContractTarget("ESZ4", 1, "ES"))
+    instants = (datetime(2024, 9, 18, 14, tzinfo=UTC), None)
+    body = _bars(plan, "1m", [], instants=instants)
+
+    assert "rule" not in body["applied"]
+    assert body["applied"]["from"] == "2024-09-18T14:00:00Z"
 
 
 def test_every_segment_of_a_time_series_carries_its_basis() -> None:
     ticks = _json(FuturesTicksResponse.from_plan(_plan(), [], (None, None)))
-    bars = _json(FuturesBarsResponse.from_plan(_plan(), "1m", []))
+    bars = _bars(_plan(), "1m", [])
     assert [s["basis"] for s in ticks["segments"]] == ["bar_1m"]
     assert [s["basis"] for s in bars["segments"]] == ["bar_1m"]
 

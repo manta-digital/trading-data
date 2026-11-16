@@ -19,7 +19,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from starlette import status as http_status
 
-from manta_trading.api_server.admission import NARROW_TICK_BARS, over_ceiling
+from manta_trading.api_server.admission import (
+    CLIENT_CLOSED_REQUEST,
+    NARROW_TICK_BARS,
+    over_ceiling,
+)
 from manta_trading.api_server.deps import get_max_tick_bar_trades
 from manta_trading.api_server.futures_read import (
     PlanFor,
@@ -71,8 +75,6 @@ _logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/futures", tags=["futures"])
 
 MaxTrades = Annotated[int, Depends(get_max_tick_bar_trades)]
-#: Not an IANA code: the de facto "client closed request". Nobody receives it.
-CLIENT_CLOSED_REQUEST = 499
 _RESPONSES = (
     timeseries_200(FuturesTickBarsResponse)
     | TICK_UNAVAILABLE_RESPONSE

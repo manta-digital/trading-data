@@ -17,9 +17,11 @@ from fastapi import HTTPException
 from starlette import status as http_status
 
 __all__ = [
+    "CLIENT_CLOSED_REQUEST",
     "NARROW_FILTER",
     "NARROW_TICKS",
     "NARROW_TICK_BARS",
+    "NARROW_TIME_BARS",
     "NARROW_WINDOW",
     "admit_rows",
     "not_found",
@@ -39,6 +41,14 @@ instant bounds are the way through it (231 TD3)."""
 NARROW_TICK_BARS = "raise ticks_per_bar, or narrow start/end or from/until"
 """Remedy for futures tick bars over the row ceiling: fewer, larger bars, or
 a shorter span (308 D5)."""
+
+NARROW_TIME_BARS = "use a larger granularity, or narrow start/end or from/until"
+"""Remedy for futures time bars over the row ceiling: a full session at ``1s``
+can exceed it, so the instant bounds page through it (309)."""
+
+CLIENT_CLOSED_REQUEST = 499
+"""Not an IANA code: the de facto "client closed request". Nobody receives it;
+the futures tick-bar and time-bar routes answer it when the client has gone."""
 
 
 def admit_rows(count: int, max_rows: int, *, remedy: str) -> None:

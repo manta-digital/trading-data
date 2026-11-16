@@ -163,13 +163,15 @@ BARS_PATHS = (
 )
 
 
-def test_futures_bars_publish_their_source() -> None:
-    """306 D2: ``source`` is a required string of the bars response, and both bars
-    routes' ``200`` (in both encodings) reference that schema."""
+def test_futures_bars_publish_their_sources_and_applied() -> None:
+    """309: ``sources`` (a list of runs) and ``applied`` are required members of
+    the bars response, ``source`` is gone, and both bars routes' ``200`` (in
+    both encodings) reference that schema."""
     artifact = _committed_artifact()
     schema = artifact["components"]["schemas"]["FuturesBarsResponse"]
-    assert schema["properties"]["source"]["type"] == "string"
-    assert "source" in schema["required"]
+    assert schema["properties"]["sources"]["type"] == "array"
+    assert {"sources", "applied"} <= set(schema["required"])
+    assert "source" not in schema["properties"]
     for path in BARS_PATHS:
         content = artifact["paths"][path]["get"]["responses"]["200"]["content"]
         for media_type in PUBLISHED_MEDIA_TYPES:

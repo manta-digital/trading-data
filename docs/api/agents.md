@@ -376,13 +376,13 @@ bars returns no rows and appears in `incomplete`. On a regular session `5m`,
 not a fault.
 
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/bars
-     params: granularity:TickBarGranularity, start:date, end:date,
-             format:json|msgpack
+     params: granularity:string, start:date, end:date, from:date-time,
+             until:date-time, format:json|msgpack
      errors: 422, 503, 504 -->
 
 <!-- endpoint: /api/v1/futures/products/{product}/bars
-     params: granularity:TickBarGranularity, rule:string, start:date,
-             end:date, format:json|msgpack
+     params: granularity:string, rule:string, start:date, end:date,
+             from:date-time, until:date-time, format:json|msgpack
      errors: 422, 503, 504 -->
 
 **Not this:** `/api/v1/bars/{symbol}` is the equity store. It does not know
@@ -623,11 +623,9 @@ key.
 `COMPLETE_QUOTA` means the pass finished by exhausting its provider quota, not
 that it failed. `PROVIDER_UNAVAILABLE` means the provider did not answer.
 
-**Futures bar size** — `/api/v1/futures/*/bars` `granularity`:
-`1m` `5m` `15m` `1h` `4h` `1d`.
-<!-- from: manta_trading.api_server.routes.futures_params.TickBarGranularity -->
-
-A subset of the bar granularity above; `1d` is one whole session.
+**Futures bar size** — `/api/v1/futures/*/bars` `granularity`: any whole
+number of seconds, minutes or hours up to `24h` (`1s`, `15s`, `90m`, `4h`), or
+`1d`, one whole session.
 
 **Roll method** — the first part of a futures `rule`, `{method}.{rank}[+{offset}s]`:
 `v` `c` `n`.

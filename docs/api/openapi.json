@@ -208,6 +208,88 @@
         "title": "ActiveLineRecord",
         "type": "object"
       },
+      "AppliedBarParams": {
+        "description": "Every parameter the server used, defaults included (issue #77). ``rule``\nappears only for a product; ``start``/``end`` are the resolved range (null\nonly when nothing is held and none was given).",
+        "properties": {
+          "end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "granularity": {
+            "title": "Granularity",
+            "type": "string"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "granularity",
+          "start",
+          "end",
+          "from",
+          "until",
+          "format"
+        ],
+        "title": "AppliedBarParams",
+        "type": "object"
+      },
       "AvailableRange": {
         "description": "Date range over which data is available for a granularity group.",
         "properties": {
@@ -1383,8 +1465,11 @@
         "type": "object"
       },
       "FuturesBarsResponse": {
-        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars``.\n\n``end`` is exclusive (session dates); a bar never crosses a session.\n``source`` names the provider schema the bars came from (306 D2).",
+        "description": "``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars``.\n\n``end`` is exclusive (session dates); a bar never crosses a session.\n``sources`` names where each run of sessions' bars came from (309): held\nprovider bars that can make the size, else ticks.",
         "properties": {
+          "applied": {
+            "$ref": "#/components/schemas/AppliedBarParams"
+          },
           "bars": {
             "items": {
               "$ref": "#/components/schemas/FuturesBarRecord"
@@ -1438,9 +1523,12 @@
             "title": "Segments",
             "type": "array"
           },
-          "source": {
-            "title": "Source",
-            "type": "string"
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRunRecord"
+            },
+            "title": "Sources",
+            "type": "array"
           },
           "start": {
             "anyOf": [
@@ -1468,7 +1556,8 @@
         "required": [
           "target",
           "granularity",
-          "source",
+          "sources",
+          "applied",
           "start",
           "end",
           "definitions_as_of",
@@ -3701,6 +3790,32 @@
         "title": "SourceRecord",
         "type": "object"
       },
+      "SourceRunRecord": {
+        "description": "Consecutive sessions whose bars came from one source (309): ``ticks``,\nor the provider schema (``ohlcv-1m``).",
+        "properties": {
+          "first_session": {
+            "format": "date",
+            "title": "First Session",
+            "type": "string"
+          },
+          "last_session": {
+            "format": "date",
+            "title": "Last Session",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "first_session",
+          "last_session",
+          "source"
+        ],
+        "title": "SourceRunRecord",
+        "type": "object"
+      },
       "StatusResponse": {
         "description": "Response body for ``GET /api/v1/status`` (slice 185 D2).\n\n``summary`` is always the full-universe health-count breakdown, unfiltered\nby ``symbol``/``health`` \u2014 it answers \"how healthy is the whole registry\",\nindependent of what ``rows`` happens to show.",
         "properties": {
@@ -4093,18 +4208,6 @@
         "title": "TickAccountingRecord",
         "type": "object"
       },
-      "TickBarGranularity": {
-        "enum": [
-          "1m",
-          "5m",
-          "15m",
-          "1h",
-          "4h",
-          "1d"
-        ],
-        "title": "TickBarGranularity",
-        "type": "string"
-      },
       "TickBlock": {
         "description": "``/api/v1/status``'s ``tick`` block (231 TD7): always present; when the\ntick tier cannot be read, ``state`` says why and ``products`` is empty.",
         "properties": {
@@ -4392,7 +4495,7 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, gap status, the Kalshi prediction-market catalog and time series, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.26.0"
+    "version": "0.27.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4535,7 +4638,7 @@
     },
     "/api/v1/futures/contracts/{symbol}/bars": {
       "get": {
-        "description": "One contract's provider bars over ``[start, end)`` sessions.",
+        "description": "One contract's time bars from held bars or ticks over ``[start, end)``\nsessions, those starting in ``[from, until)``. Refused past the trade limit\nor the row ceiling.",
         "operationId": "contract_bars_api_v1_futures_contracts__symbol__bars_get",
         "parameters": [
           {
@@ -4548,13 +4651,14 @@
             }
           },
           {
-            "description": "Bar size; 1d is the whole session.",
+            "description": "Bar size: a whole number of seconds, minutes or hours up to 24h (e.g. 1s, 15s, 90m, 4h), or 1d. 1d is the whole CME session. Bars start at the session open and never cross a session.",
             "in": "query",
             "name": "granularity",
             "required": true,
             "schema": {
-              "$ref": "#/components/schemas/TickBarGranularity",
-              "description": "Bar size; 1d is the whole session."
+              "description": "Bar size: a whole number of seconds, minutes or hours up to 24h (e.g. 1s, 15s, 90m, 4h), or 1d. 1d is the whole CME session. Bars start at the session open and never cross a session.",
+              "title": "Granularity",
+              "type": "string"
             }
           },
           {
@@ -4593,6 +4697,44 @@
               ],
               "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
               "title": "End"
+            }
+          },
+          {
+            "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
+              "title": "Until"
             }
           },
           {
@@ -4728,7 +4870,7 @@
             }
           },
           {
-            "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -4742,12 +4884,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
               "title": "From"
             }
           },
           {
-            "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
             "in": "query",
             "name": "until",
             "required": false,
@@ -4761,7 +4903,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
               "title": "Until"
             }
           },
@@ -4886,7 +5028,7 @@
             }
           },
           {
-            "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -4900,12 +5042,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
               "title": "From"
             }
           },
           {
-            "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
             "in": "query",
             "name": "until",
             "required": false,
@@ -4919,7 +5061,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
               "title": "Until"
             }
           },
@@ -5035,7 +5177,7 @@
     },
     "/api/v1/futures/products/{product}/bars": {
       "get": {
-        "description": "A product's bars under ``rule``, one contract per session, never merged.",
+        "description": "A product's time bars from held bars or ticks under ``rule``, one\ncontract per session, never merged.",
         "operationId": "product_bars_api_v1_futures_products__product__bars_get",
         "parameters": [
           {
@@ -5048,13 +5190,14 @@
             }
           },
           {
-            "description": "Bar size; 1d is the whole session.",
+            "description": "Bar size: a whole number of seconds, minutes or hours up to 24h (e.g. 1s, 15s, 90m, 4h), or 1d. 1d is the whole CME session. Bars start at the session open and never cross a session.",
             "in": "query",
             "name": "granularity",
             "required": true,
             "schema": {
-              "$ref": "#/components/schemas/TickBarGranularity",
-              "description": "Bar size; 1d is the whole session."
+              "description": "Bar size: a whole number of seconds, minutes or hours up to 24h (e.g. 1s, 15s, 90m, 4h), or 1d. 1d is the whole CME session. Bars start at the session open and never cross a session.",
+              "title": "Granularity",
+              "type": "string"
             }
           },
           {
@@ -5111,6 +5254,44 @@
               ],
               "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
               "title": "End"
+            }
+          },
+          {
+            "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
+              "title": "From"
+            }
+          },
+          {
+            "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
+              "title": "Until"
             }
           },
           {
@@ -5446,7 +5627,7 @@
             }
           },
           {
-            "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -5460,12 +5641,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
               "title": "From"
             }
           },
           {
-            "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
             "in": "query",
             "name": "until",
             "required": false,
@@ -5479,7 +5660,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
               "title": "Until"
             }
           },
@@ -5622,7 +5803,7 @@
             }
           },
           {
-            "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -5636,12 +5817,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks and tick bars only: first instant, inclusive (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "description": "First instant, inclusive (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
               "title": "From"
             }
           },
           {
-            "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+            "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
             "in": "query",
             "name": "until",
             "required": false,
@@ -5655,7 +5836,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is UTC). Tick bars are selected by open_time.",
+              "description": "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped to it; tick bars are selected by open_time, time bars by their start, each bar kept whole.",
               "title": "Until"
             }
           },

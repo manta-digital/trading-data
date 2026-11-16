@@ -19,8 +19,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from manta_trading.constants import Granularity
-from manta_trading.data.tick.bar_constants import BAR_SOURCE
 from manta_trading.data.tick.get_plan import ContractTarget, GetPlan
 from manta_trading.data.tick.line_state import TickLineState, TickUnavailable
 from manta_trading.data.tick.roll_payload import basis_text
@@ -33,6 +31,7 @@ from manta_trading.data.tick.tick_accounting import (
 from manta_trading.data.tick.tick_format import cell_value
 from manta_trading.data.tick.tick_reads import BAR_COLUMNS, Row
 from manta_trading.data.tick.tick_status import TickSessionStatus
+from manta_trading.data.tick.time_bar_source import SourceRun
 
 
 class FuturesTarget(BaseModel):
@@ -151,16 +150,63 @@ def _records[M: BaseModel](
     ]
 
 
+class SourceRunRecord(BaseModel):
+    """Consecutive sessions whose bars came from one source (309): ``ticks``,
+    or the provider schema (``ohlcv-1m``)."""
+
+    first_session: date
+    last_session: date
+    source: str
+
+
+class AppliedBarParams(BaseModel):
+    """Every parameter the server used, defaults included (issue #77). ``rule``
+    appears only for a product; ``start``/``end`` are the resolved range (null
+    only when nothing is held and none was given)."""
+
+    granularity: str
+    rule: str | None = Field(default=None, exclude_if=lambda rule: rule is None)
+    start: date | None
+    end: date | None
+    from_: datetime | None = Field(serialization_alias="from")
+    until: datetime | None
+    format: str
+
+    model_config = ConfigDict(serialize_by_alias=True)
+
+    @classmethod
+    def from_plan(
+        cls,
+        plan: GetPlan,
+        granularity: str,
+        instants: tuple[datetime | None, datetime | None],
+        fmt: str,
+    ) -> AppliedBarParams:
+        target = plan.target
+        rule = None if isinstance(target, ContractTarget) else str(target.rule)
+        return cls(
+            granularity=granularity,
+            rule=rule,
+            start=plan.start,
+            end=plan.end,
+            from_=instants[0],
+            until=instants[1],
+            format=fmt,
+        )
+
+
 class FuturesBarsResponse(BaseModel):
     """``GET /api/v1/futures/{contracts/{symbol} | products/{product}}/bars``.
 
     ``end`` is exclusive (session dates); a bar never crosses a session.
-    ``source`` names the provider schema the bars came from (306 D2).
+    ``sources`` names where each run of sessions' bars came from (309): held
+    provider bars that can make the size, else ticks.
     """
 
     target: FuturesTarget
     granularity: str
-    source: str
+    sources: list[SourceRunRecord]
+    applied: AppliedBarParams
     start: date | None
     end: date | None
     definitions_as_of: date | None
@@ -172,12 +218,25 @@ class FuturesBarsResponse(BaseModel):
 
     @classmethod
     def from_plan(
-        cls, plan: GetPlan, granularity: str, rows: Sequence[Row]
+        cls,
+        plan: GetPlan,
+        runs: Sequence[SourceRun],
+        applied: AppliedBarParams,
+        rows: Sequence[Row],
     ) -> FuturesBarsResponse:
+        """``plan`` is the served plan (``time_bar_source.served_plan``)."""
         return cls(
             **plan_envelope(plan),
-            granularity=granularity,
-            source=BAR_SOURCE[Granularity(granularity)].value,
+            granularity=applied.granularity,
+            sources=[
+                SourceRunRecord(
+                    first_session=r.first_session,
+                    last_session=r.last_session,
+                    source=r.source,
+                )
+                for r in runs
+            ],
+            applied=applied,
             count=len(rows),
             bars=_records(FuturesBarRecord, BAR_COLUMNS, rows),
         )

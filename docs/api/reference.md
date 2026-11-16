@@ -1869,8 +1869,8 @@ over the row ceiling; `503`.
 ### 6.6 `GET /api/v1/futures/contracts/{symbol}/bars`
 
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/bars
-     params: granularity:TickBarGranularity, start:date, end:date,
-             format:json|msgpack
+     params: granularity:string, start:date, end:date, from:date-time,
+             until:date-time, format:json|msgpack
      errors: 422, 503, 504 -->
 
 One contract's provider bars (§6.1): `1m` as stored, coarser sizes rolled up per
@@ -1878,8 +1878,8 @@ session from them, buckets anchored at the session open. Empty buckets are
 omitted, and `1d` is the whole session, stamped with its open. A session with no
 provider bars returns no rows and is listed in `incomplete`.
 
-Futures bar sizes are `1m` `5m` `15m` `1h` `4h` `1d`.
-<!-- from: manta_trading.api_server.routes.futures_params.TickBarGranularity -->
+Futures bar sizes are any whole number of seconds, minutes or hours up to
+`24h` (`1s`, `15s`, `90m`, `4h`), or `1d`.
 
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
@@ -1931,8 +1931,8 @@ over 1,300 sessions; `503`, including when the calendar database is down.
 ### 6.8 `GET /api/v1/futures/products/{product}/bars`
 
 <!-- endpoint: /api/v1/futures/products/{product}/bars
-     params: granularity:TickBarGranularity, rule:string, start:date,
-             end:date, format:json|msgpack
+     params: granularity:string, rule:string, start:date, end:date,
+             from:date-time, until:date-time, format:json|msgpack
      errors: 422, 503, 504 -->
 
 A product's bars under a roll rule: §6.6's parameters and body, plus `rule`.

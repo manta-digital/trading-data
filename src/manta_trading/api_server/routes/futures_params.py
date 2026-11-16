@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from enum import StrEnum
 from typing import Annotated
 
 from fastapi import HTTPException, Query
@@ -17,18 +16,9 @@ from starlette import status as http_status
 
 from manta_trading.api_server.admission import not_found
 from manta_trading.api_server.routes.windows import instant_utc
-from manta_trading.data.tick.constants import TICK_BAR_GRANULARITIES
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE, RollRule
 from manta_trading.data.tick.universe import TICK_UNIVERSE, TickUniverseEntry
-
-#: The bar sizes the futures routes accept: ``TICK_BAR_GRANULARITIES`` as an
-#: enum, so FastAPI validates against it and the schema lists exactly these.
-#: Built from the tuple so the sizes have one home; mypy cannot see members of
-#: a functional enum built from a non-literal, hence the ignore.
-TickBarGranularity = StrEnum(  # type: ignore[misc]
-    "TickBarGranularity", [(g.name, g.value) for g in TICK_BAR_GRANULARITIES]
-)
 
 #: The ``rule`` query parameter's description, shared by every route taking it.
 RULE_DESCRIPTION = (
@@ -99,8 +89,9 @@ FromParam = Annotated[
     Query(
         alias="from",
         description=(
-            "Ticks and tick bars only: first instant, inclusive (UTC; naive is"
-            " UTC). Tick bars are selected by open_time."
+            "First instant, inclusive (UTC; naive is UTC). Ticks are clipped"
+            " to it; tick bars are selected by open_time, time bars by their"
+            " start, each bar kept whole."
         ),
     ),
 ]
@@ -108,8 +99,9 @@ UntilParam = Annotated[
     datetime | None,
     Query(
         description=(
-            "Ticks and tick bars only: instant bound, EXCLUSIVE (UTC; naive is"
-            " UTC). Tick bars are selected by open_time."
+            "Instant bound, EXCLUSIVE (UTC; naive is UTC). Ticks are clipped"
+            " to it; tick bars are selected by open_time, time bars by their"
+            " start, each bar kept whole."
         )
     ),
 ]

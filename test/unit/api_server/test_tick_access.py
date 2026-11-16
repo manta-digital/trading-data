@@ -15,10 +15,8 @@ from fastapi.testclient import TestClient
 
 from manta_trading.api_server import tick_access
 from manta_trading.api_server.app import create_app
-from manta_trading.api_server.routes.futures_params import TickBarGranularity
 from manta_trading.api_server.tick_access import tick_errors
 from manta_trading.data.tick.active_contract import RollRangeTooLong
-from manta_trading.data.tick.constants import TICK_BAR_GRANULARITIES
 from manta_trading.data.tick.get_plan import ContractAmbiguous, ContractNotFound
 from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.tick_calendar import TickCalendarError
@@ -130,10 +128,3 @@ async def test_a_failed_migration_check_returns_the_connection(
         await tick_access._checkout(app)
 
     assert pool.returned == [pool.conn]
-
-
-def test_the_bar_size_enum_is_the_tick_bar_tuple() -> None:
-    """F001: the enum is built from ``TICK_BAR_GRANULARITIES``; this pins it."""
-    assert [m.value for m in TickBarGranularity] == [
-        g.value for g in TICK_BAR_GRANULARITIES
-    ]

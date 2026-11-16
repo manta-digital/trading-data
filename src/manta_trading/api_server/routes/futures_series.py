@@ -1,15 +1,18 @@
-"""Futures time-series routes: ticks and bars, by contract or by product
-(slice 231, TD1, TD3–TD6).
+"""Futures tick routes, by contract or by product, and the plan builders the
+futures series routes share (slice 231, TD1, TD3–TD6).
 
-All four go through :func:`_serve`: one snapshot read (``read_series``) under
-the row ceiling, the one error mapping (``tick_errors``), then the model and
-``send_timeseries`` (JSON or msgpack). ``start``/``end`` are session dates
+Both tick routes go through :func:`_serve`: one snapshot read (``read_series``)
+under the row ceiling, the one error mapping (``tick_errors``), then the model
+and ``send_timeseries`` (JSON or msgpack). ``start``/``end`` are session dates
 with ``end`` exclusive; ticks also take half-open ``[from, until)`` instants.
+Time bars live in ``futures_time_bars`` (309), tick bars in
+``futures_tick_bars`` (308).
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from datetime import date, datetime
 from functools import partial
 from typing import Annotated
@@ -18,7 +21,6 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 
 from manta_trading.api_server.admission import (
     NARROW_TICKS,
-    NARROW_WINDOW,
     over_ceiling,
 )
 from manta_trading.api_server.deps import get_max_bars
@@ -28,7 +30,6 @@ from manta_trading.api_server.futures_read import (
     RowCeilingExceeded,
     read_series,
 )
-from manta_trading.api_server.models.futures import FuturesBarsResponse
 from manta_trading.api_server.models.futures_ticks import FuturesTicksResponse
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
@@ -39,7 +40,6 @@ from manta_trading.api_server.routes.futures_params import (
     FromParam,
     RuleParam,
     StartParam,
-    TickBarGranularity,
     UntilParam,
     instant_bounds,
     parse_rule,
@@ -51,29 +51,18 @@ from manta_trading.api_server.serialization import (
     timeseries_200,
 )
 from manta_trading.api_server.tick_access import tick_connection, tick_errors
-from manta_trading.data.tick.bar_reads import read_provider_bars
 from manta_trading.data.tick.get_plan import GetPlan, contract_plan, product_plan
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.schema_families import SchemaFamily
-from manta_trading.data.tick.tick_reads import OnBatch, Row, TickWindow, read_ticks
-from manta_trading.data.tick.time_bar_size import parse_bar_size
+from manta_trading.data.tick.tick_reads import Row, read_ticks
 
 router = APIRouter(prefix="/api/v1/futures", tags=["futures"])
 
 TickConn = Annotated[Conn, Depends(tick_connection)]
 MaxRows = Annotated[int, Depends(get_max_bars)]
 Format = Annotated[ResponseFormat, Query(alias="format")]
-GranularityParam = Annotated[
-    TickBarGranularity,
-    Query(description="Bar size; 1d is the whole session."),
-]
 _TICKS_RESPONSES = (
     timeseries_200(FuturesTicksResponse)
-    | TICK_UNAVAILABLE_RESPONSE
-    | GATEWAY_TIMEOUT_RESPONSE
-)
-_BARS_RESPONSES = (
-    timeseries_200(FuturesBarsResponse)
     | TICK_UNAVAILABLE_RESPONSE
     | GATEWAY_TIMEOUT_RESPONSE
 )
@@ -101,12 +90,16 @@ def contract_plan_for(
     symbol: str,
     span: tuple[date | None, date | None],
     family: SchemaFamily,
+    range_over: Sequence[SchemaFamily] | None = None,
 ) -> PlanFor:
-    """The contract plan of ``family``, built on the read's own connection."""
+    """The contract plan of ``family``, built on the read's own connection;
+    a missing side of ``span`` defaults over ``range_over`` (``get_plan``)."""
     calendar_url = request.app.state.calendar_url
 
     async def plan(conn: Conn) -> GetPlan:
-        return await contract_plan(conn, calendar_url, symbol, *span, family)
+        return await contract_plan(
+            conn, calendar_url, symbol, *span, family, range_over
+        )
 
     return plan
 
@@ -117,24 +110,16 @@ def product_plan_for(
     rule: str | None,
     span: tuple[date | None, date | None],
     family: SchemaFamily,
+    range_over: Sequence[SchemaFamily] | None = None,
 ) -> PlanFor:
     """Resolves the product (404) and the rule (422) before any read."""
     entry, parsed = product_entry(product), parse_rule(rule)
     urls = (request.app.state.tick_url, request.app.state.calendar_url)
 
     async def plan(conn: Conn) -> GetPlan:
-        return await product_plan(conn, urls, entry, parsed, *span, family)
+        return await product_plan(conn, urls, entry, parsed, *span, family, range_over)
 
     return plan
-
-
-def _bars_reader(granularity: TickBarGranularity) -> ReadWindow:
-    size = parse_bar_size(granularity.value)
-
-    async def read(conn: Conn, window: TickWindow, on_batch: OnBatch) -> int:
-        return await read_provider_bars(conn, window, size, on_batch)
-
-    return read
 
 
 async def _ticks(
@@ -154,20 +139,6 @@ async def _ticks(
     )
     # The pivot touches every tick: off the loop, as the encode is (308 D6).
     model = await asyncio.get_running_loop().run_in_executor(None, build)
-    return await send_timeseries(request, model, fmt)
-
-
-async def _bars(
-    request: Request,
-    conn: Conn,
-    plan_for: PlanFor,
-    limit: int,
-    granularity: TickBarGranularity,
-    fmt: ResponseFormat,
-) -> Response:
-    reader = _bars_reader(granularity)
-    plan, rows = await _serve(request, conn, plan_for, reader, (limit, NARROW_WINDOW))
-    model = FuturesBarsResponse.from_plan(plan, granularity.value, rows)
     return await send_timeseries(request, model, fmt)
 
 
@@ -192,24 +163,6 @@ async def contract_ticks(
 
 
 @router.get(
-    "/contracts/{symbol}/bars", response_class=Response, responses=_BARS_RESPONSES
-)
-async def contract_bars(
-    request: Request,
-    symbol: str,
-    conn: TickConn,
-    max_rows: MaxRows,
-    granularity: GranularityParam,
-    start: StartParam = None,
-    end: EndParam = None,
-    fmt: Format = "json",
-) -> Response:
-    """One contract's provider bars over ``[start, end)`` sessions."""
-    plan_for = contract_plan_for(request, symbol, (start, end), SchemaFamily.BAR_1M)
-    return await _bars(request, conn, plan_for, max_rows, granularity, fmt)
-
-
-@router.get(
     "/products/{product}/ticks", response_class=Response, responses=_TICKS_RESPONSES
 )
 async def product_ticks(
@@ -230,24 +183,3 @@ async def product_ticks(
         request, product, rule, (start, end), SchemaFamily.TICK_TIER
     )
     return await _ticks(request, conn, plan_for, max_rows, (from_, until), fmt)
-
-
-@router.get(
-    "/products/{product}/bars", response_class=Response, responses=_BARS_RESPONSES
-)
-async def product_bars(
-    request: Request,
-    product: str,
-    conn: TickConn,
-    max_rows: MaxRows,
-    granularity: GranularityParam,
-    rule: RuleParam = None,
-    start: StartParam = None,
-    end: EndParam = None,
-    fmt: Format = "json",
-) -> Response:
-    """A product's bars under ``rule``, one contract per session, never merged."""
-    plan_for = product_plan_for(
-        request, product, rule, (start, end), SchemaFamily.BAR_1M
-    )
-    return await _bars(request, conn, plan_for, max_rows, granularity, fmt)

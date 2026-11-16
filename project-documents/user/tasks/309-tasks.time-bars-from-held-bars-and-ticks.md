@@ -308,61 +308,63 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 **Commit**: `feat: default the bars range over held ticks and bars`
 
-- [ ] **6.2 Response models** (`api_server/models/futures.py`)
-  - [ ] `FuturesBarsResponse`: remove `source: str`; add `sources: list[SourceRunRecord]`
+- [x] **6.2 Response models** (`api_server/models/futures.py`)
+  - [x] `FuturesBarsResponse`: remove `source: str`; add `sources: list[SourceRunRecord]`
     (`first_session`, `last_session`, `source`) and `applied: AppliedBarParams`
     (`granularity`, `rule` only for a product request and omitted for a contract, `start`,
     `end`, `format`). `applied` carries what the server used, including defaulted values:
     the parsed rule text when none was given, the plan's resolved `start` and `end`
     (null only when nothing is held and no range was given), the normalized size token,
     the response format.
-  - [ ] `from_plan` takes the served plan (task 4.1), the `BarSize`, the runs, the applied
+  - [x] `from_plan` takes the served plan (task 4.1), the `BarSize`, the runs, the applied
     values and the rows. The `BAR_COLUMNS` mapping and the bar record are unchanged.
-- [ ] **6.3 Routes** (`api_server/routes/futures_series.py`, `futures_params.py`)
-  - [ ] Both bars routes take `from` and `until` (the `FromParam`/`UntilParam` the ticks and
+- [x] **6.3 Routes** (`api_server/routes/futures_series.py`, `futures_params.py`)
+  - [x] Both bars routes take `from` and `until` (the `FromParam`/`UntilParam` the ticks and
     tick-bar routes already use; update their descriptions, which say "Ticks and tick bars
     only"). They select bars by bar start time, half-open, and are echoed in `applied`. The
     plan's windows already carry instant bounds (`TickWindow.clipped`); a bar whose bucket
     starts inside the bounds is returned whole, never cut. Without them a busy session at
     `1s` cannot be fetched under the row ceiling.
-  - [ ] `granularity` becomes a plain string query parameter whose description gives the
+  - [x] `granularity` becomes a plain string query parameter whose description gives the
     grammar. Parse with `parse_bar_size` before any read; a `ValueError` is an
     `HTTPException` 422 carrying its message (as `parse_rule` does). Remove the
     `TickBarGranularity` enum and its use.
-  - [ ] Both bars routes plan with `SchemaFamily.TICK_TIER` and, when `start` or `end` is
+  - [x] Both bars routes plan with `SchemaFamily.TICK_TIER` and, when `start` or `end` is
     omitted, take the default range from task 6.1.
-  - [ ] They build one `TimeBarRead` per request, call `read_series(..., admit=reader.admit)`,
+  - [x] They build one `TimeBarRead` per request, call `read_series(..., admit=reader.admit)`,
     and map: `TimeBarScanExceeded` to 422, `RowCeilingExceeded` to the existing 422,
     `ReadAbandoned` to the bodiless 499 (reuse `CLIENT_CLOSED_REQUEST` and the 308
     handling; share it only if `test_futures_tick_bars.py` then passes with no edit, otherwise
     leave the 308 route alone and repeat the small mapping here), `LedgerCountExceeded` to a logged `500`
     naming the session ("see the server log", as `_uncuttable` does), a cancelled statement
     to the existing 504 through `tick_errors`.
-  - [ ] Build the response model in the executor (`run_in_executor`), as the ticks and
+  - [x] Build the response model in the executor (`run_in_executor`), as the ticks and
     tick-bar routes do: validating tens of thousands of rows blocks the loop. Add the new
     limit dependency to the routes. Update `_BARS_RESPONSES` and the route docstrings:
     "provider bars" becomes "time bars from held bars or ticks".
-- [ ] **6.4 Model and parameter unit tests**
-  - [ ] `test/unit/api_server/test_futures_models.py`: `sources` replaces `source` (include a
+  Note: The bars routes moved to a new module routes/futures_time_bars.py (futures_series.py keeps ticks and the shared plan builders, which gained range_over).
+- [x] **6.4 Model and parameter unit tests**
+  - [x] `test/unit/api_server/test_futures_models.py`: `sources` replaces `source` (include a
     two-run list); `applied` includes defaulted parameters; a contract response has no `rule`
     key; the parametrized sizes (line 201) come from a literal list of sizes, not
     `TICK_BAR_GRANULARITIES`.
-  - [ ] `test/unit/api_server/test_tick_access.py`: delete the test pinning `TickBarGranularity`
+  - [x] `test/unit/api_server/test_tick_access.py`: delete the test pinning `TickBarGranularity`
     to `TICK_BAR_GRANULARITIES` and both imports (lines 18, 21).
-- [ ] **6.5 Existing tests**
-  - [ ] Update `test_futures_series.py` and `test/integration/test_operations_serving.py`
+- [x] **6.5 Existing tests**
+  - [x] Update `test_futures_series.py` and `test/integration/test_operations_serving.py`
     where they assert provider-only bars.
-  - [ ] Design criterion 6: `test_futures_tick_bars.py`, `test_futures_ticks_columnar.py`,
+  - [x] Design criterion 6: `test_futures_tick_bars.py`, `test_futures_ticks_columnar.py`,
     `test_tick_bar_reads.py` and `test/unit/data/tick/test_tick_bars*.py` pass unchanged.
+  Note: test/integration/api_server/test_futures_bars_provider.py was deleted in this commit (its provider-only assertions fail now); task 6.6 adds its replacement.
 
-- [ ] **6.5b Keep the document gates green in this commit**
-  - [ ] Two unit tests read the committed documents and fail the moment the routes change:
+- [x] **6.5b Keep the document gates green in this commit**
+  - [x] Two unit tests read the committed documents and fail the moment the routes change:
     `test/unit/api_server/test_api_docs.py` (runs `scripts/check_api_docs.py`, which
     resolves the `<!-- from: ...futures_params.TickBarGranularity -->` markers and the
     `granularity:TickBarGranularity` parameter lines in `docs/api/reference.md` and
     `docs/api/agents.md`) and `test/unit/api_server/test_openapi_artifact.py` (the committed
     `docs/api/openapi.json` must equal the generated one).
-  - [ ] So in this commit: regenerate `docs/api/openapi.json` (the generator is named in
+  - [x] So in this commit: regenerate `docs/api/openapi.json` (the generator is named in
     `test_openapi_artifact.py`), and change only the markers and parameter lines those two
     tests check (`grep -n "TickBarGranularity\|<!-- from:\|granularity:" docs/api/reference.md
     docs/api/agents.md`). The prose rewrite stays in section 9. Both tests pass.
