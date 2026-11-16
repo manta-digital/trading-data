@@ -14,7 +14,7 @@ projectState: Slice design committed and reviewed (CONCERNS). `tick status` and 
   `accounting`, `overview` and the `/api/v1/status` tick block know only the tick
   tier. `_families` and `_judged` live in `tick_status_build.py` (288 lines).
 dateCreated: 20261108
-dateUpdated: 20261108
+dateUpdated: 20261115
 status: complete
 turns: 21
 promptTokens: 1562390
@@ -53,7 +53,7 @@ revision_number: 2
   - Format only the files you touched (`ruff format <files>`), then check `git diff` for unrelated deletions before each commit.
   - Existing tests to extend or keep green: `test/unit/data/tick/test_tick_status.py`, `test_tick_status_scope.py`, `test_statistics_status.py`, `test/integration/data/test_tick_accounting.py`, `test_health_tick.py`, `test/integration/test_overview_gather.py`, `test/unit/api_server/test_futures_models.py`, `test/load/test_231_futures_api_nfr.py`.
   - A failure outside the touched areas: re-run it in isolation, and compare against `main`, before investigating.
-- Next planned slice: 306 (serving), then 307 (history acquisition), which consumes the surfaces and the measurement.
+- Next planned slice: 306 (serving), then 307 (history acquisition), which consumes the surfaces and the measurement (superseded on 2026-11-15: both were removed; slice 309 serves time bars from held provider bars where they can make the size, else from ticks, and nothing is bought without a use the PM names).
 
 ---
 

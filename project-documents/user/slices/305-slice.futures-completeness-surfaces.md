@@ -9,7 +9,7 @@ dependencies:
 interfaces:
 - 307
 dateCreated: 20261108
-dateUpdated: 20261108
+dateUpdated: 20261115
 status: complete
 turns: 34
 promptTokens: 3283443
@@ -33,14 +33,14 @@ usageByModel:
 
 Slices 302 (`ohlcv-1m` bars) and 303 (`statistics`) each shipped their tier's completeness check, but only in `mt data tick status` and `mt data tick coverage`. The surfaces operators actually read every day (`mt data health`, `mt data accounting`, `mt data overview` and the `tick` block of `/api/v1/status`) still know only the tick tier. A product that wants bars and statistics back to 2010 can be half bought and nothing outside `tick status` says so.
 
-This slice brings every futures family into those surfaces, in place, through one function that `status` already uses. It defines, per family, the **source edge** (the last instant the provider can have published that family's data) and **caught up** (every wanted session up to that edge is complete, or a provider hole). It wires the cross-tier layer: 303's traded-volume-against-cleared-volume check runs in health and accounting, and the `ohlcv-1s`-summed-to-minutes check is registered but inactive until that schema exists. Finally, it measures status, accounting, health, the preflight and a steady-state pass against a manifest at the full size 307 will reach (about 30,000 units), with fixed bounds, before 307 makes that size real.
+This slice brings every futures family into those surfaces, in place, through one function that `status` already uses. It defines, per family, the **source edge** (the last instant the provider can have published that family's data) and **caught up** (every wanted session up to that edge is complete, or a provider hole). It wires the cross-tier layer: 303's traded-volume-against-cleared-volume check runs in health and accounting, and the `ohlcv-1s`-summed-to-minutes check is registered but inactive until that schema exists. Finally, it measures status, accounting, health, the preflight and a steady-state pass against a manifest at the full size of 2010-to-2026 history (about 30,000 units), with fixed bounds, before any purchase makes that size real.
 
 It buys nothing and changes no ingest or acquisition behaviour.
 
 ## Value
 
 - **One answer in every surface.** `mt data health` fails on a futures defect (a failed unit, more traded than cleared), `accounting` counts sessions per family, and `/api/v1/status` gives trading-ui and trading-engine the same figures. Nobody has to know that `tick status` exists to learn that ES statistics stop in 2016.
-- **307 can be verified.** History acquisition takes the full range through the pass. Its findings are only as good as the surfaces that report them, and the plan puts 305 before 307 for that reason.
+- **307 can be verified.** History acquisition takes the full range through the pass. Its findings are only as good as the surfaces that report them, and the plan puts 305 before 307 for that reason. (Superseded: slice 307, history acquisition back to 2010, was deleted on 2026-11-15.)
 - **No surprise at 100 times today's manifest.** Status, accounting and health currently judge about 200 units. The measurement proves they answer at about 30,000, or fixes the query that does not, before the purchase that creates them.
 - **A defect is told apart from work not yet done.** A product configured but not yet bought shows as not caught up (informational). A failed unit or an over-count fails health. Health stays a signal someone can act on.
 
@@ -56,15 +56,15 @@ It buys nothing and changes no ingest or acquisition behaviour.
 - `mt data accounting` futures section: one line per product and family (D6).
 - `mt data overview`: one freshness line per family (D7).
 - `/api/v1/status` `tick` block: per-family records, additive, documented for humans and agents (D8).
-- The manifest-scale measurement: a load test at 307's full shape, fixed bounds, and a recorded note (D9, D10).
+- The manifest-scale measurement: a load test at the full 2010-to-2026 shape, fixed bounds, and a recorded note (D9, D10).
 
 **Excluded**
 
 - Continuous aggregates over any tick table, and any new entry in `COVERAGE_SOURCE_TABLE` (D1).
-- Any purchase or universe change (304, 307).
-- Serving bars, open interest or settlement (306).
+- Any purchase or universe change (304).
+- Serving bars (slice 309: from held provider bars where they can make the size, else from ticks), open interest or settlement (undecided).
 - The `ohlcv-1s` schema, table, reader and its "no ticks wanted" marker (future work in the slice plan).
-- Tick-derived against provider bar parity (306 measures it when it retires the read-time tick bars).
+- Tick-derived against provider bar parity (running it automatically is Future Work; slice 309 removed its command and kept the code).
 - `/api/v1/health` and `/api/v1/overview`. They keep their 231 shape: health there reports the tick database's state, and the overview's tick line stays CLI-only (230 TD7). The status block is the API's completeness surface.
 - Changing whether the `tick database` row counts. 234 TD6 made it informational and said counting it is a PM decision; this slice leaves it alone.
 
@@ -76,7 +76,7 @@ It buys nothing and changes no ingest or acquisition behaviour.
 - **303 (statistics and the open-interest roll rule), merged:** `SchemaFamily.STATISTICS`, `statistics_verdicts` (sessions judged over their publication window), `content_findings`, `volume_check`, `classify_volume`, `STATISTICS_PUBLICATION_SESSIONS`, and the real statistics fixtures.
 - **The test cluster** (`MT_TIMESCALE_TEST_URL`) for the throwaway measurement database. It has no TimescaleDB job scheduler, so the fixture compresses chunks itself.
 
-Context for the production walkthrough only, not a prerequisite: 304 (first real purchase) configured production's `TICK_UNIVERSE` to want `definition` and `statistics` for ES and GC from 2010-06-08 to 2026-11-01, and ES `ohlcv-1m` for 2024. If its purchase has not run, production shows those families as not caught up, which is the correct report.
+Context for the production walkthrough only, not a prerequisite: 304 (first real purchase) configured production's `TICK_UNIVERSE` to want `definition` and `statistics` for ES and GC from 2010-06-08 to 2026-11-01, and ES `ohlcv-1m` for 2024 (superseded: slice 309 removed those wants on 2026-11-15, and the purchase never ran). If its purchase has not run, production shows those families as not caught up, which is the correct report.
 
 ### Interfaces Required
 
@@ -221,7 +221,7 @@ A row is one of three states, taken from the first rule that matches:
 
 The detail is one line: complete over judged sessions, the source edge, caught up or not, and each non-zero bucket or finding count by name, for example `4,118/4,131 complete to 2026-11-06; not caught up: 13 missing` or `5,012/5,012 complete to 2026-11-05; caught up; traded_vs_cleared tbbo: 0 over, 2 no_trades; 3 content findings`.
 
-Why the split: a counted check must be something a run can fix. A failed unit is fixed by a retry; `over` (more traded than CME cleared) is a double load or a wrong session, our defect. Not caught up is work not yet done: a product configured and not yet bought, which right after this release is production's own state until 304's purchase runs. Content findings and `no_trades` report what the provider delivered; 303 measured that deferred months legitimately lack cleared volume, and a provider gap in 2011 can never be fixed. Counting those would make health fail permanently on facts, and a check that always fails is ignored. They are named in health, listed per session in `status` and `coverage`, and 307 records them. Not caught up stays `INFO` after acquisition too, so health alone does not separate a real gap from work not yet done. The slice plan's 307 entry carries the criterion that does: once 307's purchases are ingested, every family's not-caught-up count is zero, or every remaining session is recorded by name with its reason.
+Why the split: a counted check must be something a run can fix. A failed unit is fixed by a retry; `over` (more traded than CME cleared) is a double load or a wrong session, our defect. Not caught up is work not yet done: a product configured and not yet bought, which right after this release was production's own state. Content findings and `no_trades` report what the provider delivered; 303 measured that deferred months legitimately lack cleared volume, and a provider gap in 2011 can never be fixed. Counting those would make health fail permanently on facts, and a check that always fails is ignored. They are named in health, listed per session in `status` and `coverage`, and a history purchase records them. Not caught up stays `INFO` after acquisition too, so health alone does not separate a real gap from work not yet done. The slice plan's 307 entry carried the criterion that does (slice 307 was deleted on 2026-11-15): once its purchases are ingested, every family's not-caught-up count is zero, or every remaining session is recorded by name with its reason.
 
 **Failure and concurrency.**
 
@@ -256,10 +256,10 @@ The existing fields stay and keep their meaning, so the change is additive. `doc
 ### D9 — The manifest-scale measurement
 Status: decided
 
-**Shape.** One throwaway database on the test cluster, migrated to head, seeded to 307's full shape by `test/load/manifest_scale_seed.py`:
+**Shape.** One throwaway database on the test cluster, migrated to head, seeded to the full 2010-to-2026 shape by `test/load/manifest_scale_seed.py`:
 
 - ES and GC, 2010-06-08 to 2026-11-01, every session day from the real calendars: `definition`, `statistics` and `ohlcv-1m` units for both, plus the held-window `tbbo` units. That is about 30,000 units in month-run requests, all `ingested`.
-- Ledger rows per unit at real proportions: instruments per day and stat types per instrument taken from the real 2024 fixtures (definitions, statistics, the derived `ohlcv-1m` day), so the ledgers are the size 307 will make them.
+- Ledger rows per unit at real proportions: instruments per day and stat types per instrument taken from the real 2024 fixtures (definitions, statistics, the derived `ohlcv-1m` day), so the ledgers are the size a full-range purchase would make them.
 - `tick_definition` rows per instrument over the range.
 - `tick_statistics` at its full size (19.4 M records for ES and GC, the architecture's cost table), with the stat-type mix of the real fixtures, because `volume_check` reads resolved cleared volume from the raw table. `tick_ohlcv_1m` raw rows are not seeded: no surface measured here reads them.
 - Day conditions for every day, and one `tick_dataset_edge` row.
@@ -282,7 +282,7 @@ The test runs under `MT_RUN_LOAD_TESTS=1` like the rest of the load tier, and ne
 ### D10 — A missed bound is fixed in this slice
 Status: decided
 
-A bound is not raised to pass. A miss is fixed here by a query rewrite (set-based instead of per-session) or an index, delivered as tick migration `tick_011_*` if it is an index (next after `tick_010_statistics`; read the last id at implementation), and re-measured. If the fix needs stored or cached derived state, a new table or a change in what a surface reports, it is beyond this slice: an issue is filed with the measurement, and 307 depends on it, since 307 creates the scale. The bounds and the outcome are recorded in the note either way.
+A bound is not raised to pass. A miss is fixed here by a query rewrite (set-based instead of per-session) or an index, delivered as tick migration `tick_011_*` if it is an index (next after `tick_010_statistics`; read the last id at implementation), and re-measured. If the fix needs stored or cached derived state, a new table or a change in what a surface reports, it is beyond this slice: an issue is filed with the measurement, and any purchase that creates the scale depends on it. The bounds and the outcome are recorded in the note either way.
 
 ## Implementation Details
 
@@ -312,9 +312,9 @@ The figures above show the shape only. The existing top-level fields are the tic
 
 ### Provides to Other Slices
 
-- **307 (futures history acquisition):** every family's verdict and caught up in health, accounting and the API, and the cross-tier counts in health and accounting, which 307 runs over the whole range and records; and the measurement (and, if a bound missed, the issue 307 then depends on). Because not caught up is `INFO` (D5), the slice plan's 307 entry now carries the exit criterion: each family's not-caught-up count is zero after its purchases are ingested, or every remaining session is recorded by name with its reason.
+- **307 (futures history acquisition):** every family's verdict and caught up in health, accounting and the API, and the cross-tier counts in health and accounting, which 307 runs over the whole range and records; and the measurement (and, if a bound missed, the issue 307 then depends on). Because not caught up is `INFO` (D5), the slice plan's 307 entry now carries the exit criterion: each family's not-caught-up count is zero after its purchases are ingested, or every remaining session is recorded by name with its reason. (Superseded: slice 307 was deleted on 2026-11-15; nothing is bought without a use the PM names.)
 - **The `ohlcv-1s` slice (future work):** one `FAMILY_PUBLICATION_LAG` entry to add, and the `ohlcv_1s_minute_sum` entry in `INACTIVE_CROSS_TIER_CHECKS` to replace with an active check (introducing a registry then, if two checks are active), whose comparison that slice builds (issue #71).
-- **306 (serving):** nothing it must consume. Its own decision about serving open interest is independent of the status block.
+- **306 (serving):** nothing it must consume. Its own decision about serving open interest is independent of the status block. (Superseded: slice 306 was removed; slice 309 serves time bars.)
 
 ### Consumes from Other Slices
 
@@ -349,7 +349,7 @@ The figures above show the shape only. The existing top-level fields are the tic
 
 ### Integration Requirements
 
-- 307 can run `mt data health`, `accounting` and `tick status` over the full range and get each family's verdict without a new command.
+- A full-range purchase can run `mt data health`, `accounting` and `tick status` over the full range and get each family's verdict without a new command.
 - `docs/api/reference.md`, `agents.md` and `openapi.json` describe the new `families` field and `caught_up: null`.
 
 ### Verification Walkthrough
@@ -431,7 +431,7 @@ Caveats found while verifying: a family's sessions that other units touch outsid
 
 ### Mitigation Strategies
 
-- The measurement runs on a seeded database before 307 creates the scale, and D10 says what a miss leads to. The slowest statement's plan is recorded, so a fix starts from evidence.
+- The measurement runs on a seeded database before any purchase creates the scale, and D10 says what a miss leads to. The slowest statement's plan is recorded, so a fix starts from evidence.
 
 ## Implementation Notes
 

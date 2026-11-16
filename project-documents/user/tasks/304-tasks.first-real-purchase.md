@@ -13,7 +13,7 @@ projectState: 300-303 are merged; production is at release 0.26.0 with the tick 
   no history wants; no ceiling-setting script, reconciliation script or 304 cutover
   script exists
 dateCreated: 20261107
-dateUpdated: 20261107
+dateUpdated: 20261115
 status: complete
 turns: 28
 promptTokens: 2199930
@@ -35,9 +35,9 @@ revision_number: 2
 ## Context Summary
 
 - Working on the `first-real-purchase` slice (304). Design: `user/slices/304-slice.first-real-purchase.md`. Decision references (D1-D8) point into it. Source paths are under `src/manta_trading/`.
-- The slice's code is small: one universe edit (D1), one root script that sets the two spend ceilings (D4), one read-only reconciliation script (D5), one cutover script (D3, D6, D7), and a runbook update. The purchase itself (about $6.3, usage-billed) is Phase 7: it runs after merge and release, through the cutover script. **No task here spends money, touches production, or runs the cutover.** Phase 6 ends at a local commit.
+- The slice's code is small: one universe edit (D1), one root script that sets the two spend ceilings (D4), one read-only reconciliation script (D5), one cutover script (D3, D6, D7), and a runbook update. The purchase itself (about $6.3, usage-billed) is Phase 7: it runs after merge and release, through the cutover script (superseded on 2026-11-15: it was never run, production wants no history, and nothing is bought without a use the PM names). **No task here spends money, touches production, or runs the cutover.** Phase 6 ends at a local commit.
 - Preconditions for Phase 7, recorded here and not tasks: the ceiling script is run by root with `--per-pass 7 --cap-30d 16`, and production is at the release carrying this slice.
-- Excluded: GC `ohlcv-1m` and ES bars outside 2024 (307), any tick tier change, health/accounting/overview verdicts (305), serving (306), ingest-rule changes, the invoice comparison (issue #69), the close-minute bar check (issue #70). Nothing new is added to `deploy/sudoers.d/manta-ops`.
+- Excluded: GC `ohlcv-1m` and ES bars outside 2024 (not wanted), any tick tier change, health/accounting/overview verdicts (305), serving (slice 309), ingest-rule changes, the invoice comparison (issue #69), the close-minute bar check (issue #70). Nothing new is added to `deploy/sudoers.d/manta-ops`.
 - Ground rules: no silent fallbacks, no magic defaults (one named constant per value); source files stay within about 300 lines; no secrets in code. `ruff format` touched files only, then check `git diff main` for swept lines before each commit. Run mypy with the kalshi src paths and tests in one invocation. Export `MT_TIMESCALE_TEST_URL` from `.env` (quotes stripped) before integration tests. Never touch the production database; tests use temp files, canned data and throwaway databases.
 - Known pre-existing failures to ignore: migration 051/052 chain tests, the test cluster's missing TimescaleDB scheduler (`test_policy_advances_head.py`), `test_health_tick` pair needing `MT_BACKUP_ROOTS`, and the listed integration flakes (re-run in isolation before investigating).
 - Patterns to follow: `scripts/cutover_303_tick_migrations.py` and `scripts/cutover_common.py` (numbered check-then-act steps, narration to `project-documents/user/notes/`), `deploy/add-tick-env.sh` with `test/unit/deploy/test_add_tick_env.py` (script test through hooks), `deploy/lib/env_value.sh`.

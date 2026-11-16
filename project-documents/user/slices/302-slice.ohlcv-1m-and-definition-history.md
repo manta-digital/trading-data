@@ -13,7 +13,7 @@ interfaces:
 - 306
 - 307
 dateCreated: 20261101
-dateUpdated: 20261103
+dateUpdated: 20261115
 status: complete
 turns: 34
 promptTokens: 3149976
@@ -42,11 +42,11 @@ A bar record carries only an `instrument_id`. It becomes a contract through `tic
 
 The tier ships with its completeness check. A bar unit is load-complete when the provider, decoded and stored counts agree and every bar lies in the unit's UTC day. `mt data tick status` and `mt data tick coverage` report the bar tier per CME session, beside the tick tier. A quiet session with few bars is not a hole.
 
-Nothing is bought. No provider `ohlcv-1m` file is held, so the code is built and tested on the DBN project's sample files and on one real-shape bar day computed from a held `tbbo` day. Production configures no history wants, so the pass plans exactly what it plans today. Slice 304 (first real purchase) ingests the first real bar file.
+Nothing is bought. No provider `ohlcv-1m` file is held, so the code is built and tested on the DBN project's sample files and on one real-shape bar day computed from a held `tbbo` day. Production configures no history wants, so the pass plans exactly what it plans today. Slice 304 (purchase path) ingests the first real bar file when the PM names a purchase; it has never run in production.
 
 ## Value
 
-- **Unblocks the rest of the plan.** 303 (statistics and the open-interest roll rule) needs contract identity back to 2010 and per-session bar volume. 304 buys bars and definitions through the path built here. 305 brings the bar verdicts into the operator surfaces. 306 serves time bars from `tick_ohlcv_1m`. 307 fills the full range.
+- **Unblocks the rest of the plan.** 303 (statistics and the open-interest roll rule) needs contract identity back to 2010 and per-session bar volume. 304 (purchase path) can buy bars and definitions through the path built here. 305 brings the bar verdicts into the operator surfaces. Slice 309 serves time bars from `tick_ohlcv_1m` where held bars can make the size, else from ticks. Nothing is bought back to 2010 without a use the PM names (superseded 2026-11-15: slices 306 and 307 were removed).
 - **History before 2024 becomes possible.** Once bought, research can reach back to 2010 on bars. Ticks cover only what is bought.
 - **A verdict, not a hope.** `mt data tick status --product ES` says whether a bar range is load-complete, and `coverage --schema ohlcv-1m` proves stored rows match the ledger per session.
 - **No spend and no behaviour change today.** The tick pipeline, the production pass and its spend lines are unchanged until 304 configures a range.
@@ -68,12 +68,12 @@ Nothing is bought. No provider `ohlcv-1m` file is held, so the code is built and
 
 **Excluded**
 
-- Any purchase, or any change to the production universe's ranges (304, 307).
+- Any purchase, or any change to the production universe's ranges (304, the purchase path).
 - `statistics`, content completeness (bar volume against `statistics` cleared volume) and the open-interest roll rule (303).
 - `health`, `accounting`, `overview` and the status coverage aggregates. The slice plan assigns these to 305, the futures completeness surfaces slice; this slice ships `status` and `coverage`, the two the plan entry names.
 - `ohlcv-1s` and the explicit "no ticks wanted" marker it needs (future work in the slice plan). Provider `ohlcv-1h` and `ohlcv-1d` are not archived here. They are never served, and whether to archive them is decided at the architecture's recorded revisit (PM, 2026-10-28).
-- Serving bars through `/api/v1/futures/*` or `mt data tick get` (306). No API change here (D11).
-- Tick-derived against provider bar parity. It needs provider bars over a window where ticks are held, which first exists after 304; 306 measures it when it retires the read-time tick bars.
+- Serving bars through `/api/v1/futures/*` or `mt data tick get` (slice 309, time bars from held bars and ticks). No API change here (D11).
+- Tick-derived against provider bar parity. It needs provider bars over a window where ticks are held, which first exists after a purchase. Running it automatically is Future Work (superseded by slice 309, which keeps the comparison code and has no command for it).
 - CME calendar data before 2020 (301).
 - Renaming the `tick` track, `MT_TICK_*` or `mt data tick` (architecture, "Generalising the archive beyond tick tiers").
 
@@ -217,7 +217,7 @@ Status: decided
 
 The planner's `_tier_wants` becomes `_wants` over the tier and the history wants. Both produce `(shape, days)` and go through the same classification, runs and ordering. A definition want is a want of its own, not a companion. The companion bundle (`_companion_wants`) stays a tick-tier rule (300 D4), and the union of the two definition sets is what gets bought.
 
-Production keeps `history=()` for ES and GC. With a 2010 definition want and no plan configured, the pass would plan $2.72 of definitions against the $0.50 ceiling and refuse every run. Setting the ranges, and the ceiling for that run, is 304's job.
+Production keeps `history=()` for ES and GC. With a 2010 definition want and no plan configured, the pass would plan $2.72 of definitions against the $0.50 ceiling and refuse every run. Setting the ranges, and the ceiling for that run, belongs to a purchase the PM names, through 304's purchase path.
 
 - *Rejected: one field per schema* (`ohlcv_1m_range`, `definition_range`). Each later schema would add a field. A tuple of wants grows by data.
 - *Rejected: companion definitions for bar days.* It would hide the definition range being bought, which is a range of its own.
@@ -264,7 +264,7 @@ A pre-2020 record with an undefined activation or expiration fails its unit, nam
 ### D11 — No API change
 Status: decided
 
-306 answers the API question for bars: it serves provider `ohlcv-1m` for 1m and every coarser bar and retires the read-time tick bars (journal 20261101 ADR). Serving bars here would ship a second bars path before that retirement. `/api/v1/futures/*` and `mt data tick get` do not change.
+Slice 309 answers the API question for bars: held provider bars where they can make the size, else bars cut from ticks (journal 20261115 ADR, superseding the provider-only rule of 20261101). Serving bars here would ship a second bars path. `/api/v1/futures/*` and `mt data tick get` do not change.
 
 ## Implementation Details
 
@@ -285,8 +285,8 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 - **303:** contract identity back to 2010 in `tick_definition`; per-session bar volume in `tick_bar_ledger` for the cross-tier check; `HistoryWant`, to which 303 adds `statistics`; and the family, ledger and projector pattern. Before 2024 there are no ticks, so a volume-based roll rule over 2010 to 2023 can read only bar volume: 303 must read `tick_bar_ledger` for bar-only ranges, not `tick_ingest_ledger`.
 - **304:** ES and GC `history` wants set by editing `TICK_UNIVERSE`, and the `ohlcv-1m` estimate row. A bought bar day goes straight through ingest, status and coverage.
 - **305:** per-family session verdicts and `caught up` for the bar tier, to bring into `health`, `accounting` and `overview`.
-- **306:** `tick_ohlcv_1m` as the provider-bar source, keyed for range reads per instrument.
-- **307:** the same path over the full range.
+- **309 (time bars from held bars and ticks):** `tick_ohlcv_1m` as the held provider-bar source, keyed for range reads per instrument.
+- **307:** the same path over the full range (superseded: slice 307 was deleted on 2026-11-15; nothing is bought without a use the PM names).
 
 ### Consumes from Other Slices
 
@@ -402,13 +402,13 @@ Run from the checkout root. Step 1 and 3 need `MT_TIMESCALE_TEST_URL` exported f
    ```
    Expected and observed: a fifth row `ohlcv-1m` with 13,857 records, 775,992 billable bytes, `cost_usd` `0.050588920712` (list price), `bundle_cost_usd` null, `is_plan_included: false` (no plan configured) and `ceiling_verdict: within` against the $0.50 ceiling, while `trades` and `tbbo` read `over`.
 
-6. **Production, after merge** (not run here). Apply `tick_009` with `mt data migrate apply --track tick`, then `sudo mt-run data health`. Expected: the tick lines are unchanged, and `mt data tick status` shows no `ohlcv-1m` section, because no entry wants bars until 304.
+6. **Production, after merge** (not run here). Apply `tick_009` with `mt data migrate apply --track tick`, then `sudo mt-run data health`. Expected: the tick lines are unchanged, and `mt data tick status` shows no `ohlcv-1m` section, because no entry wants bars.
 
 ## Risk Assessment
 
 ### Technical Risks
 
-- **Old definitions.** Records from 2010 to 2019 may carry undefined windows or reused instrument ids in shapes the 2024 files never showed. No pre-2020 definition file is held, so this cannot be exercised before 304.
+- **Old definitions.** Records from 2010 to 2019 may carry undefined windows or reused instrument ids in shapes the 2024 files never showed. No pre-2020 definition file is held, so this cannot be exercised until one is bought.
 - **Bar layout assumptions.** The derived fixture is computed by us. A provider detail it does not show (a bar for an instrument with no definition that day, or a publisher id we do not expect) first appears in 304.
 
 ### Mitigation Strategies

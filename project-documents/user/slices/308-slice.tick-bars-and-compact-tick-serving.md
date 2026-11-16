@@ -7,7 +7,7 @@ dependencies:
 - 306
 interfaces: []
 dateCreated: 20261108
-dateUpdated: 20261112
+dateUpdated: 20261115
 status: complete
 turns: 27
 promptTokens: 2148565
@@ -29,7 +29,7 @@ usageByModel:
 
 ## Overview
 
-After 306, time bars come only from provider `ohlcv-1m`, and ticks are served only as raw rows: about 200 bytes per tick, 14 columns, with the session, symbol and instrument repeated on every row. Ticks are held for two things bars cannot give (journal 20261101 ADR): bars of N trades at any N, and event-level views. This slice serves both.
+After 306, time bars came only from provider `ohlcv-1m` (superseded by slice 309: time bars come from held provider bars where they can make the size, else from ticks), and ticks are served only as raw rows: about 200 bytes per tick, 14 columns, with the session, symbol and instrument repeated on every row. Ticks are held for two things bars cannot give (journal 20261101 ADR): bars of N trades at any N, and event-level views. This slice serves both.
 
 - **One rollup module.** `data/tick/tick_bars.py` takes one trade at a time and returns closed bars plus the current partial bar. One tick is one trade record. The count restarts at each session open. The last bar of a session is kept and marked partial. History feeds it stored trades in a loop. There is no SQL version.
 - **A tick-bar route** under `/api/v1/futures/{contracts/{symbol} | products/{product}}/tick-bars` with `ticks_per_bar` = any positive integer.
@@ -59,7 +59,7 @@ trading-ui's requirements (issue #62) are met as accepted there. The human and a
 
 - Live streaming and any live cutting (280). The module's partial-bar output is built and tested here, and history uses it only for a session's last bar.
 - A CLI form of tick bars. `mt data tick get ticks` keeps its row output (D8).
-- Time bars from ticks: the ADR forbids them. 306's parity check is the only tick-derived time bar.
+- Time bars from ticks: the 20261101 ADR forbade them (superseded by slice 309: time bars come from held provider bars where they can make the size, else from ticks).
 - Volume, range or dollar bars. The ADR names trade-count bars only.
 - `mbp-1`/`bbo` quotes between trades: not bought (PM, 2026-11-01). Bid/ask is the quote at each trade.
 - Any purchase, migration or new table.
@@ -69,7 +69,7 @@ trading-ui's requirements (issue #62) are met as accepted there. The human and a
 
 ### Prerequisites
 
-- **306 (merged before Phase 6 starts):** the bars routes read provider bars only, `get_plan`'s plans take a `family` and `verdicts_for(family)` exists (306 D3), and `source` is on time-bar responses.
+- **306 (merged before Phase 6 starts):** the bars routes read provider bars only (superseded by slice 309: time bars come from held provider bars where they can make the size, else from ticks), `get_plan`'s plans take a `family` and `verdicts_for(family)` exists (306 D3), and `source` is on time-bar responses.
 - **302/300:** `tick_trade` and the tick ledger, `SchemaFamily.TICK_TIER`, `status_reads.ledger_totals` (record count per instrument and session over current units).
 - **301/221:** the CME sessions that define each window's open and close.
 
@@ -209,7 +209,7 @@ Status: decided
 - `start`, `end` (session dates, end exclusive), `from`, `until` (half-open instants, filtering by `open_time`), `rule` (product), `format`: the same parameter types the `/ticks` routes use.
 - Plans with `family=TICK_TIER`, so the default range is held tick sessions and `incomplete` carries tick verdicts. Product reads take one contract per session from the same `build_schedule` as `/ticks`, `/bars` and `/schedule`; a roll falls on a session boundary, where the count restarts anyway.
 - Errors map through `tick_errors` as on every futures route: 404 unknown product or contract, 422 bad rule or range, 503 tick database unavailable, 504 statement timeout. A cutter input error is a 500 (D1).
-- No `source` field. 306's `source` says which provider bar schema a time bar came from. A tick bar has one possible source, the stored trades, and the route names it.
+- No `source` field. A time bar's `source` says what it was made from (held provider bars or ticks, slice 309). A tick bar has one possible source, the stored trades, and the route names it.
 
 Rejected: *`ticks_per_bar` from a fixed menu.* The ADR makes any N non-negotiable.
 
@@ -337,7 +337,7 @@ Status: decided
 
 ### Consumes from Other Slices
 
-- **306:** the family-parameterised plan, `verdicts_for`, and the provider-only bars routes. 308 does not start Phase 6 until 306 is merged.
+- **306:** the family-parameterised plan, `verdicts_for`, and the provider-only bars routes (the provider-only rule is superseded by slice 309: time bars come from held provider bars where they can make the size, else from ticks). 308 does not start Phase 6 until 306 is merged.
 - **302/300:** `tick_trade`, `ledger_totals`. Admission is exact only while ledger and rows agree. A disagreement is a `coverage` finding (exit 3). If it ever happens, the bar ceiling and the statement timeout still bound the read.
 
 ## Success Criteria

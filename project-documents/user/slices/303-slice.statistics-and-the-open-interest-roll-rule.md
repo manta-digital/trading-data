@@ -13,7 +13,7 @@ interfaces:
 - 306
 - 307
 dateCreated: 20261103
-dateUpdated: 20261107
+dateUpdated: 20261115
 status: complete
 turns: 54
 promptTokens: 6906274
@@ -49,7 +49,7 @@ The volume rule also learns to read bar volume for sessions with no ticks, as 30
 ## Value
 
 - **The deferred roll rule ships.** 229 deferred open interest because ES gained nothing from it. GC rolls on open interest a week or more before volume, so research on GC needs it.
-- **Each roll rule can answer over the whole history.** With bar volume as a basis, `v.0` can answer for 2010 to 2023 once bars are bought (307). `n.0` needs only `statistics`, which cost $1.45 for both products over all history.
+- **Each roll rule can answer over the whole history.** With bar volume as a basis, `v.0` can answer for 2010 to 2023 once bars are bought, which needs a use the PM names (slice 307, which was to buy them, was deleted on 2026-11-15). `n.0` needs only `statistics`, which cost $1.45 for both products over all history.
 - **Bars get a content check.** Load-complete was all 302 could prove. Cleared volume per contract and session tells whether a session's bars or ticks hold the traded volume, and an excess shows a load defect.
 - **Statistics are proven on real data before 304 relies on them.** The record definition's semantics are confirmed on purchased files, and 304's purchase runs on a path already exercised.
 
@@ -71,11 +71,11 @@ The volume rule also learns to read bar volume for sessions with no ticks, as 30
 
 **Excluded**
 
-- Serving open interest or settlement through `/api/v1/futures/*` (306 decides).
+- Serving open interest or settlement through `/api/v1/futures/*` (undecided; slice 306, which was to decide, was removed).
 - `health`, `accounting`, `overview` and the status coverage aggregates (305).
 - Interpreting `stat_flags` (final or preliminary, actual or theoretical). Flags are stored as delivered; no reader here needs them (D5).
 - Any change to the production universe. Production keeps `history=()` until 304.
-- Pre-2020 statistics. Nothing before 2024-08-30 is bought here (304, 307).
+- Pre-2020 statistics. Nothing before 2024-08-30 is bought here (304).
 - Making `n.0` the project default or adding it to `STATUS_ROLL_RULES`.
 
 ## Dependencies
@@ -230,9 +230,9 @@ Status: decided
 
 `statistics_reads.resolved(conn, shape, stat_types, first, last)` returns one row per `(instrument_id, stat_type, session_date)` over current units of the shape (`SHAPE_WHERE`): the record with the greatest `(ts_recv, sequence, record_ordinal)`. If that record is a `DELETE`, the key has no value. The SQL is one `DISTINCT ON` written in code; every value is bound. It returns the winning record's `unit_id`, so a roll answer names the units its basis came from.
 
-Resolution is at read time, not in a stored table: corrections arrive in later units, and a stored winner would need rewriting on every ingest. Its cost at scale is not known from this slice: D11 times it over the four-month window only, and the table reaches 19.4 M rows over the full range. 307, which first holds the full range, times the read over a `TICK_ROLL_MAX_SESSIONS` schedule. If it exceeds `TICK_ROLL_STATEMENT_TIMEOUT_SECONDS`, the request fails as every roll-path database error does (229 TD9): the CLI exits with its database error, naming the product and range. It never returns a partial or empty schedule. A stored resolved table is reconsidered then, on that measurement.
+Resolution is at read time, not in a stored table: corrections arrive in later units, and a stored winner would need rewriting on every ingest. Its cost at scale is not known from this slice: D11 times it over the four-month window only, and the table reaches 19.4 M rows over the full range. Whichever slice first holds the full range times the read over a `TICK_ROLL_MAX_SESSIONS` schedule. If it exceeds `TICK_ROLL_STATEMENT_TIMEOUT_SECONDS`, the request fails as every roll-path database error does (229 TD9): the CLI exits with its database error, naming the product and range. It never returns a partial or empty schedule. A stored resolved table is reconsidered then, on that measurement.
 
-Settlement's final and preliminary flags are not interpreted. The latest settlement record wins whatever its flag, and no reader in this slice depends on finality. The bit layout is not in the SDK source; 306 decides whether settlement is served and reads the flags then. The purchase records the flag values observed.
+Settlement's final and preliminary flags are not interpreted. The latest settlement record wins whatever its flag, and no reader in this slice depends on finality. The bit layout is not in the SDK source; Whichever slice decides whether settlement is served reads the flags then. The purchase records the flag values observed.
 
 - *Rejected: a resolved materialised table or continuous aggregate.* Derived state would need its own invalidation, and an aggregate never answers "what do I have" (journal 20260725).
 
@@ -268,7 +268,7 @@ Status: decided
 
 `over` and `no_trades` set the exit code to 3. `under` does not. CME cleared volume includes trades made away from Globex (block trades, exchanges for physical and for related positions), which neither ticks nor provider bars carry, so V below C is normal. The architecture's "agrees" is refined to this. The purchase measures V / C over the held window and records its distribution.
 
-**One implementation, parameterised by family.** `statistics_reads.volume_check(conn, shape, family, first, last) -> tuple[VolumeVerdict, ...]` is a connection-bound query: one resolved read of cleared volume (D5) and one ledger read of the given family, both bounded by `[first, last]`. The verdict is assigned by a pure `classify_volume(cleared, traded)`. Coverage calls it once per volume family complete in the range. In this slice the tick-tier run over the purchased window is the evidence; the bar run is exercised only on the derived 2024-12-03 day, since no provider bars are held until 304. Its cost is a raw-table read proportional to the range; the evaluation note records it per session over the window. 305 calls the same function for `health` and the other surfaces and chooses the range those surfaces read.
+**One implementation, parameterised by family.** `statistics_reads.volume_check(conn, shape, family, first, last) -> tuple[VolumeVerdict, ...]` is a connection-bound query: one resolved read of cleared volume (D5) and one ledger read of the given family, both bounded by `[first, last]`. The verdict is assigned by a pure `classify_volume(cleared, traded)`. Coverage calls it once per volume family complete in the range. In this slice the tick-tier run over the purchased window is the evidence; the bar run is exercised only on the derived 2024-12-03 day, since no provider bars are held. Its cost is a raw-table read proportional to the range; the evaluation note records it per session over the window. 305 calls the same function for `health` and the other surfaces and chooses the range those surfaces read.
 
 ### D9 — The open-interest rule, `n`
 Status: decided
@@ -311,7 +311,7 @@ The purchase runs the branch's pass against a throwaway tick database and a scra
 
 The evaluation (`user/notes/303-statistics-evaluation.md`) records:
 
-- the observed `ts_ref` instants and `stat_flags` values per required stat type, and how many distinct reference dates were checked against the calendar (the first pre-2024 ingest in 304 and 307 meets dates this window does not);
+- the observed `ts_ref` instants and `stat_flags` values per required stat type, and how many distinct reference dates were checked against the calendar (the first pre-2024 ingest meets dates this window does not);
 - the latest receive time of each required statistic relative to its session's close, against `STATISTICS_PUBLICATION_SESSIONS`;
 - V / C per contract and session for ES and GC (tick volume against cleared volume), and any `over` or `no_trades`;
 - per product, the roll dates of `c.0`, `v.0`, our `n.0` and Databento's `.n.0` and `.v.0`;
@@ -329,7 +329,7 @@ As 302 D9: the files are under `MT_TICK_ARCHIVE_DIR`; both tables are in the tic
 ### D13 — The API takes `n`
 Status: decided
 
-Every route that takes a `rule` parses it with `RollRule.parse`, so `n.0` works with no route change. `SegmentRecord` gains `basis` (D10), an additive response field. `RULE_DESCRIPTION` lists `n.0`. `docs/api/reference.md` and `agents.md` describe `n` beside `v` and `c` (ranked on an earlier session's open interest, never looking ahead) and the segment's `basis`, and `openapi.json` is regenerated. Serving open interest and settlement themselves is 306's question.
+Every route that takes a `rule` parses it with `RollRule.parse`, so `n.0` works with no route change. `SegmentRecord` gains `basis` (D10), an additive response field. `RULE_DESCRIPTION` lists `n.0`. `docs/api/reference.md` and `agents.md` describe `n` beside `v` and `c` (ranked on an earlier session's open interest, never looking ahead) and the segment's `basis`, and `openapi.json` is regenerated. Serving open interest and settlement themselves is an open question (slice 306, which was to answer it, was removed).
 
 ## Implementation Details
 
@@ -355,8 +355,8 @@ Applied in production by `mt data migrate apply --track tick` in the release tha
 
 - **304:** a proven `statistics` path, the window's job ids to adopt, and `statistics` history wants to set for ES and GC.
 - **305:** the statistics session verdict, content findings and the cross-tier check, for `health`, `accounting` and `overview`.
-- **306:** resolved settlement and open interest per contract and session, for its decision whether to serve them; `n` in the rule vocabulary.
-- **307:** the same path over the full range, and `v.0` answering on bar volume where no ticks exist; it times the resolved read over a `TICK_ROLL_MAX_SESSIONS` schedule at full size (D5).
+- **306:** resolved settlement and open interest per contract and session, for its decision whether to serve them; `n` in the rule vocabulary (superseded: slice 306 was removed on 2026-11-15).
+- **307:** the same path over the full range, and `v.0` answering on bar volume where no ticks exist; it times the resolved read over a `TICK_ROLL_MAX_SESSIONS` schedule at full size (D5) (superseded: slice 307 was deleted on 2026-11-15; nothing is bought without a use the PM names).
 
 ### Consumes from Other Slices
 
@@ -466,4 +466,4 @@ Relative effort 4/5. Two task files fit the slice: the tier, then the rule.
 - The purchase is the only spend. It runs through estimate and guard; if the guard refuses, the reason is recorded and the window is not forced through.
 - `ruff format` touched files only, and check `git diff` for swept lines before each commit.
 - SQL built from constants keeps 300's rule: fragments are written in code and every value is bound.
-- The resolved read's cost over `TICK_ROLL_MAX_SESSIONS` is unmeasured here; 307 measures it at full size (D5). A timeout is an error, never a partial schedule.
+- The resolved read's cost over `TICK_ROLL_MAX_SESSIONS` is unmeasured here; whichever slice first holds the full range measures it (D5). A timeout is an error, never a partial schedule.

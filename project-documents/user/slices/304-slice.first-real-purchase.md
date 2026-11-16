@@ -11,7 +11,7 @@ interfaces:
 - 306
 - 307
 dateCreated: 20261107
-dateUpdated: 20261107
+dateUpdated: 20261115
 status: complete
 turns: 54
 promptTokens: 6570763
@@ -34,7 +34,7 @@ revision_number: 2
 
 ## Overview
 
-This slice runs 220's purchase path with real money, in production, for the first time. The purchase is about $6.3. Everything bought is kept:
+This slice runs 220's purchase path with real money, in production, for the first time. The purchase is about $6.3. Everything bought is kept (superseded on 2026-11-15: the purchase was never run, production no longer wants this history, and nothing is bought without a use the PM names):
 
 - `statistics` and `definition` for ES and GC over the CME dataset from 2010-06-08 (the calendars start 2010-06-06T22:00Z; see D1) to 2026-11-01;
 - ES `ohlcv-1m` for calendar 2024, 2024-01-01 to 2025-01-01: one year of bars, enough to exercise the bar path.
@@ -58,10 +58,10 @@ The planned figure is a little lower. Days production already holds are not boug
 
 ## Value
 
-- **The purchase path is proven at real size before the large pull.** Slice 307 buys about $70 more through the same path. It should not be the first run at about 800 batch requests and 16,500 units, or the first run on pre-2020 data.
+- **The purchase path is proven at real size before the large pull.** A later large pull (slice 307, about $70 back to 2010, deleted on 2026-11-15) should not be the first run at about 800 batch requests and 16,500 units, or the first run on pre-2020 data.
 - **Open interest and settlement over the whole history.** The open-interest roll rule (`n`, slice 303) can answer back to 2010 for both products.
 - **Contract identity back to 2010.** Bars and statistics resolve their instrument through definition validity windows, so every later history pull depends on these definitions.
-- **A year of ES minute bars with a named source.** The bar path runs on real data, and the year overlaps the `tbbo` already held for 2024-11 to 2024-12, which 306's parity check needs.
+- **A year of ES minute bars with a named source.** The bar path runs on real data, and the year overlaps the `tbbo` already held for 2024-11 to 2024-12, which the tick-against-provider minute comparison needs (running it automatically is Future Work).
 - **The estimate is checked against the charge.** An estimate that drifts from what Databento bills would make every spend ceiling meaningless. This is the reconciliation the architecture asks for, at a size where a small per-request error would show.
 
 ## Technical Scope
@@ -70,16 +70,16 @@ The planned figure is a little lower. Days production already holds are not boug
 
 - `TICK_UNIVERSE` gains history wants for ES and GC (Technical Decision D1, below). No other source change to the pipeline.
 - `deploy/set-tick-spend-ceilings.sh`: the PM's one host command. It sets the two spend ceilings in the production env file (D4).
-- `scripts/reconcile_tick_spend.py`: estimate, manifest and provider charge side by side, for every request since a given instant (D5). It is reusable by 307.
+- `scripts/reconcile_tick_spend.py`: estimate, manifest and provider charge side by side, for every request since a given instant (D5). It is reusable by a later purchase.
 - `scripts/cutover_304_first_purchase.py`: release install, estimate, purchase and ingest, evidence (D3).
 - The evidence note `user/notes/304-first-purchase-evidence.md`, and a runbook update: the purchase-slice procedure and the ceiling script in `100-production-operations.md`.
 
 **Excluded**
 
-- GC `ohlcv-1m`, and ES `ohlcv-1m` outside 2024 (307).
+- GC `ohlcv-1m`, and ES `ohlcv-1m` outside 2024 (not wanted; slice 307, which was to buy them, was deleted).
 - Any `ohlcv-1s`, any tick tier change, any change to the tick ranges.
 - Health, accounting and overview verdicts for the new tiers, and the manifest-scale measurement (305). This slice records its own run's durations and counts, which 305 can use, but adds no benchmark.
-- Serving, and the tick-against-provider bar parity (306).
+- Serving (slice 309: time bars from held provider bars where they can make the size, else from ticks), and the tick-against-provider bar comparison (automatic run is Future Work).
 - Changes to ingest rules found wanting by real data. A failed unit is a finding (D6). A rule change needs its own design unless it is a defect in this slice's path (Risk Assessment).
 - The month-end Databento invoice comparison (D5; deferred to issue #69).
 - The close-minute bar check 301 handed over (deferred to issue #70).
@@ -102,7 +102,7 @@ The planned figure is a little lower. Days production already holds are not boug
 - `mt data tick status --json`, `coverage --schema {ohlcv-1m,statistics} --json`, `debug requests|units|definitions`.
 - `tick_request.estimated_cost_usd` (set at plan time from `get_cost`) and `actual_cost_usd` (set from the batch job's reported cost when it is `done`).
 - `scripts/cutover_common.py` and `upgrade_production.py`: preflight, timer hold and release, install, logging.
-- `scripts/verify_cme_sessions.py`: unchanged. Its first pre-2020 run moves to 307, which buys the pre-2020 bars.
+- `scripts/verify_cme_sessions.py`: unchanged. Its first pre-2020 run waits for the first purchase of pre-2020 bars.
 
 ## Architecture
 
@@ -122,7 +122,7 @@ scripts/cutover_304_first_purchase.py                ── agent, after release
 user/notes/304-first-purchase-evidence.md            ── narration + findings
 ```
 
-The cutover and reconciliation scripts read production state; only the `mt` verbs write it. The reconciliation script runs from the dev checkout, whose `.env` reaches the same tick database and Databento account (runbook 100: "both sides buy against one account and one manifest"). It must never write: it opens its database session read-only (`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`) and calls only free provider methods, and its docstring says so for 307's reuse.
+The cutover and reconciliation scripts read production state; only the `mt` verbs write it. The reconciliation script runs from the dev checkout, whose `.env` reaches the same tick database and Databento account (runbook 100: "both sides buy against one account and one manifest"). It must never write: it opens its database session read-only (`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`) and calls only free provider methods, and its docstring says so for later reuse.
 
 ### Data Flow
 
@@ -144,18 +144,18 @@ The cutover and reconciliation scripts read production state; only the `mt` verb
 ### D1 — What is bought, as one universe edit
 Status: decided
 
-Both entries gain `history`. Every end is the fixed date 2026-11-01 (exclusive), not open:
+Both entries gain `history` (superseded by slice 309 on 2026-11-15: production wants no history, and this table was never bought). Every end is the fixed date 2026-11-01 (exclusive), not open:
 
 | Entry | `definition` | `statistics` | `ohlcv-1m` |
 |---|---|---|---|
 | ES | 2010-06-08 – 2026-11-01 | 2010-06-08 – 2026-11-01 | 2024-01-01 – 2025-01-01 |
 | GC | 2010-06-08 – 2026-11-01 | 2010-06-08 – 2026-11-01 | none |
 
-- The PM's call (2026-11-07): statistics and definitions for both products over the full range, and one year of ES bars. Nothing here needs more bars. The year is 2024 because it overlaps the `tbbo` already held. It is a calendar year so 307's remainder is whole years.
+- The PM's call (2026-11-07): statistics and definitions for both products over the full range, and one year of ES bars. Nothing here needs more bars. The year is 2024 because it overlaps the `tbbo` already held. It is a calendar year so any later remainder is whole years.
 - **Start 2010-06-08, not the dataset start (found in Phase 6).** The CME calendars are populated from 2010-06-06T22:00Z. The planner and `status` read the calendar from a want's start day at 00:00Z (coverage from the day before), so a want starting 2010-06-06 raises `OutOfPopulatedRangeError`: 40 tick integration tests failed, and production's `status` and the cutover's estimate would have failed the same way (before any purchase). The PM chose to move the start (2026-11-07) rather than change the calendar reads. The cost: the first sessions (dated 2010-06-07) and about a day and a half of 2010 statistics and definitions are not bought. The prices in the table above were measured from 2010-06-06; the difference is a few cents at most.
-- **Fixed end.** An open end would make every later `mt-run tick` buy the newest days, which is spend nobody chose. With a fixed end the purchase is bounded, the reconciliation is exact, and a re-run plans nothing. 307 decides whether its ends are open.
+- **Fixed end.** An open end would make every later `mt-run tick` buy the newest days, which is spend nobody chose. With a fixed end the purchase is bounded, the reconciliation is exact, and a re-run plans nothing. A later purchase decides whether its ends are open.
 - Universe validation already holds for these values: each want starts on or after `CME_DATASET_START`, `statistics` and `ohlcv-1m` lie inside `definition`, and both entries have a tier (`tbbo`).
-- The end leaves the last statistics session or two `edge_unknown`. Their publication falls in a UTC day after 2026-11-01, as at the end of 303's window. That is expected, and 307 closes it.
+- The end leaves the last statistics session or two `edge_unknown`. Their publication falls in a UTC day after 2026-11-01, as at the end of 303's window. That is expected, and a later purchase closes it.
 - **If the cutover's estimate exceeds the per-pass ceiling**, the cutover stops before buying (D3, step 3). The $6.27 measured above is under the ceiling of 7.00.
 - *Rejected: split the cap between ES and GC bars.* The PM named ES.
 
@@ -172,7 +172,7 @@ Status: decided
 
 The universe is code, so the purchase needs a release. It runs as the production pass (systemd unit, service user, production env, `pass_runs` row), not from the dev checkout.
 
-- Slice 234 made `sudo mt-run tick` the production path, and "the dev checkout and its `.env` stop being the production path". 307's large pull will run there, so its unit, its permissions on the archive and its wait budget are what must be proven.
+- Slice 234 made `sudo mt-run tick` the production path, and "the dev checkout and its `.env` stop being the production path". Any later large pull will run there, so its unit, its permissions on the archive and its wait budget are what must be proven.
 - So the purchase happens in Phase 7, after merge and release, through the cutover script. The slice is complete when the evidence note holds the reconciliation and the verdicts. Phase 6 delivers the code and the scripts.
 - Cutover steps, check-then-act, re-runnable after a failure:
   1. **preflight**: the ref exists here and on origin. `/etc/manta-trading.env` has no `MT_TICK_DATABENTO_PLAN` and has both ceilings set; the per-pass value is kept for step 5. 
@@ -204,7 +204,7 @@ The runbook reserves the ceilings to the PM ("No agent edits them"). The env fil
 sudo /home/manta/source/repos/manta/trading-data/deploy/set-tick-spend-ceilings.sh --per-pass 7 --cap-30d 16
 ```
 
-**No restore afterwards.** After the purchase the trailing spend is about $14.8, so the 30-day cap leaves about $1.2 of room until that spend ages out. By then every want is covered and has a fixed end, so a pass plans nothing until a reviewed universe change (307) asks for more. 307 sets its own figures with the same command. Runbook 100's "afterwards the PM restores the per-pass ceiling" is amended for purchase slices to say this.
+**No restore afterwards.** After the purchase the trailing spend is about $14.8, so the 30-day cap leaves about $1.2 of room until that spend ages out. By then every want is covered and has a fixed end, so a pass plans nothing until a reviewed universe change asks for more. A later purchase sets its own figures with the same command. Runbook 100's "afterwards the PM restores the per-pass ceiling" is amended for purchase slices to say this.
 
 ### D5 — Reconciliation: estimate, manifest, Databento's charge
 Status: decided
@@ -220,7 +220,7 @@ Status: decided
 
 A non-zero delta between estimate and actual is reported per request and totalled. It does not fail the script; it is the slice's result. 303 saw exact equality on 16 jobs, so a delta here is a finding about `get_cost`, written up with the requests it affects.
 
-- **Deviation from the architecture: no invoice check in this slice** (recorded in the architecture's purchase-test entry). The architecture asks for the purchase to be checked against the invoice. This slice compares the estimate with Databento's per-job reported charge. That charge comes from the same provider channel as `actual_cost_usd`, so it proves `get_cost` matches the job cost. It does not prove the amount billed matches the manifest. November's invoice is issued after the month ends, and a slice task cannot wait for it. The invoice comparison is deferred to issue #69: compare November's usage total with this slice's reconciliation total. Issue #69 is a prerequisite of 307 in the slice plan.
+- **Deviation from the architecture: no invoice check in this slice** (recorded in the architecture's purchase-test entry). The architecture asks for the purchase to be checked against the invoice. This slice compares the estimate with Databento's per-job reported charge. That charge comes from the same provider channel as `actual_cost_usd`, so it proves `get_cost` matches the job cost. It does not prove the amount billed matches the manifest. November's invoice is issued after the month ends, and a slice task cannot wait for it. The invoice comparison is deferred to issue #69: compare November's usage total with this slice's reconciliation total. Issue #69 was a prerequisite of slice 307 (history back to 2010), which was deleted on 2026-11-15.
 - *Rejected: a new `mt data tick` verb.* Operator commands get their own slice. 305 owns spend in `accounting`, and this script is the evidence tool until then.
 
 ### D6 — What real data breaks is a finding, never patched
@@ -263,9 +263,9 @@ No schema, table or migration change. The production change is the universe cons
 
 ### Provides to Other Slices
 
-- **305**: real bar and statistics data over 2010–2026 for its completeness surfaces, and this run's request and unit counts and durations as a first data point at manifest scale.
-- **306**: ES `ohlcv-1m` for 2024 to serve and roll up, overlapping held `tbbo` (2024-11 to 2024-12) for the parity check. Open interest and settlement for both products over the whole history.
-- **307**: a proven purchase path at about 800 requests, the reconciliation script, the ceiling command, issue #69 (the invoice comparison, which 307 waits on), and a precise remainder: ES `ohlcv-1m` outside 2024, GC `ohlcv-1m` in full, and every want past 2026-11-01.
+- **305**: real bar and statistics data over 2010–2026 for its completeness surfaces (never delivered: the purchase was not run), and this run's request and unit counts and durations as a first data point at manifest scale.
+- **306**: ES `ohlcv-1m` for 2024 to serve and roll up, overlapping held `tbbo` (2024-11 to 2024-12) for the parity check. Open interest and settlement for both products over the whole history (superseded: slice 306 was removed and the purchase was not run).
+- **307**: a proven purchase path at about 800 requests, the reconciliation script, the ceiling command, issue #69 (the invoice comparison, which 307 waits on), and a precise remainder: ES `ohlcv-1m` outside 2024, GC `ohlcv-1m` in full, and every want past 2026-11-01 (superseded: slice 307 was deleted; nothing is bought without a use the PM names).
 
 ### Consumes from Other Slices
 
@@ -346,7 +346,7 @@ Run from the checkout root. Step 1 is Phase 6. Steps 2 to 5 run in Phase 7, afte
 ### Mitigation Strategies
 
 - The pass is idempotent and resumable, and each scale failure case has a stated outcome (D3). In-flight jobs are reused, never re-submitted. A query too slow for `status` is a finding for 305, not a blocker here.
-- Files are kept whatever happens, so a rule change later re-ingests them with `reset`, without buying again. The money at stake is $6, and finding these shapes now is the purpose of buying before 307.
+- Files are kept whatever happens, so a rule change later re-ingests them with `reset`, without buying again. The money at stake is $6, and finding these shapes now is the purpose of buying before any large pull.
 
 ## Implementation Notes
 

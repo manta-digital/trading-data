@@ -11,7 +11,7 @@ projectState: 300, 301 and 302 are merged; last tick migration is tick_009_ohlcv
   statistics is not an archived schema; no open interest is stored; production universe
   has no history wants
 dateCreated: 20261103
-dateUpdated: 20261105
+dateUpdated: 20261115
 status: complete
 turns: 21
 promptTokens: 1482293
@@ -36,7 +36,7 @@ revision_number: 2
 - Adds Databento `statistics` as an archive schema in its own family (`STATISTICS`), stored in hypertable `tick_statistics` with ledger `tick_statistics_ledger`. Records are assigned to a session from `ts_ref`, and the value read is resolved per contract, statistic and session by receive time (D5). Ships with its status verdict, content check and cross-tier volume check.
 - Adds the open-interest roll rule `n` (D9), the volume rule's per-session basis (tick tier, else bars; D10), and `n` in the API (D13).
 - One real purchase (about $0.05, usage-billed, inside the existing ceiling) on throwaway databases: ES and GC `statistics` plus October definitions for 2024-08-30 to 2025-01-01. It is pre-authorized and runs through estimate and the spend guard. If the guard refuses, record the reason in the evaluation note and stop that task; never force it.
-- Excluded: serving open interest or settlement through the API (306), `health`/`accounting`/`overview` (305), interpreting `stat_flags`, any production universe change (`history=()` stays), pre-2020 statistics, making `n.0` a default.
+- Excluded: serving open interest or settlement through the API (undecided), `health`/`accounting`/`overview` (305), interpreting `stat_flags`, any production universe change (`history=()` stays), pre-2020 statistics, making `n.0` a default.
 - Ground rules: SQL fragments built from constants are written in code and every value is bound. No silent fallbacks: undefined values are NULL, never DBN sentinels; a failing unit fails loudly. Source files stay within about 300 lines. Run `ruff format` on touched files only and check `git diff` for swept lines before each commit. Run mypy with the kalshi src paths and tests in one invocation. Export `MT_TIMESCALE_TEST_URL` from `.env` (quotes stripped) before integration tests. Never touch the production database; tests use throwaway databases.
 - Known pre-existing failures to ignore: migration 051/052 chain tests, the test cluster's missing TimescaleDB scheduler, `test_health_tick` pair needing `MT_BACKUP_ROOTS`.
 - Pattern to follow throughout: slice 302 (`ohlcv_1m_projector.py`, `bar_constants.py`, `tick_009_ohlcv_1m`, `test_tick_009_ohlcv_1m.py`, `test_bar_ingest_e2e.py`, `test_tick_coverage_bars.py`).

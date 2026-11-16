@@ -10,7 +10,7 @@ projectState: 300 (archive generalisation) and 301 (CME calendar history) are me
   last tick migration is tick_008_plan_inclusion; ohlcv-1m is not an archived schema;
   production universe has no history wants
 dateCreated: 20261103
-dateUpdated: 20261103
+dateUpdated: 20261115
 status: complete
 turns: 20
 promptTokens: 1319940
@@ -34,7 +34,7 @@ revision_number: 2
 - Working on the `ohlcv-1m-and-definition-history` slice (302). Design: `user/slices/302-slice.ohlcv-1m-and-definition-history.md`. Decision references (D1–D11) point into it.
 - This slice adds Databento `ohlcv-1m` as an archive schema in its own family (`BAR_1M`), stored in a new hypertable `tick_ohlcv_1m` with its own ledger `tick_bar_ledger`. It adds universe `HistoryWant`s for `ohlcv-1m` and `definition`, and reports the bar tier in `mt data tick status` and `coverage`.
 - Nothing is bought. Code is built on the DBN project's sample files and one derived real-shape bar day computed from the held 2024-12-03 `tbbo` file. Production configures no history wants (`history=()`), so the production pass plans exactly what it plans today.
-- Excluded: any purchase, `statistics` (303), `health`/`accounting`/`overview` (305), serving bars through the API (306, D11), `ohlcv-1s`.
+- Excluded: any purchase, `statistics` (303), `health`/`accounting`/`overview` (305), serving bars through the API (slice 309, time bars from held bars and ticks; D11), `ohlcv-1s`.
 - Ground rules: SQL fragments built from constants are written in code and every value is bound. A failing unit fails loudly; no silent fallbacks. Source files stay within about 300 lines (`bar_constants.py` holds the bar storage constants, not `constants.py`). Run `ruff format` on touched files only and check `git diff` for swept lines before each commit. Run mypy with the kalshi src paths and tests in one invocation. Export the test DB URL from `.env` before running integration tests.
 - Known pre-existing failures to ignore: see memory notes on migration 051/052 chain tests and the test cluster's missing TimescaleDB scheduler.
 - Next slices: 303 (statistics, open-interest roll rule), then 304 (first purchase).

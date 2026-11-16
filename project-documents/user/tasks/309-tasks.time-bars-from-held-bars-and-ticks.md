@@ -570,32 +570,34 @@ A failure found in this section that needs a code change is committed on the sli
 - [ ] **10.1 Tiers and checks**
   - [ ] `ruff format --check` and `ruff check` on the touched files; `mypy` on the touched
     subpackages (`data/tick`, `api_server`, `cli`, `config`) and `test/` helpers, zero errors.
-  - [ ] Unit tier green. Integration tier green apart from known failures that exist on the
+  - [x] Unit tier green. Integration tier green apart from known failures that exist on the
     slice base (`test_policy_advances_head.py`'s two unaided tests, the migration 051/052
     chain tests, a priority1 list mismatch, 'tuple concurrently deleted' races); re-run any
     other failure in isolation, and compare against the slice base, before investigating.
     Load tier: `MT_RUN_LOAD_TESTS=1 uv run python scripts/run_tests.py load -- <file>` for
     `test_309_time_bars_nfr.py`, `test_308_tick_bars_nfr.py` and `test_231_futures_api_nfr.py`
     pass (the full tier takes about 77 minutes; do not cap it under 90).
-  - [ ] Design criterion 6 confirmed: the tick-bar, raw-tick and `ticks` CLI tests pass with
+  - [x] Design criterion 6 confirmed: the tick-bar, raw-tick and `ticks` CLI tests pass with
     no edits to those files (`git diff main --stat` on them is empty).
-  - [ ] `git diff main` has no unintended deletions in files `ruff` touched.
-  - [ ] Criteria 2, 3, 4, 5, 6 and 7 (at test scale) each name their test in the commits
+  - [x] `git diff main` has no unintended deletions in files `ruff` touched.
+  - [x] Criteria 2, 3, 4, 5, 6 and 7 (at test scale) each name their test in the commits
     above.
+  Note: Integration: 7 known failures, all present on the slice base; none new.
+  Note: mypy is not zero: `config/manager.py:40` (since the initial release) and 34 `cli` errors (in `data.py` and two other files this slice does not touch) exist on main too. No new error; the first 10.1 bullet stays unchecked rather than claim zero.
 
 **Commit**: none of its own: validation changes no file. Each fix it needs is its own
 `fix:` commit (above); this section's check-offs ride in the section 11 commit.
 
 ## 11. Cleanup of other slices' documents (its own commit)
 
-- [ ] **11.1 Slice and task files**
-  - [ ] In `user/slices/` and `user/tasks/` for 302, 303, 304, 305 and 308, find sentences
+- [x] **11.1 Slice and task files**
+  - [x] In `user/slices/` and `user/tasks/` for 302, 303, 304, 305 and 308, find sentences
     that say time bars are provider-only, that ticks never make time bars, or that history to
     2010 is to be bought (`grep -n -iE "provider-only|never built from ticks|no provider
     bars|2010|ohlcv-1m"`). Reword each to what is now true or mark it as superseded by 309.
     Facts about what was built stay. Do not edit 309's own files or any `## User-Provided
     Concept` section.
-  - [ ] Working tree clean after the commit; the work is committed on the slice branch.
+  - [x] Working tree clean after the commit; the work is committed on the slice branch.
 
 **Commit** (with the check-offs of section 10): `docs: reword 302-308 documents for the ticks-primary rule`
 
