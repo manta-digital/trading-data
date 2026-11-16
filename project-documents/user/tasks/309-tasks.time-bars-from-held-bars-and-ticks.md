@@ -447,8 +447,8 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 **Commit**: `feat: serve mt data tick get time bars from held bars or ticks`
 
-- [ ] **7.3 Load check** (`test/load/test_309_time_bars_nfr.py`)
-  - [ ] Follow `test_308_tick_bars_nfr.py` (same helpers, same session and `rule=c.1`,
+- [x] **7.3 Load check** (`test/load/test_309_time_bars_nfr.py`)
+  - [x] Follow `test_308_tick_bars_nfr.py` (same helpers, same session and `rule=c.1`,
     test-cluster databases only): a product `15s` request over that session (about 5,500
     bars cut from about 670,000 trades) completes under a bound set from five timed runs
     (record the five timings, the median and the date in the docstring, bound about twice the
@@ -456,12 +456,13 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     the 308 starvation margin of its idle median. This is the check that the model build
     runs off the loop. A `1s` request cannot serve here: a full session is about 82,800 bars,
     over the 75,000 row ceiling.
-  - [ ] The file carries the gate line of the 308 test
+  - [x] The file carries the gate line of the 308 test
     (`MT_RUN_LOAD_TESTS=1 uv run python scripts/run_tests.py load -- <file>`). CI has no test
     job, so nothing gates this file automatically. That is deferred to issue #32 ("Run the
     integration and load tiers on a schedule against the test cluster", open), which covers
     every load test and not this one alone; slice 907 (CI pipeline and load-test gating, not
     started) owns the gate. Until it lands the gate is manual: task 10.1 runs this file.
+  Note: Measured 4,919 bars at 15s, not the estimated 5,500.
 
 **Commit**: `test: add the time-bar load test`
 
