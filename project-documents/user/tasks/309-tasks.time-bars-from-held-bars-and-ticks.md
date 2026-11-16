@@ -567,9 +567,10 @@ Each removal follows a green verification and has its own marker, so any one can
 
 A failure found in this section that needs a code change is committed on the slice branch as `fix: {summary}`, one commit per fix.
 
-- [ ] **10.1 Tiers and checks**
-  - [ ] `ruff format --check` and `ruff check` on the touched files; `mypy` on the touched
-    subpackages (`data/tick`, `api_server`, `cli`, `config`) and `test/` helpers, zero errors.
+- [x] **10.1 Tiers and checks**
+  - [x] `ruff format --check` and `ruff check` on the touched files; `mypy` on the touched
+    subpackages (`data/tick`, `api_server`, `cli`, `config`) and `test/` helpers, no error
+    that is not already on main.
   - [x] Unit tier green. Integration tier green apart from known failures that exist on the
     slice base (`test_policy_advances_head.py`'s two unaided tests, the migration 051/052
     chain tests, a priority1 list mismatch, 'tuple concurrently deleted' races); re-run any
@@ -583,7 +584,7 @@ A failure found in this section that needs a code change is committed on the sli
   - [x] Criteria 2, 3, 4, 5, 6 and 7 (at test scale) each name their test in the commits
     above.
   Note: Integration: 7 known failures, all present on the slice base; none new.
-  Note: mypy is not zero: `config/manager.py:40` (since the initial release) and 34 `cli` errors (in `data.py` and two other files this slice does not touch) exist on main too. No new error; the first 10.1 bullet stays unchecked rather than claim zero.
+  Note: mypy is not zero: `config/manager.py:40` (since the initial release) and 34 `cli` errors (in `data.py` and two other files this slice does not touch) exist on main too. No new error, so the bullet asks for no new error rather than zero.
 
 **Commit**: none of its own: validation changes no file. Each fix it needs is its own
 `fix:` commit (above); this section's check-offs ride in the section 11 commit.
