@@ -258,8 +258,8 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 **Commit**: `feat: add the time-bar trade limit setting and window admission count`
 
-- [ ] **5.3 The per-request reader** (new `src/manta_trading/data/tick/time_bar_reads.py`)
-  - [ ] One object per request, `TimeBarRead(size, calendar_url, max_trades, stop)`
+- [x] **5.3 The per-request reader** (new `src/manta_trading/data/tick/time_bar_reads.py`)
+  - [x] One object per request, `TimeBarRead(size, calendar_url, max_trades, stop)`
     (`max_trades=None` means no admission, for the CLI), with `async admit(conn, plan)`
     (same shape as `Admit`): runs `choose_sources` in the read's snapshot, stores the
     result, raises `TimeBarScanExceeded` when the trades of the tick-sourced windows exceed
@@ -268,7 +268,7 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     `ReadAbandoned` when the client has gone; reads `None` windows as nothing; provider
     windows through `read_provider_bars`; tick windows through `cut_time_bars`. The stored
     choices are exposed as `sources` for `served_plan` and `source_runs`.
-  - [ ] Ledger guard: for a tick-cut window, sum the cut's `trade_count` column, strip it
+  - [x] Ledger guard: for a tick-cut window, sum the cut's `trade_count` column, strip it
     before passing rows on, and compare with that session's ledger count
     (`status_reads.ledger_totals` for the one session). More trades than the ledger says
     raises `LedgerCountExceeded(session_date, raw_symbol, instrument_id, ledger, read)`.
@@ -276,18 +276,20 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
     a session that has a ledger count; the `500` is for a count that is wrong, not for a
     session that is not loaded. A smaller
     count is not an error (a partial load).
-- [ ] **5.4 Tests** (`test/integration/data/test_time_bar_reads.py`)
-  - [ ] Through `read_series(..., admit=reader.admit)` on the seeded fixture: `5m` returns
+  Note: TimeBarRead also takes bounds (from/until), applied by bar start; the route passes read_series none, as 308 does.
+- [x] **5.4 Tests** (`test/integration/data/test_time_bar_reads.py`)
+  - [x] Through `read_series(..., admit=reader.admit)` on the seeded fixture: `5m` returns
     provider rows and `15s` returns tick-cut rows for the same session (design criterion 3);
     a mixed range (one session with bars held, one without) returns both, each from its own
     source.
-  - [ ] A limit below the scan raises `TimeBarScanExceeded` with no rows collected and
+  - [x] A limit below the scan raises `TimeBarScanExceeded` with no rows collected and
     `time_bar_reads.cut_time_bars` (monkeypatched to a recording stub) never called.
-  - [ ] `stop` returning true before the second window raises `ReadAbandoned` after the
+  - [x] `stop` returning true before the second window raises `ReadAbandoned` after the
     first was read.
-  - [ ] Ledger guard: lower the fixture's ledger count by one, and separately delete its
+  - [x] Ledger guard: lower the fixture's ledger count by one, and separately delete its
     ledger row (in the throwaway test database only); each expects `LedgerCountExceeded`
     naming the session.
+  Note: The deleted-ledger-row case deletes the row between admit and read (read committed), since admission never plans a session with no ledger row.
 
 **Commit**: `feat: read time bars per session from provider bars or ticks`
 
