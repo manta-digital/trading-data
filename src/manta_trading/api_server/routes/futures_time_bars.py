@@ -109,8 +109,9 @@ def bar_size(text: str) -> BarSize:
 
 
 def _ledger_mismatch(exc: LedgerCountExceeded) -> HTTPException:
-    """Log the session and both counts; the stable ``500``."""
-    _logger.error(
+    """Log the session and both counts; the stable ``500``. Called inside the
+    ``except`` that caught ``exc``, so the traceback is logged with it."""
+    _logger.exception(
         "time bars: session %s of %s (instrument %s) read %s trades, over its"
         " ledger count %s",
         exc.session_date,

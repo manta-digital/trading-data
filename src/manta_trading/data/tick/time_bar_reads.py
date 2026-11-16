@@ -133,7 +133,10 @@ class TimeBarRead:
         """The window's bars from its source; returns how many."""
         if await self.stop():
             raise ReadAbandoned
-        source = self.sources.get(window.session_date)
+        # A session ``admit`` did not choose a source for is a caller bug, not
+        # "no bars": ``KeyError`` here, ``None`` only for a session deliberately
+        # not read.
+        source = self.sources[window.session_date]
         if source is None:
             return 0
         if source == TICKS_SOURCE:
@@ -159,7 +162,8 @@ class TimeBarRead:
         return len(bars)
 
     async def _ledger_count(self, conn: Conn, window: TickWindow) -> int:
-        assert self._plan is not None, "admit runs before read"
+        if self._plan is None:
+            raise RuntimeError("TimeBarRead.read called before admit")
         day = window.session_date
         totals = await ledger_totals(
             conn, shape_of(plan_entry(self._plan)), SchemaFamily.TICK_TIER, day, day
