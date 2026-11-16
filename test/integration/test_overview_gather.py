@@ -26,6 +26,7 @@ import pytest
 from tick_support.cli import clear_tick_env
 from tick_support.rows import insert_bar_ledger_row, insert_statistics_ledger_row
 from tick_support.statistics_seed import seed_unit
+from tick_support.universe import WITH_HISTORY
 
 from manta_trading.api.eodhd_account import CreditUsage
 from manta_trading.cli.commands.overview import (
@@ -166,8 +167,8 @@ class TestGatherReadsSources:
             "kalshi candles",
             "kalshi trades",
             "futures ticks",  # 230: gathered on the CLI side only
-            "futures ohlcv-1m",  # 305: the production universe wants bars
-            "futures statistics",  # ... and statistics
+            # No family lines: production wants no history since 309 (305 D7
+            # prints them per wanted family; TestFuturesFamilyLines covers them).
         ]
 
     def test_an_empty_table_reports_no_newest_row(
@@ -268,8 +269,8 @@ class TestAPrePassRunsDatabase:
         transaction would fail every later read and lose the whole screen."""
         conn.execute("DROP TABLE pass_runs CASCADE")
         facts = gather(conn, _settings(api_key=None), now=_NOW, hostname=_HOST)
-        # four database sources + the tick line + 305's two family lines
-        assert len(facts.sources) == 7
+        # four database sources + the tick line (no family is wanted since 309)
+        assert len(facts.sources) == 5
 
     def test_it_warns_once_not_once_per_read(
         self, conn: psycopg.Connection, caplog
@@ -306,7 +307,7 @@ class TestFuturesFamilyLines:
             insert_statistics_ledger_row(tick, stats, session_date=self.DAY)
 
     def _universe(self, monkeypatch: pytest.MonkeyPatch, *, wanted: bool) -> None:
-        entry = TICK_UNIVERSE[0] if wanted else replace(TICK_UNIVERSE[0], history=())
+        entry = WITH_HISTORY[0] if wanted else replace(TICK_UNIVERSE[0], history=())
         monkeypatch.setattr(universe_module, "TICK_UNIVERSE", (entry,))
 
     def test_both_lines_appear_when_a_product_wants_the_families(

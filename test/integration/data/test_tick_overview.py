@@ -61,12 +61,11 @@ def test_the_line_shows_the_newest_ingested_event(
         "newest": NEWEST.isoformat(),
         "unavailable": None,
     }
-    # The tick line, then 305's per-family lines for the families the universe wants.
-    assert [s["name"] for s in body["sources"]][-3:] == [
-        "futures ticks",
-        "futures ohlcv-1m",
-        "futures statistics",
-    ]
+    # The tick line last: 305's per-family lines print per wanted family, and
+    # production wants none since 309.
+    names = [s["name"] for s in body["sources"]]
+    assert names[-1] == "futures ticks"
+    assert not {"futures ohlcv-1m", "futures statistics"} & set(names)
 
 
 @pytest.mark.parametrize("case", ["unset", "unreachable", "migrations_pending"])

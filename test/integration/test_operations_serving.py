@@ -285,22 +285,16 @@ class TestTheSplitGuard:
 
         assert db_only.open_runs == both.open_runs
         assert db_only.latest_ended == both.latest_ended
-        # The CLI adds sources the API never sees: the tick line (230 TD7, FR13)
-        # and 305's per-family lines.
+        # The CLI adds sources the API never sees: the tick line (230 TD7, FR13);
+        # 305's per-family lines are absent, since production wants no history.
         added = len(both.sources) - len(db_only.sources)
         assert db_only.sources == both.sources[:-added]
-        assert [source.name for source in both.sources[-added:]] == [
-            "futures ticks",
-            "futures ohlcv-1m",
-            "futures statistics",
-        ]
+        assert [source.name for source in both.sources[-added:]] == ["futures ticks"]
         assert db_only.now == both.now
         assert db_only.hostname == both.hostname
         assert db_only.minute_firing_days == both.minute_firing_days
 
-    def test_only_gather_carries_the_credit_fields(
-        self, migrated_db: str
-    ) -> None:
+    def test_only_gather_carries_the_credit_fields(self, migrated_db: str) -> None:
         settings = _StubSettings(eodhd_api_key="stub-key-never-sent")
 
         with psycopg.connect(migrated_db) as conn:

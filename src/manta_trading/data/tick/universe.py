@@ -11,8 +11,8 @@ owns). ES's tier and range were set by slice 226's go/no-go.
 ``--start/--end`` on ``pass`` only narrow the configured range.
 
 ``history`` (slice 302 D5, 303 D6) lists wants beyond the tick tier: ``ohlcv-1m``
-bars, ``statistics`` and the ``definition`` days they need. Slice 304 configures
-them for ES and GC: 304 the first real purchase, 307 the rest of the history.
+bars, ``statistics`` and the ``definition`` days they need. Since slice 309 no
+production entry wants any (ticks are primary; provider bars are optional).
 """
 
 from __future__ import annotations
@@ -70,27 +70,12 @@ class TickUniverseEntry:
 # the spreads, measured before purchase at 6.6% of GC's tbbo rows; a product
 # drops its spreads only above a quarter of its rows.
 #
-# History (slice 304 D1, 307 D1): ``definition``, ``statistics`` and ``ohlcv-1m``
-# over the whole CME dataset for both products, one shared tuple so the
-# ranges are defined once. Slice 304 bought ES bars for 2024 only; the planner
-# drops covered days, so one want over the whole range does not buy them twice.
-# Every end is a fixed date, never None: an open end would buy the newest days
-# on every later pass, spend nobody chose. The end, 2026-11-10, is already past
-# and inside what Databento has published (the cutover still checks the dataset
-# reaches it), so the purchase never waits on the calendar. With a fixed end the
-# purchase is bounded and a re-run plans nothing; buying later days is one edit
-# of this date.
-# 2010-06-08, not the dataset start 2010-06-06: the calendars are populated from
-# 2010-06-06T22:00Z, and the planner and status read them from each want's start
-# day (coverage from the day before), so an earlier start raises
-# OutOfPopulatedRangeError. The first sessions (2010-06-07) are not bought.
-_HISTORY_START = date(2010, 6, 8)
-_HISTORY_END = date(2026, 11, 10)
-_HISTORY_WANTS = (
-    HistoryWant(TickSchema.DEFINITION, _HISTORY_START, _HISTORY_END),
-    HistoryWant(TickSchema.STATISTICS, _HISTORY_START, _HISTORY_END),
-    HistoryWant(TickSchema.OHLCV_1M, _HISTORY_START, _HISTORY_END),
-)
+# History (slice 309, journal 20261115): none. ES and GC want the tick tier and
+# its definitions only. Provider bars and statistics are optional, used where
+# held, and nothing is bought without a use the PM names; the Standard plan
+# includes them when realtime work starts. The history mechanism
+# (``HistoryWant``, its validation, the planner and the purchase path) stays for
+# that day: wanting history again is one ``history=`` argument per entry.
 TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
     TickUniverseEntry(
         "ES",
@@ -99,7 +84,6 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
         tier=TickSchema.TBBO,
         start=date(2024, 11, 2),
         end=date(2025, 1, 1),
-        history=_HISTORY_WANTS,
     ),
     TickUniverseEntry(
         "GC",
@@ -108,7 +92,6 @@ TICK_UNIVERSE: tuple[TickUniverseEntry, ...] = (
         tier=TickSchema.TBBO,
         start=date(2024, 11, 2),
         end=date(2025, 1, 1),
-        history=_HISTORY_WANTS,
     ),
 )
 

@@ -260,3 +260,21 @@ def test_a_product_without_a_statistics_want_is_labelled_load_complete_only(
     result = _invoke(migrated_tick_db, session_migrated_db)
     assert _row(result, "futures ES ohlcv-1m").endswith("load-complete only")
     assert "futures ES statistics" not in result.output
+
+
+def test_production_wants_show_no_bar_or_statistics_row(
+    migrated_tick_db: str,
+    session_migrated_db: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Design criterion 7 of slice 309 at test scale: production's ES entry
+    (its range narrowed to the seeded session) wants no history, so a database
+    holding ticks, bars and statistics shows the tick tier's row alone, OK."""
+    production = replace(TICK_UNIVERSE[0], start=DAY, end=date(2024, 12, 4))
+    assert production.history == ()
+    monkeypatch.setattr(universe_module, "TICK_UNIVERSE", (production,))
+    _seed_universe(migrated_tick_db)
+    result = _invoke(migrated_tick_db, session_migrated_db)
+    assert _row(result, "futures ES tbbo").startswith("OK"), result.output
+    assert "futures ES ohlcv-1m" not in result.output
+    assert "futures ES statistics" not in result.output

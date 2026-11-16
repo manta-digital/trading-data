@@ -16,6 +16,7 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+from tick_support.universe import use_history
 
 SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 D = Decimal
@@ -25,6 +26,23 @@ def _load(name: str) -> ModuleType:
     if str(SCRIPTS) not in sys.path:
         sys.path.insert(0, str(SCRIPTS))
     return importlib.import_module(name)
+
+
+@pytest.fixture(autouse=True)
+def _history_universe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These scripts buy history; production wants none since slice 309, so
+    they run against the wants production carried until then."""
+    use_history(
+        monkeypatch,
+        *(
+            _load(name)
+            for name in (
+                "cutover_304_checks",
+                "cutover_304_evidence",
+                "purchase_verdicts",
+            )
+        ),
+    )
 
 
 @pytest.fixture(scope="module")

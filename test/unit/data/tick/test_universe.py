@@ -93,20 +93,10 @@ DEFINITIONS = HistoryWant(TickSchema.DEFINITION, date(2011, 12, 1), date(2013, 2
 WITH_HISTORY = replace(GOOD, history=(DEFINITIONS, BARS))
 
 
-def test_production_universe_history_is_slice_307_d1() -> None:
-    """307 D1's table exactly: every schema, both products, one fixed range."""
-    first, last = date(2010, 6, 8), date(2026, 11, 10)
-    got = {
-        entry.product: [(w.schema, w.start, w.end) for w in entry.history]
-        for entry in TICK_UNIVERSE
-    }
-    wants = [
-        (TickSchema.DEFINITION, first, last),
-        (TickSchema.STATISTICS, first, last),
-        (TickSchema.OHLCV_1M, first, last),
-    ]
-    assert got == {"ES": wants, "GC": wants}
-    assert all(w.end is not None for e in TICK_UNIVERSE for w in e.history)
+def test_production_wants_no_history() -> None:
+    """Slice 309 (journal 20261115): ticks are primary; provider bars and
+    statistics are optional and nothing is bought without a named use."""
+    assert all(entry.history == () for entry in TICK_UNIVERSE)
 
 
 def test_an_entry_with_both_history_wants_validates() -> None:
@@ -229,11 +219,4 @@ def test_a_statistics_want_on_an_entry_with_no_tier_is_rejected() -> None:
         replace(GOOD, tier=None, history=(DEFINITIONS, STATISTICS)),
         "tier",
         "not chosen",
-    )
-
-
-def test_the_production_universe_wants_statistics_for_every_product() -> None:
-    assert all(
-        any(w.schema is TickSchema.STATISTICS for w in entry.history)
-        for entry in TICK_UNIVERSE
     )

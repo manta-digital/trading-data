@@ -503,26 +503,26 @@ Each removal follows a green verification and has its own marker, so any one can
 
 **Commit**: `refactor: remove mt data tick parity`
 
-- [ ] **8.3 Production wants no history**
-  - [ ] `data/tick/universe.py`: delete `_HISTORY_START`, `_HISTORY_END`, `_HISTORY_WANTS`
+- [x] **8.3 Production wants no history**
+  - [x] `data/tick/universe.py`: delete `_HISTORY_START`, `_HISTORY_END`, `_HISTORY_WANTS`
     and the `history=` argument of both entries, and rewrite the comment block (ES and GC
     want the tick tier and its definitions; the history mechanism, `HistoryWant` and its
     validation stay for the day provider bars are bought). Do not touch the planner, the
     purchase code or the 304 scripts: they iterate `entry.history`, which is now empty.
-  - [ ] Fix every test that reads the production universe's history (grep `TICK_UNIVERSE`
+  - [x] Fix every test that reads the production universe's history (grep `TICK_UNIVERSE`
     with `history` in `test/`; known: `test_universe.py`, `test_availability_span.py`,
     `test_purchase_verdicts.py`, `test_cutover_304_*`). Tests of the history mechanism build
     their own `TickUniverseEntry` (as `test_planner.py` does); change the ones that took
     production's wants as a fixture to do the same. A test asserting production's wants
     becomes one asserting `history == ()` for every entry.
-  - [ ] `BAR_SOURCE_NAME` and `STATISTICS_SOURCE_NAME` (`constants.py`) stay: `overview_futures.py`
+  - [x] `BAR_SOURCE_NAME` and `STATISTICS_SOURCE_NAME` (`constants.py`) stay: `overview_futures.py`
     prints a source row per wanted family, so with no history wants the rows are absent and
     the constants have no production user but remain the mechanism's names.
-  - [ ] Run the unit and integration tests of `mt data health`, `accounting`, `status` and the
+  - [x] Run the unit and integration tests of `mt data health`, `accounting`, `status` and the
     overview (`test_health_tick.py`, `test_tick_overview.py`, `test_family_report.py`,
     `test_overview_gather.py`, `test_operations_serving.py`) and fix expectations that
     counted bar or statistics rows: those rows are printed per want, so they are gone.
-  - [ ] Design criterion 7 at test scale: `mt data health` on a test database that holds
+  - [x] Design criterion 7 at test scale: `mt data health` on a test database that holds
     ticks shows no bar or statistics row and no new failure.
 
 **Commit**: `refactor: remove the production history wants`

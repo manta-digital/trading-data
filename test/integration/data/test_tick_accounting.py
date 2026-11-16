@@ -116,11 +116,11 @@ def test_text_and_json_with_a_reachable_tick_database(
     assert MINUTE_SUMMARY in lines
     header = lines.index("futures universe:")
     assert lines[header + 1] == "  ES"
-    # The tick tier first, then the other wanted families, grouped by product.
+    # The tick tier per product; no other family is wanted since 309.
     es_tier = lines[header + 2]
     assert es_tier.startswith("    tbbo  ") and "sessions complete (" in es_tier
     assert "records" in es_tier and "caught up" in es_tier
-    assert any(x.startswith("    statistics  ") for x in lines[header:])
+    assert not any(x.startswith("    statistics  ") for x in lines[header:])
     assert "  GC" in lines[header:]
     # Criterion 7: the check that does not run is listed with its reason.
     assert (
@@ -139,11 +139,7 @@ def test_text_and_json_with_a_reachable_tick_database(
         "records",
         "families",
     ]
-    assert [f["family"] for f in product["families"]] == [
-        "tick_tier",
-        "statistics",
-        "bar_1m",
-    ]
+    assert [f["family"] for f in product["families"]] == ["tick_tier"]
     assert product["families"][0]["schema"] == "tbbo"
     assert product["families"][0]["records"] == product["records"]
     assert body["summary"] == MINUTE_SUMMARY  # existing keys unchanged

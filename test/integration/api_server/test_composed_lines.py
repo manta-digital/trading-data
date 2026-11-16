@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from tick_support.api import CLOSED_PORT_SECRET
 from tick_support.cli import clear_tick_env, cli_settings
 from tick_support.roll_seed import ESZ4, seed_september_roll
+from tick_support.universe import WITH_HISTORY
 from typer.testing import CliRunner
 
 from manta_trading.api_server.deps import get_db
@@ -183,8 +184,10 @@ def test_the_status_tick_block_equals_the_cli_accounting(
 
 
 def test_families_are_served_per_wanted_family_without_cross_tier_keys(
-    seeded: TestClient,
+    seeded: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Production wants no history since 309; the wants it carried until then.
+    monkeypatch.setattr(status_route, "TICK_UNIVERSE", WITH_HISTORY)
     (es,) = [
         p for p in seeded.get(STATUS).json()["tick"]["products"] if p["product"] == "ES"
     ]

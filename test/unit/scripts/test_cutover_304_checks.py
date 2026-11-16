@@ -14,6 +14,7 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+from tick_support.universe import use_history
 
 SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 
@@ -28,6 +29,13 @@ def checks() -> ModuleType:
 @pytest.fixture
 def cutover_error() -> type[Exception]:
     return importlib.import_module("cutover_common").CutoverError
+
+
+@pytest.fixture(autouse=True)
+def _history_universe(checks: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """These checks guard a history purchase; production wants none since slice
+    309, so they run against the wants production carried until then."""
+    use_history(monkeypatch, checks)
 
 
 ENV = "MT_TICK_SPEND_CEILING_USD=7.00\nMT_TICK_SPEND_30D_CEILING_USD=16.00\nOTHER=x\n"

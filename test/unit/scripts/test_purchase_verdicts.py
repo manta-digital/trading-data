@@ -12,6 +12,9 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+from tick_support.universe import use_history
+
+from manta_trading.data.tick.universe import TICK_UNIVERSE
 
 SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 
@@ -20,6 +23,13 @@ def _load(name: str) -> ModuleType:
     if str(SCRIPTS) not in sys.path:
         sys.path.insert(0, str(SCRIPTS))
     return importlib.import_module(name)
+
+
+@pytest.fixture(autouse=True)
+def _history_universe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These scripts buy history; production wants none since slice 309, so
+    they run against the wants production carried until then."""
+    use_history(monkeypatch, *(_load(name) for name in ("purchase_verdicts",)))
 
 
 @pytest.fixture(scope="module")
@@ -133,10 +143,19 @@ def test_latest_want_end_follows_the_universe(
     assert pv.latest_want_end() == datetime(2027, 3, 1, tzinfo=UTC)
 
 
-def test_latest_want_end_matches_the_real_universe(pv: ModuleType) -> None:
+def test_latest_want_end_matches_the_universe_it_reads(pv: ModuleType) -> None:
     ends = [w.end for e in pv.TICK_UNIVERSE for w in e.history]
     assert pv.latest_want_end().date() == max(ends)
     assert pv.latest_want_end().tzinfo is UTC
+
+
+def test_the_real_universe_wants_no_history_so_nothing_is_bought(
+    pv: ModuleType, cutover_error: type[Exception], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Slice 309: production wants no history, so the purchase path stops."""
+    monkeypatch.setattr(pv, "TICK_UNIVERSE", TICK_UNIVERSE)
+    with pytest.raises(cutover_error, match="no history wants"):
+        pv.latest_want_end()
 
 
 def test_an_unknown_session_bucket_is_a_stop(
