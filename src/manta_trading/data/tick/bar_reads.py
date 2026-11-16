@@ -24,6 +24,7 @@ from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.tick_reads import (
     WINDOW_COLUMNS,
     WINDOW_WHERE,
+    Bounds,
     OnBatch,
     TickWindow,
     stream_rows,
@@ -32,16 +33,16 @@ from manta_trading.data.tick.tick_reads import (
 
 NS_PER_MINUTE = 60 * 1_000_000_000
 
-#: The session-anchored bucket start, defined once (306 D2). ``bar_parity``
-#: imports it so tick-derived minutes bucket exactly as the provider's do.
-#: Integer division; ``ts_event >= open_ns`` inside a window, so never negative.
+#: The session-anchored bucket start, defined once (306 D2). ``time_bar_cut``
+#: imports it so bars cut from ticks bucket exactly as the provider's do.
+#: Integer division; ``ts_event >= anchor_ns`` inside a window, so never negative.
 SESSION_BUCKET = sql.SQL(
-    "%(open_ns)s::bigint"
-    " + ((ts_event - %(open_ns)s::bigint) / %(width_ns)s::bigint)"
+    "%(anchor_ns)s::bigint"
+    " + ((ts_event - %(anchor_ns)s::bigint) / %(width_ns)s::bigint)"
     " * %(width_ns)s::bigint"
 )
 #: ``1d`` is the whole session, stamped with its open.
-_DAY_BUCKET = sql.SQL("%(open_ns)s::bigint")
+DAY_BUCKET = sql.SQL("%(anchor_ns)s::bigint")
 
 _TABLE = sql.Identifier(BAR_1M_TABLE)
 
@@ -62,9 +63,45 @@ _ROLLED = sql.SQL(
 )
 
 
-def bucket_params(window: TickWindow, width_ns: int) -> dict[str, Any]:
-    """The window's parameters plus the bucket width."""
-    return window_params(window) | {"width_ns": width_ns}
+def scan_params(
+    window: TickWindow, width_ns: int | None, bounds: Bounds = (None, None)
+) -> dict[str, Any] | None:
+    """The window's parameters for a bucketed read, or ``None`` when no bucket
+    starts in ``[from, until)``.
+
+    ``anchor_ns`` is the session open and ``width_ns`` the bucket width (the
+    whole session for ``None``, the session day). The scan (``open_ns`` to
+    ``close_ns``) is narrowed to the trades of the buckets that start inside the
+    bounds, each kept whole: a bar is selected by its start, never cut.
+
+    Raises:
+        ValueError: ``window`` was clipped, so its open is not the session's.
+    """
+    if window.clipped:
+        raise ValueError(
+            f"time bars need the whole session; the {window.session_date} window"
+            f" of {window.raw_symbol} was clipped"
+        )
+    anchor, close = window.open_ns, window.close_ns
+    width = close - anchor + 1 if width_ns is None else width_ns
+    from_ns, until_ns = bounds
+    low = anchor
+    if from_ns is not None and from_ns > anchor:
+        low = anchor - (anchor - from_ns) // width * width  # first start >= from
+    high = close
+    if until_ns is not None:
+        if until_ns <= anchor:
+            return None
+        last_start = anchor + (until_ns - 1 - anchor) // width * width
+        high = min(close, last_start + width - 1)
+    if low > high:
+        return None
+    return window_params(window) | {
+        "anchor_ns": anchor,
+        "width_ns": width,
+        "open_ns": low,
+        "close_ns": high,
+    }
 
 
 async def read_provider_bars(
@@ -76,10 +113,12 @@ async def read_provider_bars(
         query = _STORED.format(window=WINDOW_COLUMNS, table=_TABLE, where=WINDOW_WHERE)
         return await stream_rows(conn, query, window_params(window), on_batch)
     if granularity is Granularity.D1:
-        bucket, params = _DAY_BUCKET, window_params(window)
+        bucket, params = DAY_BUCKET, scan_params(window, None)
     else:
         width = GRANULARITY_BAR_MINUTES[granularity] * NS_PER_MINUTE
-        bucket, params = SESSION_BUCKET, bucket_params(window, width)
+        bucket, params = SESSION_BUCKET, scan_params(window, width)
+    if params is None:
+        return 0
     query = _ROLLED.format(
         window=WINDOW_COLUMNS, bucket=bucket, table=_TABLE, where=WINDOW_WHERE
     )

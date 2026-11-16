@@ -1,11 +1,10 @@
 """Tick-derived one-minute bars and their comparison with the provider's (306 D7).
 
-The only surviving use of bars built from ``tick_trade``: ``mt data tick
-parity`` sets them against ``tick_ohlcv_1m`` where both are held. Buckets are
-the served ones (``bar_reads.SESSION_BUCKET`` at a 60 s width), so a tick minute
-and a provider minute meet on the same key.
+``mt data tick parity`` sets them against ``tick_ohlcv_1m`` where both are
+held. The minutes come from ``time_bar_cut``, the one statement that cuts time
+bars from ticks, so a tick minute and a provider minute meet on the same key.
 
-- :func:`read_tick_minute_bars` is the read-time tick-bar SQL, kept at one minute.
+- :func:`read_tick_minute_bars` is that cut at one minute.
 - :func:`classify_minutes` joins the two sides by bucket and classes each minute.
 """
 
@@ -15,36 +14,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
-from psycopg import sql
-
-from manta_trading.data.tick.bar_reads import (
-    NS_PER_MINUTE,
-    SESSION_BUCKET,
-    bucket_params,
-)
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.tick_reads import (
     BAR_COLUMNS,
-    WINDOW_COLUMNS,
-    WINDOW_WHERE,
     OnBatch,
     Row,
     TickWindow,
-    stream_rows,
 )
+from manta_trading.data.tick.time_bar_cut import cut_time_bars
+from manta_trading.data.tick.time_bar_size import parse_bar_size
 
-#: Open and close by full key order: several trades can share a nanosecond.
-_TICK_MINUTES = sql.SQL(
-    "SELECT bucket, {window},"
-    " (array_agg(price ORDER BY ts_event, sequence, sequence_ordinal))[1],"
-    " max(price), min(price),"
-    " (array_agg(price ORDER BY ts_event DESC, sequence DESC,"
-    " sequence_ordinal DESC))[1],"
-    " sum(size)::bigint"  # numeric otherwise; a bar volume is an integer
-    " FROM (SELECT {bucket} AS bucket, ts_event, sequence, sequence_ordinal,"
-    " price, size FROM tick_trade WHERE {where}) AS t"
-    " GROUP BY bucket ORDER BY bucket"
-)
+_ONE_MINUTE = parse_bar_size("1m")
+_BAR_WIDTH = len(BAR_COLUMNS)
 
 
 async def read_tick_minute_bars(
@@ -52,11 +33,11 @@ async def read_tick_minute_bars(
 ) -> int:
     """The window's trades as one-minute bars (``BAR_COLUMNS`` rows), session
     anchored; returns the row count."""
-    query = _TICK_MINUTES.format(
-        window=WINDOW_COLUMNS, bucket=SESSION_BUCKET, where=WINDOW_WHERE
-    )
-    params = bucket_params(window, NS_PER_MINUTE)
-    return await stream_rows(conn, query, params, on_batch)
+
+    def drop_trade_count(batch: Sequence[Row]) -> None:
+        on_batch([row[:_BAR_WIDTH] for row in batch])
+
+    return await cut_time_bars(conn, window, _ONE_MINUTE, drop_trade_count)
 
 
 class MinuteClass(StrEnum):

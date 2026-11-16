@@ -51,8 +51,11 @@ class ParityDb:
 BarsFor = Callable[[ParityDb], list[dict[str, int]]]
 
 
-def tick_minutes(url: str, window: TickWindow) -> dict[int, Minute]:
-    """The window's trades bucketed by Python at the session open + n minutes."""
+def tick_minutes(
+    url: str, window: TickWindow, width_ns: int = NS_MINUTE
+) -> dict[int, Minute]:
+    """The window's trades bucketed by Python at the session open + n widths
+    (one minute unless given; a width past the close gives one session bucket)."""
     trades: dict[int, list[tuple[Any, ...]]] = defaultdict(list)
     with psycopg.connect(url) as conn:
         rows = conn.execute(
@@ -61,7 +64,7 @@ def tick_minutes(url: str, window: TickWindow) -> dict[int, Minute]:
             (window.instrument_id, window.open_ns, window.close_ns),
         ).fetchall()
     for ts, sequence, ordinal, price, size in rows:
-        bucket = window.open_ns + (ts - window.open_ns) // NS_MINUTE * NS_MINUTE
+        bucket = window.open_ns + (ts - window.open_ns) // width_ns * width_ns
         trades[bucket].append(((ts, sequence, ordinal), price, size))
     minutes: dict[int, Minute] = {}
     for bucket, group in trades.items():

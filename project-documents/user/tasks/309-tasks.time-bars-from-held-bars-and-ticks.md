@@ -95,43 +95,45 @@ revision_number: 4
 
 ## 2. The tick-cut statement in its own module
 
-- [ ] **2.1 Move the statement and give it an interval**
-  - [ ] New module `src/manta_trading/data/tick/time_bar_cut.py` with
+- [x] **2.1 Move the statement and give it an interval**
+  - [x] New module `src/manta_trading/data/tick/time_bar_cut.py` with
     `cut_time_bars(conn, window, size: BarSize, on_batch) -> int`: the statement of
     `bar_parity._TICK_MINUTES` with the interval a parameter. Bucket by the same
     `SESSION_BUCKET` and `bucket_params` (imported from `bar_reads`; make the private
     `_DAY_BUCKET` public as `DAY_BUCKET` and use it for `session_day`). First price and
     last price by the full tick order (`ts_event, sequence, sequence_ordinal`), `max`,
     `min`, `sum(size)::bigint`; empty buckets produce no row.
-  - [ ] Output columns are `TIME_BAR_CUT_COLUMNS = BAR_COLUMNS + ("trade_count",)`:
+  - [x] Output columns are `TIME_BAR_CUT_COLUMNS = BAR_COLUMNS + ("trade_count",)`:
     `count(*)` per bucket is the new last column (task 5.3 checks it against the ledger).
     `1d` is one row stamped at the session open.
-  - [ ] `bar_parity.read_tick_minute_bars` calls `cut_time_bars` at one minute and drops
+  - [x] `bar_parity.read_tick_minute_bars` calls `cut_time_bars` at one minute and drops
     the trailing `trade_count` before `on_batch`, so its rows and the classify code are
     unchanged. Delete `_TICK_MINUTES` from `bar_parity.py`. One implementation remains.
-  - [ ] Update the `bar_parity.py` module docstring: it no longer says "the only
+  - [x] Update the `bar_parity.py` module docstring: it no longer says "the only
     surviving use of bars built from `tick_trade`".
-- [ ] **2.2 Tests against real held ticks** (`test/integration/data/test_time_bar_cut.py`)
-  - [ ] Design criterion 2 says "summed by hand". The oracle is that sum: `tick_minutes`
+
+  Note: bounds are applied by scan_params: buckets anchored at the session open, a bar selected by its start and kept whole (routes in 6.3 pass windows unclipped, as 308 does).
+- [x] **2.2 Tests against real held ticks** (`test/integration/data/test_time_bar_cut.py`)
+  - [x] Design criterion 2 says "summed by hand". The oracle is that sum: `tick_minutes`
     buckets the tick rows in Python, independently of the SQL, so no manual sum is made.
-  - [ ] Use the real ingested `tbbo` day (`TBBO_DAY`), seeded as `test/tick_support/parity_seed.py`
+  - [x] Use the real ingested `tbbo` day (`TBBO_DAY`), seeded as `test/tick_support/parity_seed.py`
     does. Reuse its Python bucketing oracle `tick_minutes(url, window)`: give it a
     `width_ns` parameter (default one minute, so its current callers are unchanged) rather
     than writing a second oracle. For `1d` pass a width longer than the session.
-  - [ ] Design criterion 2: at `1m`, the same count of non-empty minutes and the same
+  - [x] Design criterion 2: at `1m`, the same count of non-empty minutes and the same
     open, high, low, close, volume per minute as the oracle.
-  - [ ] Two more sizes, each for a path `1m` does not reach: `4h` (buckets start at the
+  - [x] Two more sizes, each for a path `1m` does not reach: `4h` (buckets start at the
     session open, 17:00 Chicago, not on a UTC multiple) and `1d` (the day bucket, one row).
-  - [ ] `1s` (issue #40): on a five-minute window inside the day (pass `from`/`until`
+  - [x] `1s` (issue #40): on a five-minute window inside the day (pass `from`/`until`
     bounds to the window), the bars equal the oracle at a width of one second: one bar per
     second that has a trade, none for an empty second.
-  - [ ] `trade_count` summed over rows equals `SELECT count(*)` for the day, at each size.
-  - [ ] A bar never crosses a session (the design's "A bar never crosses a session"): at
+  - [x] `trade_count` summed over rows equals `SELECT count(*)` for the day, at each size.
+  - [x] A bar never crosses a session (the design's "A bar never crosses a session"): at
     `90m` (a size that does not divide the session evenly) every bucket start is at or after
     the session open and before the session close, and no row includes a trade from outside
     the window (seed one trade just before the open and one just after the close; neither
     changes any bar, and `trade_count` summed over rows still equals the window's count).
-  - [ ] The existing `test/integration/data/test_bar_parity_sql.py` (ties at the close,
+  - [x] The existing `test/integration/data/test_bar_parity_sql.py` (ties at the close,
     volume, other instrument, empty window) passes unchanged: it now exercises the moved
     statement through `read_tick_minute_bars`.
 
