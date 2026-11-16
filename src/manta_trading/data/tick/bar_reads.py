@@ -37,7 +37,7 @@ from manta_trading.data.tick.time_bar_size import BarSize, provider_schema_for
 
 NS_PER_MINUTE = 60 * 1_000_000_000
 
-#: The session-anchored bucket start, defined once (306 D2). ``time_bar_cut``
+#: The session-anchored bucket start, defined once (306; issue #47). ``time_bar_cut``
 #: imports it so bars cut from ticks bucket exactly as the provider's do.
 #: Integer division; ``ts_event >= anchor_ns`` inside a window, so never negative.
 SESSION_BUCKET = sql.SQL(

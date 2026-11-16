@@ -470,19 +470,19 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 Each removal follows a green verification and has its own marker, so any one can be undone.
 
-- [ ] **8.1 Remove the provider-only machinery**
-  - [ ] Verification first: `grep -rn` for `BAR_SOURCE`, `TICK_BAR_GRANULARITIES`,
+- [x] **8.1 Remove the provider-only machinery**
+  - [x] Verification first: `grep -rn` for `BAR_SOURCE`, `TICK_BAR_GRANULARITIES`,
     `TICK_GET_CHOICES`, `family_for`, `bar_source` and `TickBarGranularity` across `src`,
     `scripts`, `test`. Each remaining user is a miss in sections 5 to 7: fix it, do not keep
     the symbol.
-  - [ ] Delete `BAR_SOURCE` (`bar_constants.py`), `TICK_BAR_GRANULARITIES` and
+  - [x] Delete `BAR_SOURCE` (`bar_constants.py`), `TICK_BAR_GRANULARITIES` and
     `test/unit/data/tick/test_bar_source.py` (it asserts the fixed table). Delete any
     remaining test asserting that bars are never built from ticks.
-  - [ ] Remove the 306 wording from docstrings and comments in `src` that still say
+  - [x] Remove the 306 wording from docstrings and comments in `src` that still say
     provider-only ("no provider bars, no bars", "never built from ticks", 306 D2).
-  - [ ] Kept as is: `SESSION_BUCKET`, the source label, `read_provider_bars`, the
+  - [x] Kept as is: `SESSION_BUCKET`, the source label, `read_provider_bars`, the
     `TICK_TIER`/`BAR_1M` plumbing that slice 308 uses.
-  - [ ] Run the unit tier for `data/tick`, `api_server` and `cli`, then the integration
+  - [x] Run the unit tier for `data/tick`, `api_server` and `cli`, then the integration
     files of sections 2 to 7; all pass.
 
 **Commit**: `refactor: remove the provider-only bar table and size menu`

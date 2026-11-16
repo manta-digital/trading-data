@@ -16,7 +16,6 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import Final
 
-from manta_trading.constants import Granularity
 from manta_trading.data.tick.dbn_values import UNDEF_INT64
 from manta_trading.market.schema.seed_cme_calendar import CME_EQUITY_CALENDAR_ID
 from manta_trading.market.schema.seed_cme_metals_calendar import CME_METALS_CALENDAR_ID
@@ -393,19 +392,9 @@ TICK_ROLL_STATEMENT_TIMEOUT_SECONDS = 30
 
 # -- Slice 230: tick get and the composed lines (LLD 230 TD4, TD8, TD10) ------
 
-#: ``mt data tick get``'s ``WHAT`` for raw ticks; every other choice is a bar.
+#: ``mt data tick get``'s ``WHAT`` for raw ticks; anything else is a bar size
+#: (``time_bar_size.parse_bar_size``).
 TICK_GET_TICKS = "ticks"
-#: The bar sizes ``get`` serves. ``D1`` is the whole session, not 24 h; the
-#: intraday widths are ``GRANULARITY_BAR_MINUTES``'s.
-TICK_BAR_GRANULARITIES: tuple[Granularity, ...] = (
-    Granularity.M1,
-    Granularity.M5,
-    Granularity.M15,
-    Granularity.H1,
-    Granularity.H4,
-    Granularity.D1,
-)
-TICK_GET_CHOICES: tuple[str, ...] = (TICK_GET_TICKS, *TICK_BAR_GRANULARITIES)
 
 #: DBN's ``FIXED_PRICE_SCALE``: a stored price is ``value * 10**9`` (TD4).
 TICK_PRICE_SCALE = 10**9
