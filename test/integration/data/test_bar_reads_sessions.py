@@ -14,10 +14,10 @@ from typing import Any
 import psycopg
 from tick_support.reads import bar_dicts, read_rows, session_window
 
-from manta_trading.constants import Granularity
 from manta_trading.data.tick.bar_constants import BAR_1M_TABLE
 from manta_trading.data.tick.bar_reads import NS_PER_MINUTE, read_provider_bars
 from manta_trading.data.tick.tick_reads import TickWindow
+from manta_trading.data.tick.time_bar_size import parse_bar_size
 
 INSTRUMENT = 183_748
 HOUR_NS = 60 * NS_PER_MINUTE
@@ -70,7 +70,7 @@ async def test_4h_buckets_follow_the_open_on_both_sides_of_the_dst_change(
     starts = {}
     for name, window in (("before", before), ("after", after)):
         rows = await read_rows(
-            migrated_tick_db, read_provider_bars, window, Granularity.H4
+            migrated_tick_db, read_provider_bars, window, parse_bar_size("4h")
         )
         starts[name] = _hours(rows)
 
@@ -87,14 +87,16 @@ async def test_the_last_4h_bucket_of_an_early_close_holds_nothing_after_the_clos
     assert window.close_ns - window.open_ns < regular, "calendar has no early close"
     _seed_session(migrated_tick_db, window, step_minutes=15, extra_after=15)
 
-    for granularity in (Granularity.M1, Granularity.H4):
+    for granularity in (parse_bar_size("1m"), parse_bar_size("4h")):
         served = bar_dicts(
             await read_rows(migrated_tick_db, read_provider_bars, window, granularity)
         )
         assert max(b["time"] for b in served) <= window.close_ns
 
     rows = bar_dicts(
-        await read_rows(migrated_tick_db, read_provider_bars, window, Granularity.H4)
+        await read_rows(
+            migrated_tick_db, read_provider_bars, window, parse_bar_size("4h")
+        )
     )
     last = rows[-1]
     assert window.open_ns <= last["time"] <= window.close_ns
@@ -124,7 +126,7 @@ async def test_a_bucket_never_crosses_the_daily_break(
     for name, window in (("first", first), ("second", second)):
         served[name] = bar_dicts(
             await read_rows(
-                migrated_tick_db, read_provider_bars, window, Granularity.H4
+                migrated_tick_db, read_provider_bars, window, parse_bar_size("4h")
             )
         )
 

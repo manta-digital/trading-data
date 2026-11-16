@@ -34,7 +34,6 @@ from manta_trading.cli.commands.tick_store_cmds import (
     read_storage,
     run_mapped,
 )
-from manta_trading.constants import Granularity
 from manta_trading.data.tick.bar_parity import classify_minutes, read_tick_minute_bars
 from manta_trading.data.tick.bar_parity_report import (
     ParityReport,
@@ -44,6 +43,7 @@ from manta_trading.data.tick.bar_parity_report import (
 from manta_trading.data.tick.bar_reads import read_provider_bars
 from manta_trading.data.tick.parity_plan import ParityInputs, parity_inputs
 from manta_trading.data.tick.schema_families import SchemaFamily
+from manta_trading.data.tick.time_bar_size import parse_bar_size
 
 if TYPE_CHECKING:
     from manta_trading.config import Settings
@@ -51,6 +51,8 @@ if TYPE_CHECKING:
     from manta_trading.data.tick.manifest_reads import Conn
     from manta_trading.data.tick.roll_rules import RollRule
     from manta_trading.data.tick.tick_reads import Row
+
+_ONE_MINUTE = parse_bar_size("1m")
 
 PARITY_EPILOG = (
     "Sets the minutes built from ticks against the provider's ohlcv-1m minutes, "
@@ -72,7 +74,7 @@ async def _compare(conn: Conn, inputs: ParityInputs) -> ParityReport:
         tick: list[Row] = []
         provider: list[Row] = []
         await read_tick_minute_bars(conn, window, tick.extend)
-        await read_provider_bars(conn, window, Granularity.M1, provider.extend)
+        await read_provider_bars(conn, window, _ONE_MINUTE, provider.extend)
         minutes = classify_minutes(tick, provider, window.close_ns)
         sessions.append(session_report(window.session_date, minutes))
     return build_report(sessions, inputs.skipped)

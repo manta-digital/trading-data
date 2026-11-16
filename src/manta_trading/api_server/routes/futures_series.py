@@ -51,12 +51,12 @@ from manta_trading.api_server.serialization import (
     timeseries_200,
 )
 from manta_trading.api_server.tick_access import tick_connection, tick_errors
-from manta_trading.constants import Granularity
 from manta_trading.data.tick.bar_reads import read_provider_bars
 from manta_trading.data.tick.get_plan import GetPlan, contract_plan, product_plan
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.schema_families import SchemaFamily
 from manta_trading.data.tick.tick_reads import OnBatch, Row, TickWindow, read_ticks
+from manta_trading.data.tick.time_bar_size import parse_bar_size
 
 router = APIRouter(prefix="/api/v1/futures", tags=["futures"])
 
@@ -129,7 +129,7 @@ def product_plan_for(
 
 
 def _bars_reader(granularity: TickBarGranularity) -> ReadWindow:
-    size = Granularity(granularity.value)
+    size = parse_bar_size(granularity.value)
 
     async def read(conn: Conn, window: TickWindow, on_batch: OnBatch) -> int:
         return await read_provider_bars(conn, window, size, on_batch)

@@ -22,21 +22,16 @@ from tick_support.reads import bar_dicts, read_rows, session_window
 from tick_support.tick_bar_helpers import seed_bar_units
 from tick_support.tier_units import TBBO_DAY
 
-from manta_trading.constants import GRANULARITY_BAR_MINUTES, Granularity
 from manta_trading.data.tick.bar_constants import BAR_1M_TABLE
-from manta_trading.data.tick.bar_reads import NS_PER_MINUTE, read_provider_bars
+from manta_trading.data.tick.bar_reads import read_provider_bars
 from manta_trading.data.tick.ingest_plan import Calendars
 from manta_trading.data.tick.ingest_worker import UnitResult
 from manta_trading.data.tick.tick_reads import TickWindow
+from manta_trading.data.tick.time_bar_size import parse_bar_size
 
 COLUMNS = "ts_event, open, high, low, close, volume"
-SIZES = (
-    Granularity.M5,
-    Granularity.M15,
-    Granularity.H1,
-    Granularity.H4,
-    Granularity.D1,
-)
+#: The sizes served before 309, and ``90m``, which was not.
+SIZES = ("5m", "15m", "1h", "4h", "1d", "90m")
 
 
 @dataclass(frozen=True)
@@ -90,13 +85,10 @@ async def bar_day(
     return BarDay(url, window, minutes)
 
 
-def rolled(day: BarDay, granularity: Granularity) -> list[tuple[int, ...]]:
+def rolled(day: BarDay, token: str) -> list[tuple[int, ...]]:
     """The expected bars, from the stored minutes: session-anchored buckets."""
     open_ns = day.window.open_ns
-    if granularity is Granularity.D1:
-        width = None
-    else:
-        width = GRANULARITY_BAR_MINUTES[granularity] * NS_PER_MINUTE
+    width = parse_bar_size(token).width_ns
     buckets: dict[int, list[tuple[int, ...]]] = {}
     for minute in day.minutes:
         start = (
@@ -128,7 +120,7 @@ def served(rows: list[Any]) -> list[tuple[int, ...]]:
 
 async def test_one_minute_bars_equal_the_stored_rows(bar_day: BarDay) -> None:
     rows = await read_rows(
-        bar_day.url, read_provider_bars, bar_day.window, Granularity.M1
+        bar_day.url, read_provider_bars, bar_day.window, parse_bar_size("1m")
     )
 
     assert served(rows) == bar_day.minutes  # count, prices and volume, exactly
@@ -138,18 +130,19 @@ async def test_one_minute_bars_equal_the_stored_rows(bar_day: BarDay) -> None:
     assert first["raw_symbol"] == "ESZ4"
 
 
-@pytest.mark.parametrize("granularity", SIZES)
+@pytest.mark.parametrize("token", SIZES)
 async def test_coarser_bars_equal_the_rollup_of_the_stored_minutes(
-    bar_day: BarDay, granularity: Granularity
+    bar_day: BarDay, token: str
 ) -> None:
-    rows = await read_rows(bar_day.url, read_provider_bars, bar_day.window, granularity)
+    size = parse_bar_size(token)
+    rows = await read_rows(bar_day.url, read_provider_bars, bar_day.window, size)
 
-    assert served(rows) == rolled(bar_day, granularity)
+    assert served(rows) == rolled(bar_day, token)
 
 
 async def test_a_day_bar_is_one_bucket_stamped_at_the_open(bar_day: BarDay) -> None:
     rows = await read_rows(
-        bar_day.url, read_provider_bars, bar_day.window, Granularity.D1
+        bar_day.url, read_provider_bars, bar_day.window, parse_bar_size("1d")
     )
 
     assert [b["time"] for b in bar_dicts(rows)] == [bar_day.window.open_ns]
@@ -160,7 +153,7 @@ async def test_4h_buckets_start_at_the_session_open_plus_whole_widths(
 ) -> None:
     """2024-12-03 is standard time: 17:00 CT is 23:00Z (criterion 3)."""
     rows = await read_rows(
-        bar_day.url, read_provider_bars, bar_day.window, Granularity.H4
+        bar_day.url, read_provider_bars, bar_day.window, parse_bar_size("4h")
     )
 
     starts = [
@@ -170,15 +163,15 @@ async def test_4h_buckets_start_at_the_session_open_plus_whole_widths(
     assert starts == ["23:00", "03:00", "07:00", "11:00", "15:00", "19:00"]
 
 
-@pytest.mark.parametrize(
-    "granularity", [Granularity.M5, Granularity.M15, Granularity.H1]
-)
+@pytest.mark.parametrize("token", ["5m", "15m", "1h"])
 async def test_short_bars_start_on_whole_multiples_of_the_width(
-    bar_day: BarDay, granularity: Granularity
+    bar_day: BarDay, token: str
 ) -> None:
     """The pre-306 boundaries: the open is on the hour in both DST states."""
-    width = GRANULARITY_BAR_MINUTES[granularity] * NS_PER_MINUTE
-    rows = await read_rows(bar_day.url, read_provider_bars, bar_day.window, granularity)
+    size = parse_bar_size(token)
+    width = size.width_ns
+    assert width is not None
+    rows = await read_rows(bar_day.url, read_provider_bars, bar_day.window, size)
 
     for bar in bar_dicts(rows):
         assert (bar["time"] - bar_day.window.open_ns) % width == 0
@@ -193,10 +186,9 @@ async def test_a_window_with_no_bars_returns_nothing(bar_day: BarDay) -> None:
         bar_day.window.open_ns + 5 * 86_400 * 10**9,
         bar_day.window.close_ns + 5 * 86_400 * 10**9,
     )
-    for granularity in (Granularity.M1, Granularity.H4, Granularity.D1):
-        assert (
-            await read_rows(bar_day.url, read_provider_bars, empty, granularity) == []
-        )
+    for token in ("1m", "4h", "1d"):
+        size = parse_bar_size(token)
+        assert await read_rows(bar_day.url, read_provider_bars, empty, size) == []
 
 
 async def test_the_dbn_sample_bars_come_back_unscaled_and_unshifted(
@@ -231,7 +223,9 @@ async def test_the_dbn_sample_bars_come_back_unscaled_and_unshifted(
         date(2020, 12, 28), instrument, "ESH1", expected[0][0], expected[-1][0]
     )
 
-    rows = await read_rows(migrated_tick_db, read_provider_bars, window, Granularity.M1)
+    rows = await read_rows(
+        migrated_tick_db, read_provider_bars, window, parse_bar_size("1m")
+    )
 
     assert served(rows) == expected
     assert len(expected) == 2

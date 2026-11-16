@@ -1,15 +1,18 @@
-"""Served time bars: provider ``ohlcv-1m`` rows, rolled up per session (306 D2, D5).
+"""Time bars from held provider ``ohlcv-1m`` rows, rolled up per session (306, 309).
 
 One statement per :class:`TickWindow`, like the tick reads, over
 ``tick_ohlcv_1m`` on the key prefix ``(instrument_id, ts_event)``. Rows come
 back in ``BAR_COLUMNS`` order with raw integers.
 
-- ``1m`` is the stored rows, ``time`` the stored ``ts_event``.
-- Coarser sizes group by a bucket anchored at the session open
-  (:data:`SESSION_BUCKET`): first open, max high, min low, last close, summed
-  volume. Empty buckets are omitted. ``1d`` is one bucket stamped at the open.
+- A size equal to the provider width is the stored rows, ``time`` the stored
+  ``ts_event``.
+- Any wider size the provider width divides groups by a bucket anchored at the
+  session open (:data:`SESSION_BUCKET`): first open, max high, min low, last
+  close, summed volume. Empty buckets are omitted. ``1d`` is one bucket stamped
+  at the open.
 
-Ticks are never read here: no provider bars, no bars (306 D2).
+This module reads provider bars only; which source a session's bars come from
+is ``time_bar_source``'s choice, and bars cut from ticks are ``time_bar_cut``'s.
 """
 
 from __future__ import annotations
@@ -18,8 +21,8 @@ from typing import Any
 
 from psycopg import sql
 
-from manta_trading.constants import GRANULARITY_BAR_MINUTES, Granularity
-from manta_trading.data.tick.bar_constants import BAR_1M_TABLE
+from manta_trading.data.tick.bar_constants import BAR_1M_TABLE, PROVIDER_BAR_WIDTH_NS
+from manta_trading.data.tick.constants import TickSchema
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.tick_reads import (
     WINDOW_COLUMNS,
@@ -30,6 +33,7 @@ from manta_trading.data.tick.tick_reads import (
     stream_rows,
     window_params,
 )
+from manta_trading.data.tick.time_bar_size import BarSize, provider_schema_for
 
 NS_PER_MINUTE = 60 * 1_000_000_000
 
@@ -105,21 +109,29 @@ def scan_params(
 
 
 async def read_provider_bars(
-    conn: Conn, window: TickWindow, granularity: Granularity, on_batch: OnBatch
+    conn: Conn,
+    window: TickWindow,
+    size: BarSize,
+    on_batch: OnBatch,
+    bounds: Bounds = (None, None),
 ) -> int:
-    """The window's provider bars at ``granularity`` (``BAR_COLUMNS`` rows),
-    empty buckets omitted; returns the row count."""
-    if granularity is Granularity.M1:
-        query = _STORED.format(window=WINDOW_COLUMNS, table=_TABLE, where=WINDOW_WHERE)
-        return await stream_rows(conn, query, window_params(window), on_batch)
-    if granularity is Granularity.D1:
-        bucket, params = DAY_BUCKET, scan_params(window, None)
-    else:
-        width = GRANULARITY_BAR_MINUTES[granularity] * NS_PER_MINUTE
-        bucket, params = SESSION_BUCKET, scan_params(window, width)
+    """The window's provider bars at ``size`` (``BAR_COLUMNS`` rows) that start
+    in ``[from, until)``, empty buckets omitted; returns the row count.
+
+    Raises:
+        ValueError: no provider width divides ``size``.
+    """
+    if provider_schema_for(size) is not TickSchema.OHLCV_1M:
+        raise ValueError(f"{size.token} bars cannot be made from ohlcv-1m bars")
+    stored_width = PROVIDER_BAR_WIDTH_NS[TickSchema.OHLCV_1M]
+    params = scan_params(window, size.width_ns, bounds)
     if params is None:
         return 0
-    query = _ROLLED.format(
-        window=WINDOW_COLUMNS, bucket=bucket, table=_TABLE, where=WINDOW_WHERE
-    )
+    if size.width_ns == stored_width:
+        query = _STORED.format(window=WINDOW_COLUMNS, table=_TABLE, where=WINDOW_WHERE)
+    else:
+        bucket = DAY_BUCKET if size.session_day else SESSION_BUCKET
+        query = _ROLLED.format(
+            window=WINDOW_COLUMNS, bucket=bucket, table=_TABLE, where=WINDOW_WHERE
+        )
     return await stream_rows(conn, query, params, on_batch)

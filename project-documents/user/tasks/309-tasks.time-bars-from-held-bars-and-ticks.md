@@ -225,16 +225,16 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 ## 5. The reader and its admission
 
-- [ ] **5.1 Provider reader takes a `BarSize`**
-  - [ ] `bar_reads.read_provider_bars(conn, window, size: BarSize, on_batch)`: width equal
+- [x] **5.1 Provider reader takes a `BarSize`**
+  - [x] `bar_reads.read_provider_bars(conn, window, size: BarSize, on_batch)`: width equal
     to the provider width reads the stored rows, `session_day` uses `DAY_BUCKET`, any other
     divisible width uses `SESSION_BUCKET`. It no longer takes a `Granularity` or imports
     `GRANULARITY_BAR_MINUTES`. Rewrite the module docstring: it drops "ticks are never read
     here: no provider bars, no bars".
-  - [ ] Keep the tree green: its three current callers (`futures_series._bars_reader`,
+  - [x] Keep the tree green: its three current callers (`futures_series._bars_reader`,
     `tick_get_cmds._stream`, `tick_parity_cmds`) pass `parse_bar_size(<their token>)`.
     Tasks 6.3 and 7.1 replace the first two; task 8.2 deletes the third.
-  - [ ] Update `test/integration/data/test_bar_reads.py` and `test_bar_reads_sessions.py`
+  - [x] Update `test/integration/data/test_bar_reads.py` and `test_bar_reads_sessions.py`
     for the new argument; their expectations (rollups, `1d` stamped at the open) stay.
     Add `90m` (a size that was not served before) rolled from the stored minutes.
 

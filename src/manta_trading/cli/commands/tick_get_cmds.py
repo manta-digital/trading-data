@@ -155,6 +155,7 @@ async def _stream(conn: Conn, plan: GetPlan, what: str, writer: GetWriter) -> in
     """Read every planned session in one snapshot; return the exit code."""
     from manta_trading.data.tick.bar_reads import read_provider_bars
     from manta_trading.data.tick.tick_reads import read_ticks
+    from manta_trading.data.tick.time_bar_size import parse_bar_size
 
     written = 0
 
@@ -173,7 +174,9 @@ async def _stream(conn: Conn, plan: GetPlan, what: str, writer: GetWriter) -> in
                 if what == TICK_GET_TICKS:
                     await read_ticks(conn, window, on_batch)
                 else:
-                    await read_provider_bars(conn, window, Granularity(what), on_batch)
+                    await read_provider_bars(
+                        conn, window, parse_bar_size(what), on_batch
+                    )
     except psycopg.OperationalError as exc:  # QueryCanceled included
         if written == 0:
             raise  # nothing printed yet: the ordinary error path (run_mapped)
