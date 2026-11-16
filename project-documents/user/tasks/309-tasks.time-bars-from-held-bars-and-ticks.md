@@ -240,20 +240,21 @@ Done before anything reads the limit, so no later commit carries an unmeasured d
 
 **Commit**: `refactor: read provider bars at any size`
 
-- [ ] **5.2 Trade admission for tick-cut sessions**
-  - [ ] In `tick_bar_reads.py` split `trades_to_scan` so a helper
+- [x] **5.2 Trade admission for tick-cut sessions**
+  - [x] In `tick_bar_reads.py` split `trades_to_scan` so a helper
     `trades_in_windows(conn, plan, windows)` returns the ledger's record count for the
     given windows; `trades_to_scan` calls it with the overlapping windows, unchanged
     behaviour. The tick-bar tests pass untouched.
-  - [ ] Setting `api_max_time_bar_trades` (`MT_API_MAX_TIME_BAR_TRADES`, default
+  - [x] Setting `api_max_time_bar_trades` (`MT_API_MAX_TIME_BAR_TRADES`, default
     `API_MAX_TIME_BAR_TRADES` from task 3.1) beside `api_max_tick_bar_trades` in
     `config/__init__.py`, a `get_max_time_bar_trades` dependency in `api_server/deps.py` and
     `app.state.max_time_bar_trades` in `app.py`, all following the 308 limit exactly.
-  - [ ] `TimeBarScanExceeded(scanned, limit)` with the message "the request reads
+  - [x] `TimeBarScanExceeded(scanned, limit)` with the message "the request reads
     {n:,} trades to cut {size} bars, over the {limit:,} trade limit; narrow start/end".
-  - [ ] Tests: unit for the setting default and env override (as `test_tick_bar_settings.py`);
+  - [x] Tests: unit for the setting default and env override (as `test_tick_bar_settings.py`);
     integration that the count excludes provider-served and `None` sessions and that a
     session with no ledger row adds nothing.
+  Note: TimeBarScanExceeded also takes the size token, which its message names.
 
 **Commit**: `feat: add the time-bar trade limit setting and window admission count`
 

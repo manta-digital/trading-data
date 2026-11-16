@@ -17,6 +17,7 @@ from manta_trading.config.databento_plans import DatabentoPlan
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
     API_MAX_TICK_BAR_TRADES,
+    API_MAX_TIME_BAR_TRADES,
     API_SERVING_SESSION,
     DAILY_CYCLE_RETRY_INTERVAL,
 )
@@ -301,6 +302,8 @@ class Settings(BaseSettings):
     api_max_bars_per_request: int = Field(default=API_MAX_BARS_PER_REQUEST, gt=0)
     # MT_API_MAX_TICK_BAR_TRADES: trades one tick-bar request may scan (308 D5).
     api_max_tick_bar_trades: int = Field(default=API_MAX_TICK_BAR_TRADES, gt=0)
+    # MT_API_MAX_TIME_BAR_TRADES: trades one time-bar request may cut (309).
+    api_max_time_bar_trades: int = Field(default=API_MAX_TIME_BAR_TRADES, gt=0)
     # Pattern-constrained because the value is interpolated into a SET
     # statement (Postgres does not accept a bind parameter there). Validating
     # the shape at load time is what keeps that interpolation safe, and it

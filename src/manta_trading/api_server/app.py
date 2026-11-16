@@ -89,15 +89,14 @@ async def lifespan(
     settings = Settings()
     resolved_url = db_url or settings.timescale_db_url
     if not resolved_url:
-        raise RuntimeError(
-            "MT_TIMESCALE_DB_URL is required for the API server"
-        )
+        raise RuntimeError("MT_TIMESCALE_DB_URL is required for the API server")
 
     # D9: both policy ceilings are resolved once, here, and held on app.state.
     # Changing an override requires a restart — the same contract as
     # MT_TIMESCALE_DB_URL — so no request pays for re-reading the environment.
     app.state.max_bars_per_request = settings.api_max_bars_per_request
     app.state.max_tick_bar_trades = settings.api_max_tick_bar_trades
+    app.state.max_time_bar_trades = settings.api_max_time_bar_trades
     app.state.statement_timeout = settings.api_statement_timeout
     # The operations routes read `minute_firing_days` and `eodhd_api_key` from
     # here rather than re-instantiating Settings per request — the same
@@ -297,8 +296,6 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
         _logger.exception(
             "Unhandled exception on %s %s", request.method, request.url.path
         )
-        return JSONResponse(
-            status_code=500, content={"error": "internal server error"}
-        )
+        return JSONResponse(status_code=500, content={"error": "internal server error"})
 
     return app

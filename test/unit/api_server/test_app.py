@@ -66,6 +66,7 @@ def started_app(monkeypatch: pytest.MonkeyPatch) -> Any:
         for key in (
             "MT_API_MAX_BARS_PER_REQUEST",
             "MT_API_MAX_TICK_BAR_TRADES",
+            "MT_API_MAX_TIME_BAR_TRADES",
             "MT_API_STATEMENT_TIMEOUT",
         ):
             monkeypatch.delenv(key, raising=False)
@@ -123,9 +124,11 @@ def test_policy_values_are_resolved_once_onto_app_state(started_app: Any) -> Non
         MT_API_MAX_BARS_PER_REQUEST="1234",
         MT_API_STATEMENT_TIMEOUT="7s",
         MT_API_MAX_TICK_BAR_TRADES="4321",
+        MT_API_MAX_TIME_BAR_TRADES="5432",
     )
     assert app.state.max_bars_per_request == 1234
     assert app.state.max_tick_bar_trades == 4321
+    assert app.state.max_time_bar_trades == 5432
     assert app.state.statement_timeout == "7s"
 
 

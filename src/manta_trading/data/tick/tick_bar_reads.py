@@ -254,7 +254,13 @@ def plan_entry(plan: GetPlan) -> TickUniverseEntry:
 async def trades_to_scan(conn: Conn, plan: GetPlan, bounds: Bounds) -> int:
     """The ledger's record count over the windows a tick-bar read scans: exactly
     the rows those reads return (``mt data tick coverage`` checks it)."""
-    windows = overlapping(plan.segments, bounds)
+    return await trades_in_windows(conn, plan, overlapping(plan.segments, bounds))
+
+
+async def trades_in_windows(
+    conn: Conn, plan: GetPlan, windows: Sequence[TickWindow]
+) -> int:
+    """The ledger's record count over ``windows`` (windows of ``plan``)."""
     if not windows:
         return 0
     first = min(w.session_date for w in windows)
