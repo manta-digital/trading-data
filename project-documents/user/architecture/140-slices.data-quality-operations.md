@@ -15,7 +15,10 @@ status: in_progress
 
 ## Approach
 
-Seven slices. Universe rebuild from EODHD first because slice 142's
+The plan started as seven slices (141–147) and has grown to 33 (141–174; 155 moved
+to Future work) as production operation surfaced storage, cagg, adjustment and
+print-quality work. The original ordering, kept for history: universe rebuild
+from EODHD first because slice 142's
 TRUNCATE depends on `instruments` being populated with the correct
 universe shape; doing this as a separate slice keeps each step
 reviewable. Then schema migration and TRUNCATE (the destructive step).
