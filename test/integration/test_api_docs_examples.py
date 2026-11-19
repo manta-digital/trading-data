@@ -199,14 +199,15 @@ class TestDocumentedErrorShapes:
 
     def test_hand_written_422_uses_the_other_shape(self, migrated_db: str) -> None:
         """A reversed range is refused inside the route, which sends
-        ``{"error": "…"}`` — the shape the schema does not declare."""
+        ``{"error": "…"}`` plus its ``reason`` (§2.7, issue #23)."""
         with _client(migrated_db) as client:
             response = client.get(
                 "/api/v1/bars/SPY?granularity=1d&start=2024-06-14&end=2024-06-10"
             )
 
         assert response.status_code == 422
-        assert set(response.json()) == {"error"}
+        assert response.json()["reason"] == "range_reversed"
+        assert set(response.json()) == {"error", "reason"}
 
     def test_the_two_422_shapes_differ(self, migrated_db: str) -> None:
         """The trap itself, asserted directly: same route, same status, two
