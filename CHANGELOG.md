@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.4] - 2026-11-18
+
+### Changed
+- **`from`/`until` also choose the futures sessions** (issue #81). On every futures series route (ticks, tick bars and time bars, by contract or by product), a request with no `start`/`end` now plans only the sessions `[from, until)` reaches: those opening before `until` and closing at or after `from`. `segments`, `unresolved` and `incomplete` describe that window, and `applied.start`/`applied.end` echo the sessions chosen. Before, the plan covered everything held, so a three-day window reported on the whole held range. A given `start` or `end` still wins on its side; a window reaching no session, such as a Saturday, returns an empty plan.
+
 ## [0.27.3] - 2026-11-16
 
 ### Changed
