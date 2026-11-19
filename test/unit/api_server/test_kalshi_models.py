@@ -117,6 +117,19 @@ class TestMarketRecord:
         assert len(settlement) == 5
         assert all(value is None for value in settlement.values())
 
+    def test_kalshi_empty_strings_are_served_as_null(self) -> None:
+        """Issue #67: production stores Kalshi's ``""`` for an unset ``result``
+        and ``expiration_value`` (275k unsettled markets measured 2026-11-18);
+        the reference documents ``null``."""
+        row = MarketRow(
+            **{**vars(_unsettled_market_row()), "result": "", "expiration_value": ""}
+        )
+
+        settlement = MarketRecord.from_row(row).model_dump()["settlement"]
+
+        assert settlement["result"] is None
+        assert settlement["expiration_value"] is None
+
     def test_raw_is_not_served(self) -> None:
         assert "raw" not in MarketRecord.model_fields
         assert "raw" not in MarketRow.__dataclass_fields__

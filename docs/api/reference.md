@@ -1085,12 +1085,13 @@ verbatim.
 market, with all five fields `null` until it settles: an absent object and an
 unsettled market would otherwise be indistinguishable from a client's point of
 view
-([`models/kalshi_catalog.py:147-153`](../../src/manta_trading/api_server/models/kalshi_catalog.py)).
+([`models/kalshi_catalog.py:147-167`](../../src/manta_trading/api_server/models/kalshi_catalog.py)).
+Kalshi sends `""` for a value it has not set; the API serves it as `null`.
 
 | Field | Type | Null? | Unit | Meaning |
 |---|---|---|---|---|
 | `result` | string | yes | — | `yes`, `no`, or null while unsettled. |
-| `expiration_value` | string | yes | decimal string | The measured value that decided it. |
+| `expiration_value` | string | yes | decimal string | The measured value that decided it; null when Kalshi reported none. |
 | `can_close_early` | boolean | yes | — | Whether early close was permitted. |
 | `settlement_ts` | string | yes | UTC | When it settled. |
 | `settlement_value_dollars` | string | yes | decimal string | Payout per contract. |

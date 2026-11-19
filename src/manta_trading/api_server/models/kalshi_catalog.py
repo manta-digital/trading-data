@@ -15,7 +15,7 @@ from datetime import datetime  # noqa: TC003 — pydantic needs the runtime type
 from decimal import Decimal  # noqa: TC003 — pydantic needs the runtime type
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 if TYPE_CHECKING:
     from manta_trading.data.kalshi.serve_catalog import (
@@ -157,6 +157,13 @@ class MarketSettlement(BaseModel):
     can_close_early: bool | None
     settlement_ts: datetime | None
     settlement_value_dollars: Decimal | None
+
+    @field_validator("result", "expiration_value", mode="before")
+    @classmethod
+    def _unset_is_null(cls, value: str | None) -> str | None:
+        """Kalshi sends ``""`` for a value it has not set, and the store keeps
+        it verbatim; the API documents ``null`` (issue #67)."""
+        return None if value == "" else value
 
 
 class MarketEconomics(BaseModel):
