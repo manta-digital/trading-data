@@ -65,9 +65,10 @@ Issue [#46](https://github.com/manta-digital/trading-data/issues/46), with [#4](
 - [x] **4.1** `docs/api/reference.md` and `docs/api/agents.md`: index symbols are `{code}.INDX` (e.g. `/api/v1/bars/VIX.INDX`), indices have no volume worth reading, and split/dividend adjustment doesn't apply to them. `scripts/check_api_docs.py` passes.
 - [x] **4.2** CHANGELOG `### Fixed` entry: indices now have their own symbols and data, and a client asks for `VIX.INDX`. Mention that `DJT` and the other shared symbols were always the equity.
 - [x] **4.3** **Commit**: `docs: document .INDX index symbols`.
-- [ ] **4.4** Release (patch) and run the cutover from 2.4 per the release skill.
-- [ ] **4.5** Production check:
-  - [ ] run the daily pass for `VIX.INDX` and `GSPC.INDX` only (`--list` with those two);
-  - [ ] `curl -s 'http://127.0.0.1:8100/api/v1/bars/VIX.INDX?granularity=1d&limit=5'` returns 5 bars, and the same for `GSPC.INDX`;
-  - [ ] `/api/v1/bars/DJT?granularity=1d&limit=5` returns the same bars as before the release.
-- [ ] **4.6** Comment the results on #46 and close #46 and #4. Tell trading-engine and mt-ui that indices are served as `{code}.INDX`.
+- [x] **4.4** Release (patch) and run the cutover from 2.4 per the release skill. Released 0.27.6 (b6a5265b): CI green, GitHub release and PyPI up. The first cutover run applied 067, but its verify hit mt-serve before it had bound its port. `wait_for_serve` was added to `scripts/cutover_common.py` (commit 'fix: wait for mt-serve to answer before a cutover verifies through it'), and the re-run PASSED.
+- [x] **4.5** Production check:
+  - [x] run the daily pass for `VIX.INDX` and `GSPC.INDX` only (`--list` with those two);
+  - [x] `curl -s 'http://127.0.0.1:8100/api/v1/bars/VIX.INDX?granularity=1d&limit=5'` returns 5 bars, and the same for `GSPC.INDX`;
+  - [x] `/api/v1/bars/DJT?granularity=1d&limit=5` returns the same bars as before the release.
+  - [x] Production 2026-11-19: 904 `.INDX` symbols, 0 without a calendar, 0 unmoved, 880 state rows moved. The daily pass stored VIX.INDX 1990-01-02..2026-11-19 (9,323 bars) and GSPC.INDX 1927-12-30..2026-11-18 (24,839). `start`/`end` reads return them. `limit=5` returned 4 and 3, because `daily_coverage` holds only its refresh window for backfilled history. That's issue #18, with this case recorded there. DJT's bars are unchanged.
+- [x] **4.6** Comment the results on #46 and close #46 and #4. Tell trading-engine and mt-ui that indices are served as `{code}.INDX`. #46 and #4 closed with results. trading-engine and mt-ui told (Remote Control, not confirmed read).
