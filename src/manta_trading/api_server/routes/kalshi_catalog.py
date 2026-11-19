@@ -37,7 +37,10 @@ from manta_trading.api_server.models.kalshi_catalog import (
     SeriesListResponse,
     SeriesRecord,
 )
-from manta_trading.api_server.models.responses import GATEWAY_TIMEOUT_RESPONSE
+from manta_trading.api_server.models.responses import (
+    GATEWAY_TIMEOUT_RESPONSE,
+    NOT_FOUND_RESPONSE,
+)
 from manta_trading.data.kalshi import serve_catalog as catalog
 from manta_trading.data.kalshi.constants import MarketStatus
 
@@ -89,6 +92,8 @@ def _resolve_status_filter(status: str | None) -> list[str] | None:
     return tokens
 
 
+#: A route that seeks a named series, event or market first, and 404s without it.
+_LOOKUP_ERRORS = GATEWAY_TIMEOUT_RESPONSE | NOT_FOUND_RESPONSE
 
 
 @router.get("/categories", responses=GATEWAY_TIMEOUT_RESPONSE)
@@ -133,7 +138,7 @@ async def list_series(
     return SeriesListResponse.from_rows(rows)
 
 
-@router.get("/series/{ticker}", responses=GATEWAY_TIMEOUT_RESPONSE)
+@router.get("/series/{ticker}", responses=_LOOKUP_ERRORS)
 async def get_series(
     ticker: str,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)] = None,  # type: ignore[assignment]
@@ -146,7 +151,7 @@ async def get_series(
     return SeriesRecord.from_row(row)
 
 
-@router.get("/series/{ticker}/events", responses=GATEWAY_TIMEOUT_RESPONSE)
+@router.get("/series/{ticker}/events", responses=_LOOKUP_ERRORS)
 async def list_events(
     ticker: str,
     strike_from: datetime | None = None,
@@ -180,7 +185,7 @@ async def list_events(
     return EventListResponse.from_rows(ticker, rows)
 
 
-@router.get("/events/{event_ticker}", responses=GATEWAY_TIMEOUT_RESPONSE)
+@router.get("/events/{event_ticker}", responses=_LOOKUP_ERRORS)
 async def get_event(
     event_ticker: str,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)] = None,  # type: ignore[assignment]
@@ -193,7 +198,7 @@ async def get_event(
     return EventRecord.from_row(row)
 
 
-@router.get("/events/{event_ticker}/markets", responses=GATEWAY_TIMEOUT_RESPONSE)
+@router.get("/events/{event_ticker}/markets", responses=_LOOKUP_ERRORS)
 async def list_markets(
     event_ticker: str,
     status: str | None = None,
@@ -222,7 +227,7 @@ async def list_markets(
     return MarketListResponse.from_rows(event_ticker, rows)
 
 
-@router.get("/markets/{ticker}", responses=GATEWAY_TIMEOUT_RESPONSE)
+@router.get("/markets/{ticker}", responses=_LOOKUP_ERRORS)
 async def get_market(
     ticker: str,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)] = None,  # type: ignore[assignment]

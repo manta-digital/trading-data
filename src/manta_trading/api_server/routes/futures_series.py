@@ -33,6 +33,7 @@ from manta_trading.api_server.futures_read import (
 from manta_trading.api_server.models.futures_ticks import FuturesTicksResponse
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
+    NOT_FOUND_RESPONSE,
     TICK_UNAVAILABLE_RESPONSE,
 )
 from manta_trading.api_server.routes.futures_params import (
@@ -65,6 +66,7 @@ _TICKS_RESPONSES = (
     timeseries_200(FuturesTicksResponse)
     | TICK_UNAVAILABLE_RESPONSE
     | GATEWAY_TIMEOUT_RESPONSE
+    | NOT_FOUND_RESPONSE
 )
 
 

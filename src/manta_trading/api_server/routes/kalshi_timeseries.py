@@ -34,7 +34,10 @@ from manta_trading.api_server.models.kalshi_timeseries import (
     CandlesResponse,
     TradesResponse,
 )
-from manta_trading.api_server.models.responses import GATEWAY_TIMEOUT_RESPONSE
+from manta_trading.api_server.models.responses import (
+    GATEWAY_TIMEOUT_RESPONSE,
+    NOT_FOUND_RESPONSE,
+)
 from manta_trading.api_server.routes.windows import resolve_half_open_window
 from manta_trading.api_server.serialization import (
     ResponseFormat,
@@ -107,10 +110,13 @@ class _Read[Row]:
     facts: series.TapeFacts | None = None
 
 
+_ERRORS = GATEWAY_TIMEOUT_RESPONSE | NOT_FOUND_RESPONSE
+
+
 @router.get(
     "/markets/{ticker}/candlesticks",
     response_class=Response,
-    responses=timeseries_200(CandlesResponse) | GATEWAY_TIMEOUT_RESPONSE,
+    responses=timeseries_200(CandlesResponse) | _ERRORS,
 )
 async def get_candlesticks(
     request: Request,
@@ -166,7 +172,7 @@ async def get_candlesticks(
 @router.get(
     "/markets/{ticker}/trades",
     response_class=Response,
-    responses=timeseries_200(TradesResponse) | GATEWAY_TIMEOUT_RESPONSE,
+    responses=timeseries_200(TradesResponse) | _ERRORS,
 )
 async def get_trades(
     request: Request,

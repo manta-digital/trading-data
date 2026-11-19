@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from manta_trading.api_server.deps import get_db, get_universe_edges
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
+    NOT_FOUND_RESPONSE,
     AvailableRange,
     SymbolDetail,
     SymbolsResponse,
@@ -123,7 +124,10 @@ async def list_symbols(
     return SymbolsResponse(symbols=symbols, count=len(symbols))
 
 
-@router.get("/api/v1/symbols/{symbol}", responses=GATEWAY_TIMEOUT_RESPONSE)
+@router.get(
+    "/api/v1/symbols/{symbol}",
+    responses=GATEWAY_TIMEOUT_RESPONSE | NOT_FOUND_RESPONSE,
+)
 async def get_symbol(
     symbol: str,
     db: Annotated[psycopg.Connection[Any], Depends(get_db)] = None,  # type: ignore[assignment]

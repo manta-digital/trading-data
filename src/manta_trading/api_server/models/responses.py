@@ -9,13 +9,13 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict
 from starlette import status as http_status
 
+from manta_trading.api_server.admission import RefusalReason
 from manta_trading.api_server.models.futures import TickBlock
-from manta_trading.constants import PrintMode
+from manta_trading.constants import Granularity, PrintMode
 from manta_trading.data.tick.line_state import TickLineState
 
 if TYPE_CHECKING:
     from manta_trading.cli.rendering.status_table import StatusRow
-    from manta_trading.constants import Granularity
     from manta_trading.data.maintenance.status_coverage import CoverageFreshness
     from manta_trading.market.maintenance.cagg_freshness import FreshnessVerdict
 
@@ -64,7 +64,7 @@ class BarsResponse(BaseModel):
     """Response body for ``GET /api/v1/bars/{symbol}``."""
 
     symbol: str
-    granularity: str
+    granularity: Granularity
     adjusted: bool
     prints: PrintMode
     """Which prints were served: ``all`` (raw) or ``eligible`` (slice 171)."""
@@ -105,7 +105,7 @@ class BarsResponse(BaseModel):
         ]
         return cls(
             symbol=symbol,
-            granularity=str(granularity),
+            granularity=granularity,
             adjusted=adjusted,
             prints=prints,
             is_stale=is_stale,
@@ -291,10 +291,37 @@ class ErrorResponse(BaseModel):
 
     FastAPI's own ``RequestValidationError`` is the one documented exception:
     it keeps its native ``detail`` list, which carries per-field ``loc``/``msg``
-    that a flattened string would lose.
+    that a flattened string would lose (published as ``HTTPValidationError``).
+
+    A structured ``422`` (issue #23) adds fields beside ``error``; each is
+    absent, not null, when it does not apply.
     """
 
+    model_config = ConfigDict(use_attribute_docstrings=True)
+
     error: str
+    reason: RefusalReason | None = None
+    """What was refused: a row ceiling, a trade ceiling or a reversed range.
+    Absent on every other error."""
+    limit: int | None = None
+    """The enforced ceiling, rows or trades (``row_ceiling``, ``trade_ceiling``)."""
+    estimate: int | None = None
+    """The rows or trades the request would have read, when known."""
+    granularity: str | None = None
+    """The granularity the estimate is for (equity bars only)."""
+    max_span_days: int | None = None
+    """The longest inclusive window this granularity admits (equity bars only)."""
+
+
+NOT_FOUND_RESPONSE: dict[int | str, dict[str, Any]] = {
+    http_status.HTTP_404_NOT_FOUND: {
+        "model": ErrorResponse,
+        "description": "The symbol, product, contract, series, event or market"
+        " named in the path does not exist.",
+    }
+}
+"""Declared on every route that can answer ``404``, as
+``GATEWAY_TIMEOUT_RESPONSE`` is for ``504``."""
 
 
 GATEWAY_TIMEOUT_RESPONSE: dict[int | str, dict[str, Any]] = {

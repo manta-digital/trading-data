@@ -202,8 +202,10 @@ class TradesResponse(BaseModel):
     )
     tape_complete_through: datetime | None = Field(
         description=(
-            "Created time of the newest stored trade. Null means the trades "
-            "phase has never run — not that the tape is empty today."
+            "The instant the trades tape is complete through: the end of the"
+            " last fully collected window, so every trade created before it"
+            " is stored. Null means the trades phase has never run — not that"
+            " the tape is empty today."
         )
     )
     tape_filtered: bool = Field(

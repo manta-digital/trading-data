@@ -11,6 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi import status as http_status
 from psycopg_pool import ConnectionPool
 
+from manta_trading.api_server.admission import (
+    Refusal,
+    RefusalReason,
+    range_reversed,
+)
 from manta_trading.api_server.deps import (
     get_daily_db,
     get_db_pool,
@@ -19,6 +24,7 @@ from manta_trading.api_server.deps import (
 )
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
+    NOT_FOUND_RESPONSE,
     BarsResponse,
 )
 from manta_trading.api_server.queries import symbol_exists
@@ -95,32 +101,36 @@ def _admit_range(
             to fix the request; neither number is a literal.
     """
     if start > end:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"start ({start.isoformat()}) is after end ({end.isoformat()}); "
-                "the requested range is empty"
-            ),
+        raise range_reversed(
+            f"start ({start.isoformat()}) is after end ({end.isoformat()}); "
+            "the requested range is empty"
         )
 
     estimate = _estimate_bars(granularity, start, end)
     if estimate > ceiling:
         max_days = _max_span_days(granularity, ceiling)
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"requested range spans about {estimate:,.0f} {granularity.value} "
-                f"bars, over the {ceiling:,} bar limit; at {granularity.value} "
-                f"request at most {max_days:,} days per call, or use a coarser "
-                "granularity"
-            ),
+        # The prose is unchanged: trading-ui parsed it before the fields existed
+        # (issue #23). ``estimate`` rounds as the prose's ``,.0f`` does.
+        raise Refusal(
+            http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"requested range spans about {estimate:,.0f} {granularity.value} "
+            f"bars, over the {ceiling:,} bar limit; at {granularity.value} "
+            f"request at most {max_days:,} days per call, or use a coarser "
+            "granularity",
+            reason=RefusalReason.ROW_CEILING,
+            limit=ceiling,
+            estimate=round(estimate),
+            granularity=granularity.value,
+            max_span_days=max_days,
         )
 
 
 @router.get(
     "/api/v1/bars/{symbol}",
     response_class=Response,
-    responses=timeseries_200(BarsResponse) | GATEWAY_TIMEOUT_RESPONSE,
+    responses=timeseries_200(BarsResponse)
+    | GATEWAY_TIMEOUT_RESPONSE
+    | NOT_FOUND_RESPONSE,
 )
 async def get_bars(
     request: Request,

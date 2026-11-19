@@ -12,8 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 
-from fastapi import HTTPException
-from fastapi import status as http_status
+from manta_trading.api_server.admission import range_reversed
 
 
 def window_start_utc(d: date) -> datetime:
@@ -46,12 +45,9 @@ def instant_utc(value: datetime) -> datetime:
 def _reject_reversed(lower: datetime | None, upper: datetime | None) -> None:
     """422 when both bounds are set and ``lower`` is after ``upper``."""
     if lower is not None and upper is not None and lower > upper:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"start ({lower.isoformat()}) is after end ({upper.isoformat()}); "
-                "the requested range is empty"
-            ),
+        raise range_reversed(
+            f"start ({lower.isoformat()}) is after end ({upper.isoformat()}); "
+            "the requested range is empty"
         )
 
 

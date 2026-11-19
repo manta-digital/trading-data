@@ -370,8 +370,7 @@
             "type": "integer"
           },
           "granularity": {
-            "title": "Granularity",
-            "type": "string"
+            "$ref": "#/components/schemas/Granularity"
           },
           "is_stale": {
             "title": "Is Stale",
@@ -1061,11 +1060,70 @@
         "type": "object"
       },
       "ErrorResponse": {
-        "description": "The uniform error body for every error this codebase raises (186 D6).\n\nFastAPI's own ``RequestValidationError`` is the one documented exception:\nit keeps its native ``detail`` list, which carries per-field ``loc``/``msg``\nthat a flattened string would lose.",
+        "description": "The uniform error body for every error this codebase raises (186 D6).\n\nFastAPI's own ``RequestValidationError`` is the one documented exception:\nit keeps its native ``detail`` list, which carries per-field ``loc``/``msg``\nthat a flattened string would lose (published as ``HTTPValidationError``).\n\nA structured ``422`` (issue #23) adds fields beside ``error``; each is\nabsent, not null, when it does not apply.",
         "properties": {
           "error": {
             "title": "Error",
             "type": "string"
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The rows or trades the request would have read, when known.",
+            "title": "Estimate"
+          },
+          "granularity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The granularity the estimate is for (equity bars only).",
+            "title": "Granularity"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The enforced ceiling, rows or trades (``row_ceiling``, ``trade_ceiling``).",
+            "title": "Limit"
+          },
+          "max_span_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The longest inclusive window this granularity admits (equity bars only).",
+            "title": "Max Span Days"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefusalReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What was refused: a row ceiling, a trade ceiling or a reversed range.\nAbsent on every other error."
           }
         },
         "required": [
@@ -3352,6 +3410,16 @@
         "title": "ProductRecord",
         "type": "object"
       },
+      "RefusalReason": {
+        "description": "What a structured ``422`` refused (issue #23): the ``reason`` field.",
+        "enum": [
+          "row_ceiling",
+          "trade_ceiling",
+          "range_reversed"
+        ],
+        "title": "RefusalReason",
+        "type": "string"
+      },
       "RunningRecord": {
         "description": "One still-open run of a pass kind.\n\nMirrors 922's ``RunningRow`` **minus ``abandoned``** (189 D4). That field\nis not omitted by oversight and must not be restored here: 922 infers it\nby testing the recorded pid against the *local* process table, which is\nsound for a CLI run beside the pass and meaningless in the API server,\nwhere a pid recorded on another host says nothing about a process here.\nThe route passes ``pid_alive=lambda _pid: True`` so the value would be\nstructurally ``False`` for every row, and publishing a field that is\nalways false is worse than publishing none. Real abandonment over HTTP\nneeds a heartbeat column written by the pass itself (D7, future work).",
         "properties": {
@@ -4369,7 +4437,7 @@
                 "type": "null"
               }
             ],
-            "description": "Created time of the newest stored trade. Null means the trades phase has never run \u2014 not that the tape is empty today.",
+            "description": "The instant the trades tape is complete through: the end of the last fully collected window, so every trade created before it is stored. Null means the trades phase has never run \u2014 not that the tape is empty today.",
             "title": "Tape Complete Through"
           },
           "tape_filtered": {
@@ -4593,15 +4661,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -4768,15 +4853,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "503": {
             "content": {
@@ -4938,15 +5040,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "503": {
             "content": {
@@ -5096,15 +5215,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "503": {
             "content": {
@@ -5325,15 +5461,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "503": {
             "content": {
@@ -5388,15 +5541,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "503": {
             "content": {
@@ -5507,15 +5677,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "503": {
             "content": {
@@ -5695,15 +5882,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "503": {
             "content": {
@@ -5871,15 +6075,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "503": {
             "content": {
@@ -5988,11 +6209,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6082,15 +6310,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6148,15 +6393,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6198,15 +6460,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6320,15 +6599,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6431,15 +6727,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6499,11 +6812,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6572,11 +6892,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6618,15 +6945,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6702,15 +7046,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6838,11 +7199,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6895,11 +7263,18 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {
@@ -6941,15 +7316,32 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The symbol, product, contract, series, event or market named in the path does not exist."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HTTPValidationError"
+                    }
+                  ]
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A refused request (ErrorResponse: a ceiling, a reversed range, a bad filter) or an unparseable parameter (HTTPValidationError)."
           },
           "504": {
             "content": {

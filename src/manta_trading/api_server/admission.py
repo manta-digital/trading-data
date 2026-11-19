@@ -13,6 +13,8 @@ so that is a parameter rather than a reason to keep two functions.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from fastapi import HTTPException
 from starlette import status as http_status
 
@@ -23,9 +25,13 @@ __all__ = [
     "NARROW_TICK_BARS",
     "NARROW_TIME_BARS",
     "NARROW_WINDOW",
+    "Refusal",
+    "RefusalReason",
     "admit_rows",
     "not_found",
     "over_ceiling",
+    "range_reversed",
+    "trade_ceiling",
 ]
 
 NARROW_FILTER = "narrow the filter"
@@ -51,6 +57,40 @@ CLIENT_CLOSED_REQUEST = 499
 the futures tick-bar and time-bar routes answer it when the client has gone."""
 
 
+class RefusalReason(StrEnum):
+    """What a structured ``422`` refused (issue #23): the ``reason`` field."""
+
+    ROW_CEILING = "row_ceiling"
+    TRADE_CEILING = "trade_ceiling"
+    RANGE_REVERSED = "range_reversed"
+
+
+class Refusal(HTTPException):
+    """An ``HTTPException`` whose body carries machine-readable fields beside
+    ``error`` (issue #23). The prose is unchanged, so a client parsing it keeps
+    working; ``app``'s handler merges ``fields`` into the body."""
+
+    def __init__(self, status_code: int, message: str, **fields: object) -> None:
+        super().__init__(status_code=status_code, detail=message)
+        self.fields = fields
+
+
+def _refuse(message: str, reason: RefusalReason, **fields: object) -> Refusal:
+    return Refusal(
+        http_status.HTTP_422_UNPROCESSABLE_CONTENT, message, reason=reason, **fields
+    )
+
+
+def range_reversed(message: str) -> Refusal:
+    """The ``422`` for a window whose lower bound is after its upper."""
+    return _refuse(message, RefusalReason.RANGE_REVERSED)
+
+
+def trade_ceiling(message: str, *, limit: int, estimate: int) -> Refusal:
+    """The ``422`` for a futures read over the trade limit."""
+    return _refuse(message, RefusalReason.TRADE_CEILING, limit=limit, estimate=estimate)
+
+
 def admit_rows(count: int, max_rows: int, *, remedy: str) -> None:
     """Refuse a request whose result would exceed the shared rows ceiling.
 
@@ -61,25 +101,26 @@ def admit_rows(count: int, max_rows: int, *, remedy: str) -> None:
     caller how far to narrow.
     """
     if count > max_rows:
-        raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"the request matches {count:,} rows, over the {max_rows:,} "
-                f"row limit; {remedy}"
-            ),
+        raise _refuse(
+            f"the request matches {count:,} rows, over the {max_rows:,} "
+            f"row limit; {remedy}",
+            RefusalReason.ROW_CEILING,
+            limit=max_rows,
+            estimate=count,
         )
 
 
-def over_ceiling(max_rows: int, *, remedy: str) -> HTTPException:
+def over_ceiling(max_rows: int, *, remedy: str) -> Refusal:
     """The refusal for a read stopped at the ceiling (231 TD4).
 
     The futures routes enforce the ceiling while reading, so the true count
     is never computed and the message quotes only the limit. Returned, like
     :func:`not_found`, so the caller raises it after releasing its connection.
     """
-    return HTTPException(
-        status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail=(f"the request matches more than the {max_rows:,} row limit; {remedy}"),
+    return _refuse(
+        f"the request matches more than the {max_rows:,} row limit; {remedy}",
+        RefusalReason.ROW_CEILING,
+        limit=max_rows,
     )
 
 

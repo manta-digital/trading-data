@@ -23,6 +23,7 @@ from manta_trading.api_server.models.futures_catalog import (
 )
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
+    NOT_FOUND_RESPONSE,
     TICK_UNAVAILABLE_RESPONSE,
 )
 from manta_trading.api_server.routes.futures_params import (
@@ -50,6 +51,7 @@ from manta_trading.data.tick.universe import TICK_UNIVERSE, TickUniverseEntry
 router = APIRouter(prefix="/api/v1/futures", tags=["futures"])
 
 _TICK_ERRORS = TICK_UNAVAILABLE_RESPONSE | GATEWAY_TIMEOUT_RESPONSE
+_PRODUCT_ERRORS = _TICK_ERRORS | NOT_FOUND_RESPONSE
 TickConn = Annotated[Conn, Depends(tick_connection)]
 
 
@@ -80,7 +82,7 @@ async def list_products(request: Request, _conn: TickConn) -> FuturesProductsRes
 @router.get(
     "/products/{product}/contracts",
     response_model=FuturesContractsResponse,
-    responses=_TICK_ERRORS,
+    responses=_PRODUCT_ERRORS,
 )
 async def list_contracts(
     request: Request, product: str, conn: TickConn
@@ -98,7 +100,7 @@ async def list_contracts(
 @router.get(
     "/products/{product}/schedule",
     response_model=FuturesScheduleResponse,
-    responses=_TICK_ERRORS,
+    responses=_PRODUCT_ERRORS,
 )
 async def product_schedule(
     request: Request,

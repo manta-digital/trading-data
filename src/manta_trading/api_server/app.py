@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import partial
+from typing import Any
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
@@ -15,6 +16,8 @@ from fastapi.responses import JSONResponse
 from psycopg_pool import ConnectionPool
 from starlette import status as http_status
 
+from manta_trading.api_server.admission import Refusal
+from manta_trading.api_server.models.responses import ErrorResponse
 from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.api_server.routes.bars import router as bars_router
 from manta_trading.api_server.routes.futures_catalog import (
@@ -228,9 +231,10 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
         flattened string would lose. That exception is documented in the README
         and asserted in the test suite so it cannot be unified by accident.
         """
+        fields = exc.fields if isinstance(exc, Refusal) else {}
         return JSONResponse(
             status_code=exc.status_code,
-            content={"error": str(exc.detail)},
+            content={"error": str(exc.detail), **fields},
             headers=exc.headers,
         )
 
@@ -302,4 +306,41 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
         )
         return JSONResponse(status_code=500, content={"error": "internal server error"})
 
+    app.openapi = partial(_openapi_with_both_422_shapes, app)  # type: ignore[method-assign]
     return app
+
+
+_VALIDATION_SCHEMA = "HTTPValidationError"
+_ERROR_SCHEMA = ErrorResponse.__name__
+
+
+def _openapi_with_both_422_shapes(app: FastAPI) -> dict[str, Any]:
+    """FastAPI's schema, with every ``422`` declaring both bodies it can carry.
+
+    FastAPI publishes only its own validation body (``HTTPValidationError``),
+    but every refusal this codebase raises — the ceilings, reversed ranges and
+    bad filters — sends :class:`ErrorResponse` (issue #51, 180 future work 5).
+    Documentation only: nothing sent changes. FastAPI's own ``openapi()``
+    builds and caches the schema; the patch runs once, on that first build.
+    """
+    if app.openapi_schema is not None:
+        return app.openapi_schema
+    schema = FastAPI.openapi(app)
+    either = {
+        "anyOf": [
+            {"$ref": f"#/components/schemas/{_ERROR_SCHEMA}"},
+            {"$ref": f"#/components/schemas/{_VALIDATION_SCHEMA}"},
+        ]
+    }
+    for operations in schema["paths"].values():
+        for operation in operations.values():
+            refused = operation.get("responses", {}).get("422")
+            if refused is not None:
+                refused["description"] = (
+                    "A refused request (ErrorResponse: a ceiling, a reversed"
+                    " range, a bad filter) or an unparseable parameter"
+                    " (HTTPValidationError)."
+                )
+                refused["content"] = {"application/json": {"schema": either}}
+    app.openapi_schema = schema
+    return schema

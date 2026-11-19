@@ -234,7 +234,10 @@ def test_over_the_trade_limit_is_422_before_any_tick_is_read(
     assert response.status_code == 422
     assert response.json() == {
         "error": f"the request scans {limit + 1:,} trades, over the {limit:,}"
-        " trade limit; narrow start/end"
+        " trade limit; narrow start/end",
+        "reason": "trade_ceiling",
+        "limit": limit,
+        "estimate": limit + 1,
     }
     assert reads == []
     assert (
@@ -256,7 +259,9 @@ def test_over_the_bar_ceiling_is_422_with_the_remedy(client: TestClient) -> None
     assert response.status_code == 422
     assert response.json() == {
         "error": "the request matches more than the 10 row limit; raise"
-        " ticks_per_bar, or narrow start/end or from/until"
+        " ticks_per_bar, or narrow start/end or from/until",
+        "reason": "row_ceiling",
+        "limit": 10,
     }
 
 

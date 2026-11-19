@@ -319,7 +319,9 @@ def test_the_ceiling_refuses_naming_the_limit_and_remedy(client: TestClient) -> 
     assert response.status_code == 422
     assert response.json() == {
         "error": "the request matches more than the 10 row limit; "
-        "narrow start/end or from/until"
+        "narrow start/end or from/until",
+        "reason": "row_ceiling",
+        "limit": 10,
     }
 
 

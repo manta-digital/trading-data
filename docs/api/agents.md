@@ -106,7 +106,7 @@ family — **not** a granularity token like `1m`. See §7.
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date,
              adjusted:boolean, prints:PrintMode, format:json|msgpack
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 `start` and `end` are inclusive dates. Check `is_stale`: `true` means the
 aggregate serving this grain is behind its source and the bars may be
@@ -131,7 +131,7 @@ granularity to `{start, end}`.
 
 <!-- endpoint: /api/v1/symbols/{symbol}
      params: -
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 This is the **existence check**: an unknown symbol is a `404` here. An empty
 `available` means "known symbol, no bars".
@@ -221,7 +221,7 @@ filter, not a bare listing.
 
 <!-- endpoint: /api/v1/kalshi/series/{ticker}
      params: -
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 `GET /api/v1/kalshi/series/{ticker}/events?strike_from=…&strike_to=…` → that
 series' events, optionally bounded by strike date (both bounds inclusive,
@@ -229,27 +229,27 @@ full timestamps accepted).
 
 <!-- endpoint: /api/v1/kalshi/series/{ticker}/events
      params: strike_from:date-time, strike_to:date-time
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 `GET /api/v1/kalshi/events/{event_ticker}` → one event.
 
 <!-- endpoint: /api/v1/kalshi/events/{event_ticker}
      params: -
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 `GET /api/v1/kalshi/events/{event_ticker}/markets?status=…` → that event's
 markets, optionally filtered by a comma-separated list of status tokens (§7).
 
 <!-- endpoint: /api/v1/kalshi/events/{event_ticker}/markets
      params: status:string
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 `GET /api/v1/kalshi/markets/{ticker}` → one market, with `lifecycle`,
 `settlement` and `economics` groups.
 
 <!-- endpoint: /api/v1/kalshi/markets/{ticker}
      params: -
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 `settlement` is present on **every** market, with all five fields `null` until
 it settles. An absent object and an unsettled market would otherwise be
@@ -263,7 +263,7 @@ presence of the object.
 
 <!-- endpoint: /api/v1/kalshi/markets/{ticker}/candlesticks
      params: period_minutes:CandlePeriod, start:date|date-time, end:date|date-time, format:json|msgpack
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 Hourly and daily candles are built from the stored minutes. The newest one is
 partial if it ends after `complete_through` (no flag is served).
@@ -276,7 +276,7 @@ it, ever. That is a different fact from an empty window.
 
 <!-- endpoint: /api/v1/kalshi/markets/{ticker}/trades
      params: start:date|date-time, end:date|date-time, format:json|msgpack
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 **Check `tape_filtered` before reading `count`.** `tape_filtered: true` means
 this market's category is excluded from trade collection by policy, so an empty
@@ -314,7 +314,7 @@ spreads included, with `held: {first_session, last_session}` or null.
 
 <!-- endpoint: /api/v1/futures/products/{product}/contracts
      params: -
-     errors: 503, 504 -->
+     errors: 404, 503, 504 -->
 
 **Not this:** `/api/v1/symbols` lists the equity universe; futures are not in
 it.
@@ -329,7 +329,7 @@ the tier its roll was decided from (`tick_tier`, `bar_1m`, or `statistics` for
 
 <!-- endpoint: /api/v1/futures/products/{product}/schedule
      params: rule:string, start:date, end:date
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 ### "Give me futures ticks."
 
@@ -352,12 +352,12 @@ once, and one array per field. To decode a block:
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/ticks
      params: start:date, end:date, from:date-time, until:date-time,
              format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 <!-- endpoint: /api/v1/futures/products/{product}/ticks
      params: rule:string, start:date, end:date, from:date-time,
              until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 **A whole busy session is always refused** (up to ~690,000 ticks against a
 75,000-row ceiling). Ask for a few minutes with `from`/`until` and page (§3).
@@ -382,12 +382,12 @@ stamped at the close; it is real data, not a fault.
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/bars
      params: granularity:string, start:date, end:date, from:date-time,
              until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 <!-- endpoint: /api/v1/futures/products/{product}/bars
      params: granularity:string, rule:string, start:date, end:date,
              from:date-time, until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 **Not this:** `/api/v1/bars/{symbol}` is the equity store. It does not know
 futures symbols, and its `end` is inclusive.
@@ -407,12 +407,12 @@ ascending. `from`/`until` select bars by `open_time` and never change a bar.
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/tick-bars
      params: ticks_per_bar:integer, start:date, end:date, from:date-time,
              until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 <!-- endpoint: /api/v1/futures/products/{product}/tick-bars
      params: ticks_per_bar:integer, rule:string, start:date, end:date,
              from:date-time, until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 **Two refusals, both `422`:** too many trades to scan (`the request scans …
 trades, over the … trade limit; narrow start/end`: the server counts whole
@@ -530,19 +530,18 @@ Two consequences, stated so you do not have to infer them:
 2. **The absence of a `504` is no evidence a request was fast.** A response
    that arrives is not a response that arrived within any budget.
 
-### The two `422` shapes — parse defensively
+### The two `422` shapes
 
-**This will break a naively generated client.** `openapi.json` declares
-`HTTPValidationError` for `422` on every route that has one:
+A `422` carries one of two bodies. FastAPI's own validation sends:
 
 ```json
 {"detail":[{"type":"enum","loc":["query","granularity"],"msg":"Input should be '1m', '5m', …","input":"2d"}]}
 ```
 
-But **hand-written refusals send a different shape**:
+A hand-written refusal sends `error`, with structured fields beside it:
 
 ```json
-{"error":"requested range spans about 3,167,495 1m bars, over the 75,000 bar limit; at 1m request at most 113 days per call, or use a coarser granularity"}
+{"error":"requested range spans about 3,167,495 1m bars, over the 75,000 bar limit; at 1m request at most 113 days per call, or use a coarser granularity","reason":"row_ceiling","limit":75000,"estimate":3167495,"granularity":"1m","max_span_days":113}
 ```
 
 Both come from the same route with the same status. Which you get:
@@ -552,14 +551,13 @@ Both come from the same route with the same status. Which you get:
 | Unparseable date, unknown enum token, wrong scalar type | `{"detail": [...]}` — FastAPI's own validation |
 | Reversed range, over the row ceiling, invalid status filter | `{"error": "…"}` — a hand-written refusal |
 
-**Check for `error` first, then `detail`.** A client that parses only the
-declared shape will fail to read the most actionable messages the API
-produces — the ones that tell you exactly how to narrow your request.
-
-This mismatch is documented rather than fixed, because fixing it changes a
-published schema. The same is true of `404`: four route modules raise one and
-**no path in the schema declares it**, so a generated client may not model it
-at all. Both are recorded as Future Work.
+**Parse by key.** `error` is a refusal; `detail` is a parameter that failed to
+parse. `openapi.json` declares both on every `422` (`anyOf` `ErrorResponse`,
+`HTTPValidationError`). A refusal you can act on also carries `reason`
+(`row_ceiling`, `trade_ceiling`, `range_reversed`) and, where it applies,
+`limit`, `estimate`, `granularity` and `max_span_days`, so you can re-plan a
+window without reading the prose. Every `404` is declared on the routes that
+send it.
 
 ## 6. Determinism and freshness
 
@@ -584,7 +582,7 @@ provider. Treat it as expensive and cache what it tells you.
 | `/api/v1/status` | `coverage.verdicts[]` | Per-view freshness with `lag_seconds`. **`null` is not `0.0`** — it means the lag could not be measured. |
 | `/api/v1/status` | `tick.products[].families[].caught_up` | Whether a futures family holds every session the provider has published (`source_edge`) for the range the product wants. **`null` is not `true`** — no dataset edge is known or no range is wanted. `load_complete_only: true` means its volume is not cross-checked against CME's cleared volume. |
 | `/api/v1/kalshi/…/candlesticks` | `complete_through` | Requested and stored through this instant. |
-| `/api/v1/kalshi/…/trades` | `tape_complete_through` | Created time of the newest stored trade; `null` means the phase never ran. |
+| `/api/v1/kalshi/…/trades` | `tape_complete_through` | End of the last fully collected trades window (every earlier trade is stored); `null` means the phase never ran. |
 | `/api/v1/overview` | `sources[].newest` | Newest row in each source table — the most direct freshness signal in the API. |
 
 Nothing in this API is cached at the HTTP layer. Two identical requests one

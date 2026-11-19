@@ -140,7 +140,8 @@ response carries the facts needed to tell them apart without a second call:
   data reaches; `complete_through` (candles) is what was requested and stored
   through — not "the newest stored candle", since a quiet market produces no
   candle for a period it was nonetheless asked for. `tape_complete_through`
-  (trades) is the created time of the newest stored trade; `null` means the
+  (trades) is the end of the last fully collected window, so every trade
+  created before it is stored; `null` means the
   trades collection phase has never run, not that the tape is empty.
 - **Genuinely no activity**, when none of the above applies.
 
@@ -220,8 +221,28 @@ Every error this server raises has the same body:
 { "error": "<message>" }
 ```
 
-The **one exception** is FastAPI's own request-validation failure, which keeps
-its native body so clients retain the per-field detail:
+A refusal a client can act on adds machine-readable fields beside `error`
+(issue #23). Each field is **absent**, not null, when it does not apply, and
+the `error` prose is unchanged:
+
+| Field | Type | Present on | Meaning |
+|---|---|---|---|
+| `reason` | `row_ceiling` \| `trade_ceiling` \| `range_reversed` | those three refusals | What was refused. Absent on every other error. |
+| `limit` | integer | `row_ceiling`, `trade_ceiling` | The enforced ceiling, rows or trades. |
+| `estimate` | integer | equity bars, Kalshi lists and series, futures trade ceilings | The rows or trades the request would have read. The futures row ceiling stops reading at the limit, so it has none. |
+| `granularity` | string | equity bars | The granularity the estimate is for. |
+| `max_span_days` | integer | equity bars | The longest inclusive window this granularity admits. |
+
+```json
+{"error":"requested range spans about 3,167,495 1m bars, over the 75,000 bar limit; at 1m request at most 113 days per call, or use a coarser granularity","reason":"row_ceiling","limit":75000,"estimate":3167495,"granularity":"1m","max_span_days":113}
+```
+
+`max_span_days` is `int(limit / bars_per_calendar_day)`: float division, then
+truncation, which is why `1m` admits 113 days rather than 114 at the default
+ceiling.
+
+The **one exception** to the `error` body is FastAPI's own request-validation
+failure, which keeps its native body so clients keep the per-field detail:
 
 ```json
 { "detail": [ { "loc": ["query", "granularity"], "msg": "…", "type": "…" } ] }
@@ -229,28 +250,21 @@ its native body so clients retain the per-field detail:
 
 | Status | Meaning |
 |---|---|
-| `404` | The symbol, series, event or market is not known. **Only** that. |
-| `422` | The request is malformed, the range is reversed, or the result would exceed the row ceiling. |
+| `404` | The symbol, product, contract, series, event or market named in the path is not known. **Only** that. Declared in `openapi.json` on every route that sends it. |
+| `422` | The request is malformed, the range is reversed, or the result would exceed a ceiling. |
 | `500` | An unexpected server fault. The body is sanitized. |
 | `503` | Futures routes only: the tick database is not configured, unreachable, or has migrations pending (§6.1). Every other route is unaffected. |
 | `504` | The database cancelled the query at the statement timeout. Narrow the range or use a coarser granularity. |
 
 #### The two `422` shapes
 
-**This is the most likely thing to break a client**, so it is stated plainly:
-`openapi.json` declares `HTTPValidationError` — the `{"detail": [...]}` shape —
-for `422` on **every** route that has one. But the hand-written `422`s in
-this codebase send `{"error": "…"}` instead, through the exception handler at
-[`app.py:192`](../../src/manta_trading/api_server/app.py). A generated client
-that parses the declared shape will fail to parse the most informative
-messages the API produces.
-
-Which condition produces which:
+A `422` carries one of two bodies, and `openapi.json` declares both on every
+route that has a `422` (`anyOf` `ErrorResponse`, `HTTPValidationError`):
 
 | Condition | Shape | Produced by |
 |---|---|---|
 | Unparseable date, unknown enum value, wrong scalar type | `{"detail": [...]}` | FastAPI's own request validation, before the handler runs |
-| Reversed range, result over the row ceiling, invalid status filter | `{"error": "…"}` | A hand-written refusal inside the route |
+| Reversed range, result over a ceiling, invalid status filter | `{"error": "…"}` plus the fields above where they apply | A hand-written refusal inside the route |
 
 Both, from the same route, captured 2026-09-16:
 
@@ -263,21 +277,8 @@ curl -s 'http://127.0.0.1:8137/api/v1/bars/SPY?granularity=2d&start=2024-06-10&e
 {"detail":[{"type":"enum","loc":["query","granularity"],"msg":"Input should be '1m', '5m', '15m', '1h', '4h', '1d', '1w', '1mo' or '1q'","input":"2d","ctx":{"expected":"'1m', '5m', '15m', '1h', '4h', '1d', '1w', '1mo' or '1q'"}}]}
 ```
 
-```sh
-# A hand-written refusal: the window exceeds the row ceiling
-curl -s 'http://127.0.0.1:8137/api/v1/bars/SPY?granularity=1m&start=2013-08-13&end=2026-09-12'
-```
-
-```json
-{"error":"requested range spans about 3,167,495 1m bars, over the 75,000 bar limit; at 1m request at most 113 days per call, or use a coarser granularity"}
-```
-
-Parse defensively: check for `error` first, then `detail`.
-
-This mismatch is **documented rather than fixed** in this slice — the fix
-changes a published schema, which is a client-visible contract change. It is
-recorded as Future Work in
-[`180-slices.data-serving-api.md`](../../project-documents/user/architecture/180-slices.data-serving-api.md).
+Parse by key: `error` means a refusal (read `reason` to tell them apart),
+`detail` means a parameter failed to parse.
 
 #### Remedy strings
 
@@ -352,7 +353,7 @@ about. For that, use `/api/v1/status`.
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date,
              adjusted:boolean, prints:PrintMode, format:json|msgpack
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 OHLCV bars for one instrument over an inclusive date window.
 
@@ -538,7 +539,7 @@ never sends the row-ceiling `422` (§2.7).
 
 <!-- endpoint: /api/v1/symbols/{symbol}
      params: -
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 One instrument, with the date range available at each granularity.
 
@@ -931,7 +932,7 @@ filter (§2.7). `504` on statement timeout.
 
 <!-- endpoint: /api/v1/kalshi/series/{ticker}
      params: -
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 One series. Fields are those of §4.2.
 
@@ -948,7 +949,7 @@ but undeclared in the schema); `504` on statement timeout.
 
 <!-- endpoint: /api/v1/kalshi/series/{ticker}/events
      params: strike_from:date-time, strike_to:date-time
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 That series' events, optionally bounded by strike date.
 
@@ -1004,7 +1005,7 @@ statement timeout.
 
 <!-- endpoint: /api/v1/kalshi/events/{event_ticker}
      params: -
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 One event. Fields are those of §4.4.
 
@@ -1021,7 +1022,7 @@ on statement timeout.
 
 <!-- endpoint: /api/v1/kalshi/events/{event_ticker}/markets
      params: status:string
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 That event's markets, optionally filtered by status.
 
@@ -1053,7 +1054,7 @@ statement timeout.
 
 <!-- endpoint: /api/v1/kalshi/markets/{ticker}
      params: -
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 One market, with its lifecycle, settlement and economics fields grouped. The
 grouping is for readability; the field names inside each group are Kalshi's
@@ -1188,7 +1189,7 @@ on statement timeout.
 
 <!-- endpoint: /api/v1/kalshi/markets/{ticker}/candlesticks
      params: period_minutes:CandlePeriod, start:date|date-time, end:date|date-time, format:json|msgpack
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 Candlesticks for one market over a window.
 
@@ -1283,7 +1284,7 @@ reversed range; `504` on statement timeout.
 
 <!-- endpoint: /api/v1/kalshi/markets/{ticker}/trades
      params: start:date|date-time, end:date|date-time, format:json|msgpack
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 
 The trade tape for one market over a window. Parameters are those of §5.1
 (without `period_minutes`). A trade is returned when `created_time` is in
@@ -1297,7 +1298,7 @@ The three described fields carry the descriptions published in the schema.
 |---|---|---|---|---|
 | `market_ticker` | string | no | — | Echoed back. |
 | `coverage_from` | string | yes | UTC | Oldest instant the trades tape reaches, across the live and historical surfaces. Null when the trades phase has never run. |
-| `tape_complete_through` | string | yes | UTC | Created time of the newest stored trade. **Null means the trades phase has never run — not that the tape is empty today.** |
+| `tape_complete_through` | string | yes | UTC | The end of the last fully collected trades window: every trade created before it is stored. **Null means the trades phase has never run — not that the tape is empty today.** |
 | `tape_filtered` | boolean | no | — | Whether this market's category is excluded from trade collection. **`true` means no trades are stored for it by policy**, so an empty window is expected rather than a gap. |
 | `count` | integer | no | rows | Trades returned. |
 | `trades[].created_time` | string | no | UTC | When the trade executed. |
@@ -1721,8 +1722,8 @@ standard error shape, and the message says which:
 failing (§3.1).
 
 **`404`** is an unknown product (`Product 'ZZ' not found`) or a contract with
-no definition (`no definition held for contract ZZZ9`). Like every `404` in
-this API it is not declared in `openapi.json` (§9).
+no definition (`no definition held for contract ZZZ9`). It is declared in
+`openapi.json` on every product and contract route.
 
 ### 6.2 `GET /api/v1/futures/products`
 
@@ -1770,7 +1771,7 @@ whose rules cannot be answered keeps HTTP `200` with `error` on its lines.
 
 <!-- endpoint: /api/v1/futures/products/{product}/contracts
      params: -
-     errors: 503, 504 -->
+     errors: 404, 503, 504 -->
 
 Every instrument defined for the product, calendar spreads included, with the
 first and last session holding its records. Ordered by expiration, then
@@ -1807,7 +1808,7 @@ curl 'http://127.0.0.1:8137/api/v1/futures/products/ES/contracts'
 
 <!-- endpoint: /api/v1/futures/products/{product}/schedule
      params: rule:string, start:date, end:date
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 The contract the rule names for each session in `[start, end)`: as runs
 (`segments`), per session (`answers`), and the sessions it could not answer
@@ -1844,7 +1845,7 @@ sessions, or a range outside the calendar; `503`.
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/ticks
      params: start:date, end:date, from:date-time, until:date-time,
              format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 One contract's ticks, in key order (`ts_event`, `sequence`, `sequence_ordinal`),
 as columnar blocks (§6.1).
@@ -1917,7 +1918,7 @@ over the row ceiling; `503`.
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/bars
      params: granularity:string, start:date, end:date, from:date-time,
              until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 One contract's time bars (§6.1): each session from held provider bars that can
 make the size, else cut from its ticks, buckets anchored at the session open.
@@ -1975,7 +1976,7 @@ is `ticks`.*
 <!-- endpoint: /api/v1/futures/products/{product}/ticks
      params: rule:string, start:date, end:date, from:date-time,
              until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 A product's ticks under a roll rule: each session from the contract the rule
 names for it, never merged across contracts. The parameters and body are
@@ -1992,7 +1993,7 @@ over 1,300 sessions; `503`, including when the calendar database is down.
 <!-- endpoint: /api/v1/futures/products/{product}/bars
      params: granularity:string, rule:string, start:date, end:date,
              from:date-time, until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 A product's time bars under a roll rule: §6.6's parameters and body, plus
 `rule` (echoed in `applied`, the default `v.0` included). Each bar comes from
@@ -2027,7 +2028,7 @@ in pieces with `from`/`until`.
 <!-- endpoint: /api/v1/futures/contracts/{symbol}/tick-bars
      params: ticks_per_bar:integer, start:date, end:date, from:date-time,
              until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 One contract's bars of `ticks_per_bar` trades over `[start, end)` sessions, cut
 by §6.1's rule from the stored ticks. Admitted on the trades scanned, then
@@ -2089,7 +2090,7 @@ bodiless `499`, which it does not log as an error.
 <!-- endpoint: /api/v1/futures/products/{product}/tick-bars
      params: ticks_per_bar:integer, rule:string, start:date, end:date,
              from:date-time, until:date-time, format:json|msgpack
-     errors: 422, 503, 504 -->
+     errors: 404, 422, 503, 504 -->
 
 A product's tick bars under a roll rule: §6.9's parameters and body, plus
 `rule` (default `v.0`). Each session is cut from the contract the rule names for
@@ -2174,7 +2175,7 @@ An explicit marker, never a mention in prose. Each endpoint section carries one:
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date,
              adjusted:boolean, prints:PrintMode, format:json|msgpack
-     errors: 422, 504 -->
+     errors: 404, 422, 504 -->
 ```
 
 - `params` and `errors` may wrap across lines. Write `-` to state "none"
@@ -2226,18 +2227,3 @@ are stale.
    path in **both** documents.
 3. Run `uv run python scripts/check_api_docs.py --check`.
 
-### Known schema gaps
-
-Two mismatches between what the API sends and what `openapi.json` declares.
-Both are documented rather than fixed here, because fixing either changes a
-published schema — a client-visible contract change. Both are recorded as
-Future Work in
-[`180-slices.data-serving-api.md`](../../project-documents/user/architecture/180-slices.data-serving-api.md):
-
-- **The `422` shape** (§2.7): the schema declares `HTTPValidationError` for
-  every `422`, but hand-written refusals send `{"error": "…"}`.
-- **`404` is never declared.** Four route modules raise a `404` for an unknown
-  symbol, series, event or market, and **no path in the artifact declares one**.
-  This reference documents the `404` in each section's prose where it is real;
-  the endpoint markers do not list it, because a marker asserts what the
-  artifact declares.

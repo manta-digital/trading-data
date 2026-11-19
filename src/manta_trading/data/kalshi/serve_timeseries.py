@@ -122,7 +122,8 @@ def market_context(
 
 
 def tape_facts(conn: psycopg.Connection) -> TapeFacts | None:
-    """The trades tape's floor and its newest stored trade.
+    """The trades tape's floor and the instant it is complete through (the
+    end of the last fully walked window).
 
     ``None`` when the trades ``sync_state`` row is absent — a fresh install
     whose trades phase has never run, not an error (D10). The floor comes from

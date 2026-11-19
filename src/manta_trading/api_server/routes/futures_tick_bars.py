@@ -23,6 +23,7 @@ from manta_trading.api_server.admission import (
     CLIENT_CLOSED_REQUEST,
     NARROW_TICK_BARS,
     over_ceiling,
+    trade_ceiling,
 )
 from manta_trading.api_server.deps import get_max_tick_bar_trades
 from manta_trading.api_server.futures_read import (
@@ -33,6 +34,7 @@ from manta_trading.api_server.futures_read import (
 from manta_trading.api_server.models.futures_tick_bars import FuturesTickBarsResponse
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
+    NOT_FOUND_RESPONSE,
     TICK_UNAVAILABLE_RESPONSE,
 )
 from manta_trading.api_server.routes.futures_params import (
@@ -79,6 +81,7 @@ _RESPONSES = (
     timeseries_200(FuturesTickBarsResponse)
     | TICK_UNAVAILABLE_RESPONSE
     | GATEWAY_TIMEOUT_RESPONSE
+    | NOT_FOUND_RESPONSE
 )
 
 
@@ -106,9 +109,7 @@ async def _read(
     except RowCeilingExceeded:
         raise over_ceiling(max_rows, remedy=NARROW_TICK_BARS) from None
     except TradeScanExceeded as exc:
-        raise HTTPException(
-            http_status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
-        ) from None
+        raise trade_ceiling(str(exc), limit=exc.limit, estimate=exc.scanned) from None
     except TickBarWindowError as exc:
         raise _uncuttable(exc) from exc
 

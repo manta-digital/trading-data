@@ -408,9 +408,24 @@ class TestRangeAdmission:
         response = _request(test_app, "1m", date(2004, 1, 1), date(2024, 1, 1))
         assert response.status_code == 422
         body = response.json()
-        assert set(body) == {"error"}
+        # The prose is unchanged (trading-ui parsed it before the fields), and
+        # the fields beside it say the same numbers (issue #23).
         assert "75,000" in body["error"]
         assert "113 days" in body["error"]
+        assert f"about {body['estimate']:,} 1m bars" in body["error"]
+        assert {k: v for k, v in body.items() if k not in ("error", "estimate")} == {
+            "reason": "row_ceiling",
+            "limit": 75_000,
+            "granularity": "1m",
+            "max_span_days": 113,
+        }
+
+    def test_reversed_range_says_so(self, test_app: FastAPI) -> None:
+        response = _request(test_app, "1m", date(2024, 1, 2), date(2024, 1, 1))
+        assert response.status_code == 422
+        body = response.json()
+        assert body["reason"] == "range_reversed"
+        assert set(body) == {"error", "reason"}
 
     def test_rejected_request_checks_out_no_connection(self, test_app: FastAPI) -> None:
         """The point of the decision, not a side effect: a request that cannot

@@ -14,7 +14,7 @@ from typing import Annotated
 from fastapi import HTTPException, Query
 from starlette import status as http_status
 
-from manta_trading.api_server.admission import not_found
+from manta_trading.api_server.admission import not_found, range_reversed
 from manta_trading.api_server.routes.windows import instant_utc
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.roll_rules import DEFAULT_ROLL_RULE, RollRule
@@ -76,10 +76,9 @@ def instant_bounds(from_: datetime | None, until: datetime | None) -> InstantBou
     lower = None if from_ is None else instant_utc(from_)
     upper = None if until is None else instant_utc(until)
     if lower is not None and upper is not None and lower >= upper:
-        raise HTTPException(
-            http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+        raise range_reversed(
             f"from ({lower.isoformat()}) must be before until "
-            f"({upper.isoformat()}); the bounds are half-open, [from, until)",
+            f"({upper.isoformat()}); the bounds are half-open, [from, until)"
         )
     return InstantBounds(lower, upper)
 
