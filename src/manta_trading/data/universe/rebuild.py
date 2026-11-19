@@ -22,7 +22,13 @@ from psycopg_pool import ConnectionPool
 
 from manta_trading.api.finnhub.finnhubapi import FinnhubAccessError, FinnhubClient
 from manta_trading.api.http_retry import RetryPolicy
+from manta_trading.constants import US_EQUITY_CALENDAR_ID
 from manta_trading.data.base.instrument_registry import InstrumentRegistry
+from manta_trading.data.eodhd_ticker import (
+    EODHD_INDEX_EXCHANGE,
+    EODHD_US_EXCHANGE,
+    with_exchange,
+)
 from manta_trading.data.universe.eodhd_classification import EodhdType, filter_v1_universe
 from manta_trading.data.universe.eodhd_symbol_list_client import (
     EodhdSymbolListClient,
@@ -160,7 +166,7 @@ async def fetch_v1_universe(eodhd_client: EodhdSymbolListClient) -> list[dict]:
     indx_usa = [r for r in indx_raw if r.get("Country") == "USA"]
     for row in indx_usa:
         row["_delisted"] = False
-        row["Exchange"] = "INDX"
+        row["Exchange"] = EODHD_INDEX_EXCHANGE
 
     return filter_v1_universe(active_us + delisted_us + indx_usa)
 
@@ -170,12 +176,15 @@ def build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dict
 
     - Existing AV-seeded rows: keep their venue/canonical_id/trading_calendar_id.
     - New equity rows (eodhd_exchange='US'): transient venue='US', canonical_id='{sym}.US'.
-    - Index rows (eodhd_exchange='INDX'): venue='INDX', canonical_id='{sym}.INDX'.
+    - Index rows (eodhd_exchange='INDX'): venue='INDX', canonical_id and symbol
+      both '{sym}.INDX', so an index never shares a symbol with an equity (#46).
     """
     rows: list[dict] = []
     for row in eodhd_rows:
-        symbol: str = row["Code"]
-        eodhd_exchange: str = row.get("Exchange", "US")
+        eodhd_exchange: str = row.get("Exchange", EODHD_US_EXCHANGE)
+        is_index = eodhd_exchange == EODHD_INDEX_EXCHANGE
+        code: str = row["Code"]
+        symbol = with_exchange(code, EODHD_INDEX_EXCHANGE) if is_index else code
         eodhd_type: str = row.get("Type", "")
         currency: str = row.get("Currency", "USD") or "USD"
         delisted_at_eodhd: bool = row.get("delisted_at_eodhd", False)
@@ -187,14 +196,14 @@ def build_upsert_rows(eodhd_rows: list[dict], existing_by_symbol: dict[str, dict
             canonical_id = existing["canonical_id"]
             venue = existing["venue"]
             trading_calendar_id = existing["trading_calendar_id"]
-        elif eodhd_exchange == "INDX":
-            canonical_id = f"{symbol}.INDX"
-            venue = "INDX"
-            trading_calendar_id = None
+        elif is_index:
+            canonical_id = symbol
+            venue = EODHD_INDEX_EXCHANGE
+            trading_calendar_id = US_EQUITY_CALENDAR_ID
         else:
-            canonical_id = f"{symbol}.US"
-            venue = "US"
-            trading_calendar_id = "NYSE"
+            canonical_id = with_exchange(symbol, EODHD_US_EXCHANGE)
+            venue = EODHD_US_EXCHANGE
+            trading_calendar_id = US_EQUITY_CALENDAR_ID
 
         rows.append({
             "canonical_id": canonical_id,

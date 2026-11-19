@@ -126,7 +126,11 @@ joins the cluster table's roots with the same character."""
 # `mt data health` still reported minute data OK. These thresholds judge the
 # quantity that failed.
 
-HEALTH_MINUTE_SESSION_CALENDAR: str = "NYSE"
+US_EQUITY_CALENDAR_ID: str = "NYSE"
+"""The trading calendar US equities and US indices are assigned (NYSE and NASDAQ
+hold identical hours and holidays). Issue #46: indices get it too."""
+
+HEALTH_MINUTE_SESSION_CALENDAR: str = US_EQUITY_CALENDAR_ID
 """Trading calendar whose sessions the minute-mass check judges.
 
 One calendar, not the union: the equity universe this platform collects is

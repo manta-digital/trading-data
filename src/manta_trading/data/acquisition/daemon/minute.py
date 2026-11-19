@@ -33,7 +33,6 @@ from manta_trading.data.acquisition.daemon.bar_prices import (
 from manta_trading.data.acquisition.daemon.daily import (
     CycleReport,
     _last_completed_session,
-    _normalise,
 )
 from manta_trading.data.acquisition.daemon.minute_sessions import (
     judge_chunk_by_sessions,
@@ -53,6 +52,7 @@ from manta_trading.data.acquisition.state import (
     MinutePassOutcome,
 )
 from manta_trading.data.acquisition.symbols import iter_active_instruments
+from manta_trading.data.eodhd_ticker import eodhd_ticker
 from manta_trading.data.gaps import (
     GapRow,
     coalesce_data_gaps,
@@ -1007,7 +1007,7 @@ def _do_minute_symbol(
         # outcome not yet known for this chunk — set after classify_outcome below
 
         url = (
-            f"{_EODHD_BASE}/intraday/{_normalise(symbol)}"
+            f"{_EODHD_BASE}/intraday/{eodhd_ticker(symbol)}"
             f"?api_token={settings.eodhd_api_key}&fmt=json&interval=1m"
             f"&from={int(chunk_start.timestamp())}"
             f"&to={int(day_end_utc(chunk_end).timestamp())}"

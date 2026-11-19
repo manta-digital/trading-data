@@ -52,6 +52,7 @@ from urllib.parse import urlencode
 import httpx
 import pandas as pd
 
+from manta_trading.data.eodhd_ticker import eodhd_ticker
 from manta_trading.data.historical_minute.provider import (
     RateLimitInfo,
     RawDataResponse,
@@ -70,7 +71,6 @@ _DEFAULT_REQUESTS_PER_MINUTE = 30
 # requests/day. Reported via get_rate_limits for downstream quota tracking.
 _REQUESTS_PER_DAY = 20_000
 _REQUEST_TIMEOUT_S = 60.0
-_DEFAULT_US_SUFFIX = "US"
 
 
 class EODHDMinuteProvider:
@@ -103,14 +103,6 @@ class EODHDMinuteProvider:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _normalise_symbol(self, symbol: str) -> str:
-        """Append the default ``.US`` exchange suffix when no suffix is
-        present. Non-US tickers (e.g. ``BMW.XETRA``) pass through.
-        """
-        if "." in symbol:
-            return symbol
-        return f"{symbol}.{_DEFAULT_US_SUFFIX}"
-
     def _build_url(
         self, symbol: str, start: datetime, end: datetime
     ) -> str:
@@ -120,7 +112,7 @@ class EODHDMinuteProvider:
         auth scheme). Callers that log this URL must redact the key first;
         ``_log_safe_url`` returns a sanitised form for that purpose.
         """
-        ticker = self._normalise_symbol(symbol)
+        ticker = eodhd_ticker(symbol)
         params = {
             "interval": _INTERVAL,
             "from": int(start.timestamp()),

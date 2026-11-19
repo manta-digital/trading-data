@@ -16,6 +16,7 @@ import psycopg
 
 from manta_trading.api.eodhd_sync import eodhd_get
 from manta_trading.data.acquisition.quota import CallType
+from manta_trading.data.eodhd_ticker import eodhd_ticker
 from manta_trading.logging import get_logger
 
 _logger = get_logger(__name__)
@@ -41,13 +42,6 @@ class PopulateDelistedDatesReport:
     updated: int
     skipped_empty: int
     error_count: int
-
-
-def _normalise_symbol(symbol: str) -> str:
-    """Append .US exchange suffix if no exchange is already present."""
-    if "." in symbol:
-        return symbol
-    return f"{symbol}.US"
 
 
 def populate_delisted_dates(
@@ -81,7 +75,7 @@ def populate_delisted_dates(
     error_count = 0
 
     for idx, sym in enumerate(symbols, start=1):
-        normalised = _normalise_symbol(sym)
+        normalised = eodhd_ticker(sym)
         url = (
             f"{_EODHD_BASE}/eod/{normalised}"
             f"?api_token={api_key}&fmt=json&order=d&limit=1"

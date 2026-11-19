@@ -24,21 +24,15 @@ import httpx
 
 from manta_trading.data.adjustment.providers import Dividend, Split
 from manta_trading.data.adjustment.providers._http import fetch_with_retry
+from manta_trading.data.eodhd_ticker import eodhd_ticker
 from manta_trading.logging import get_logger
 from manta_trading.providers.errors import ProviderPermanentError
 
 _logger = get_logger(__name__)
 
 _BASE_URL = "https://eodhd.com/api"
-_DEFAULT_US_SUFFIX = "US"
 _REQUEST_TIMEOUT_S = 30.0
 
-
-def _normalise_symbol(symbol: str) -> str:
-    """Append ``.US`` when no exchange suffix is present."""
-    if "." in symbol:
-        return symbol
-    return f"{symbol}.{_DEFAULT_US_SUFFIX}"
 
 
 def _parse_iso_date(raw: str) -> date:
@@ -93,7 +87,7 @@ class EODHDCorporateActionsProvider:
         )
 
     async def fetch_splits(self, symbol: str) -> list[Split]:
-        ticker = _normalise_symbol(symbol)
+        ticker = eodhd_ticker(symbol)
         db_symbol = symbol.split(".")[0]
         raw = await self._fetch(f"/splits/{ticker}")
         if not isinstance(raw, list):
@@ -121,7 +115,7 @@ class EODHDCorporateActionsProvider:
         return out
 
     async def fetch_dividends(self, symbol: str) -> list[Dividend]:
-        ticker = _normalise_symbol(symbol)
+        ticker = eodhd_ticker(symbol)
         db_symbol = symbol.split(".")[0]
         raw = await self._fetch(f"/div/{ticker}")
         if not isinstance(raw, list):

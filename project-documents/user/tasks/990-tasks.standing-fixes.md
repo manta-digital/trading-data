@@ -23,12 +23,12 @@ Issue [#46](https://github.com/manta-digital/trading-data/issues/46), with [#4](
 
 ### 1. One EODHD ticker rule, and index rows built right
 
-- [ ] **1.1** One function returns a symbol's EODHD ticker: the symbol itself when it has an exchange suffix, else `{symbol}.US`. `daemon/daily.py::_normalise`, `historical_minute/providers/eodhd.py::_normalise_symbol` and `universe/populate_delisted_dates.py::_normalise_symbol` call it instead of their own copies.
-  - [ ] Unit test: `AAPL` → `AAPL.US`, `VIX.INDX` and `^TNX.US` unchanged.
-- [ ] **1.2** `universe/rebuild.py::build_upsert_rows`: an `INDX` row gets `symbol = canonical_id` (`{code}.INDX`) and the same trading calendar as equities. The calendar id is defined once, not as a second `"NYSE"` literal.
-  - [ ] Unit test: an equity `DJT` and an index `DJT` in one payload give two rows with symbols `DJT` and `DJT.INDX`. The index row has the calendar, and the equity row is unchanged.
-  - [ ] Unit test: a rebuild over an existing `VIX.INDX` row keeps it (match by symbol still finds it) and creates no bare `VIX` row.
-- [ ] **1.3** **Commit**: ruff and format on the touched files, mypy, unit tier, then `fix: give index instruments their own .INDX symbol and a calendar`.
+- [x] **1.1** One function returns a symbol's EODHD ticker: the symbol itself when it has an exchange suffix, else `{symbol}.US`. `daemon/daily.py::_normalise`, `daemon/minute.py` (which imported daily's `_normalise`), `daily/providers/eodhd.py`, `adjustment/providers/eodhd.py`, `historical_minute/providers/eodhd.py` and `universe/populate_delisted_dates.py` (six copies or callers in all) call it instead of their own copies. The function is `eodhd_ticker` in `src/manta_trading/data/eodhd_ticker.py`.
+  - [x] Unit test: `AAPL` → `AAPL.US`, `VIX.INDX` and `^TNX.US` unchanged.
+- [x] **1.2** `universe/rebuild.py::build_upsert_rows`: an `INDX` row gets `symbol = canonical_id` (`{code}.INDX`) and the same trading calendar as equities. The calendar id is defined once, not as a second `"NYSE"` literal. The calendar id is `US_EQUITY_CALENDAR_ID` in `constants.py`; `HEALTH_MINUTE_SESSION_CALENDAR` now refers to it.
+  - [x] Unit test: an equity `DJT` and an index `DJT` in one payload give two rows with symbols `DJT` and `DJT.INDX`. The index row has the calendar, and the equity row is unchanged.
+  - [x] Unit test: a rebuild over an existing `VIX.INDX` row keeps it (match by symbol still finds it) and creates no bare `VIX` row.
+- [x] **1.3** **Commit**: ruff and format on the touched files, mypy, unit tier, then `fix: give index instruments their own .INDX symbol and a calendar`. Unit tier 5,835 passed; ruff and mypy counts unchanged from HEAD (91 mypy errors, all pre-existing).
 
 ### 2. Move production's index rows
 

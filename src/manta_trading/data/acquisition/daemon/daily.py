@@ -38,7 +38,7 @@ from manta_trading.data.acquisition.state import (
     MinutePassOutcome,
 )
 from manta_trading.data.acquisition.symbols import iter_active_instruments
-
+from manta_trading.data.eodhd_ticker import eodhd_ticker
 from manta_trading.data.gaps import coalesce_data_gaps, update_data_gaps
 from manta_trading.data.locking import advisory_lock
 from manta_trading.logging import get_logger
@@ -837,7 +837,7 @@ def _do_daily_symbol(
     )
 
     url = (
-        f"{_EODHD_BASE}/eod/{_normalise(symbol)}"
+        f"{_EODHD_BASE}/eod/{eodhd_ticker(symbol)}"
         f"?api_token={settings.eodhd_api_key}&fmt=json"
     )
     response = eodhd_get(http, url, CallType.EOD)
@@ -1064,6 +1064,3 @@ def _first_data_date(conn: psycopg.Connection, symbol: str) -> date:
         return DAILY_HISTORY_FLOOR
     return row[0]
 
-
-def _normalise(symbol: str) -> str:
-    return symbol if "." in symbol else f"{symbol}.US"

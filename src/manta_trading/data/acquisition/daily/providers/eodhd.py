@@ -33,13 +33,13 @@ from manta_trading.data.acquisition.daily.provider import (
     ValidationResult,
 )
 from manta_trading.data.adjustment.providers._http import fetch_with_retry
+from manta_trading.data.eodhd_ticker import eodhd_ticker
 from manta_trading.logging import get_logger
 from manta_trading.providers.errors import ProviderPermanentError
 
 _logger = get_logger(__name__)
 
 _BASE_URL = "https://eodhd.com/api"
-_DEFAULT_US_SUFFIX = "US"
 _REQUEST_TIMEOUT_S = 60.0  # /eod can return many years; allow generous read
 
 # EODHD intraday paid plan: 1000 req/min ceiling. Daily endpoints share
@@ -50,12 +50,6 @@ _REQUESTS_PER_MINUTE = 1000
 # "compact" / "full" map to the slice-122 IDailyDataProvider contract.
 # For EODHD, "compact" → last ~100 trading days; "full" → all available.
 _COMPACT_RECENT_DAYS = 200  # widen slightly to be safe past holidays
-
-
-def _normalise_symbol(symbol: str) -> str:
-    if "." in symbol:
-        return symbol
-    return f"{symbol}.{_DEFAULT_US_SUFFIX}"
 
 
 class EODHDDailyProvider:
@@ -79,7 +73,7 @@ class EODHDDailyProvider:
         return self._client
 
     def _build_url(self, symbol: str, output_size: str) -> str:
-        ticker = _normalise_symbol(symbol)
+        ticker = eodhd_ticker(symbol)
         url = (
             f"{_BASE_URL}/eod/{ticker}"
             f"?api_token={self._api_key}&fmt=json"
