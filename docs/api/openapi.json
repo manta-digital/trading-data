@@ -1696,6 +1696,11 @@
       "FuturesProductsResponse": {
         "description": "``GET /api/v1/futures/products``: every product in the tick universe.",
         "properties": {
+          "max_sessions": {
+            "description": "Most sessions one product request (ticks, bars, tick bars, schedule) may span; a longer one is a 422 with reason session_ceiling. Size product windows from this value.",
+            "title": "Max Sessions",
+            "type": "integer"
+          },
           "products": {
             "items": {
               "$ref": "#/components/schemas/ProductRecord"
@@ -1705,7 +1710,8 @@
           }
         },
         "required": [
-          "products"
+          "products",
+          "max_sessions"
         ],
         "title": "FuturesProductsResponse",
         "type": "object"
@@ -3458,6 +3464,7 @@
         "enum": [
           "row_ceiling",
           "trade_ceiling",
+          "session_ceiling",
           "range_reversed"
         ],
         "title": "RefusalReason",

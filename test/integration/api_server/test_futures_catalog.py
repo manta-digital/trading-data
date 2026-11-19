@@ -178,6 +178,13 @@ def test_products_matches_the_cli_active_lines(
     assert es["active"] == cli["lines"]
 
 
+def test_products_publish_the_session_ceiling(tick_client: TestClient) -> None:
+    """Issue #79: the server's cap, so a client never copies the constant."""
+    body = tick_client.get(PRODUCTS).json()
+
+    assert body["max_sessions"] == TICK_ROLL_MAX_SESSIONS
+
+
 def test_a_product_with_nothing_held_is_a_reason(tick_client: TestClient) -> None:
     response = tick_client.get(PRODUCTS)
 

@@ -71,6 +71,15 @@ from manta_trading.data.tick.universe import TickUniverseEntry
 class RollRangeTooLong(TickPreflightError):
     """A schedule range spans more than ``TICK_ROLL_MAX_SESSIONS`` sessions."""
 
+    def __init__(self, start: date, end: date, sessions: int) -> None:
+        super().__init__(
+            f"{start} → {end} spans {sessions} sessions, over "
+            f"TICK_ROLL_MAX_SESSIONS ({TICK_ROLL_MAX_SESSIONS}); ask for a "
+            "narrower range"
+        )
+        self.sessions = sessions
+        self.limit = TICK_ROLL_MAX_SESSIONS
+
 
 def roll_conninfo(url: str) -> str:
     """``url`` bounded for the roll path (TD9): connect timeout, keepalives,
@@ -220,11 +229,7 @@ async def build_schedule(
     days = [s.session_date for s in calendar.sessions]
     wanted = [i for i, day in enumerate(days) if start <= day < end]
     if len(wanted) > TICK_ROLL_MAX_SESSIONS:
-        raise RollRangeTooLong(
-            f"{start} → {end} spans {len(wanted)} sessions, over "
-            f"TICK_ROLL_MAX_SESSIONS ({TICK_ROLL_MAX_SESSIONS}); ask for a "
-            "narrower range"
-        )
+        raise RollRangeTooLong(start, end, len(wanted))
     if (
         utc_midnight(start) < calendar.first_open
         or utc_midnight(end) > calendar.last_close

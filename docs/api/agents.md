@@ -556,7 +556,7 @@ Both come from the same route with the same status. Which you get:
 **Parse by key.** `error` is a refusal; `detail` is a parameter that failed to
 parse. `openapi.json` declares both on every `422` (`anyOf` `ErrorResponse`,
 `HTTPValidationError`). A refusal you can act on also carries `reason`
-(`row_ceiling`, `trade_ceiling`, `range_reversed`) and, where it applies,
+(`row_ceiling`, `trade_ceiling`, `session_ceiling`, `range_reversed`) and, where it applies,
 `limit`, `estimate`, `granularity` and `max_span_days`, so you can re-plan a
 window without reading the prose. Every `404` is declared on the routes that
 send it.

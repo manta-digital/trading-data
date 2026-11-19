@@ -26,8 +26,10 @@ from psycopg.conninfo import conninfo_to_dict
 from psycopg_pool import AsyncConnectionPool
 from starlette import status as http_status
 
+from manta_trading.api_server.admission import session_ceiling
 from manta_trading.config import Settings
 from manta_trading.constants import DbSessionSettings
+from manta_trading.data.tick.active_contract import RollRangeTooLong
 from manta_trading.data.tick.constants import (
     TICK_API_CHECKOUT_TIMEOUT_SECONDS,
     TICK_API_POOL_MAX,
@@ -253,6 +255,8 @@ def tick_errors(app: FastAPI) -> Iterator[None]:
         raise TickServiceUnavailable(_classify(app, exc)) from exc
     except ContractNotFound as exc:
         raise HTTPException(http_status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except RollRangeTooLong as exc:
+        raise session_ceiling(str(exc), limit=exc.limit, estimate=exc.sessions) from exc
     except TickPreflightError as exc:
         raise HTTPException(
             http_status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)

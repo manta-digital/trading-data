@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Annotated
 
-from pydantic import BaseModel, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer
 
 from manta_trading.api_server.models.futures import UnresolvedRecord
 from manta_trading.data.tick.catalog_reads import CatalogContract
@@ -141,6 +141,13 @@ class FuturesProductsResponse(BaseModel):
     """``GET /api/v1/futures/products``: every product in the tick universe."""
 
     products: list[ProductRecord]
+    max_sessions: int = Field(
+        description=(
+            "Most sessions one product request (ticks, bars, tick bars,"
+            " schedule) may span; a longer one is a 422 with reason"
+            " session_ceiling. Size product windows from this value."
+        )
+    )
 
 
 class ScheduleSegmentRecord(BaseModel):

@@ -40,6 +40,7 @@ from manta_trading.data.tick.active_contract import (
     latest_lines,
 )
 from manta_trading.data.tick.catalog_reads import contracts_for
+from manta_trading.data.tick.constants import TICK_ROLL_MAX_SESSIONS
 from manta_trading.data.tick.get_plan import resolve_range
 from manta_trading.data.tick.manifest_reads import Conn
 from manta_trading.data.tick.roll_rules import STATUS_ROLL_RULES, RollRule
@@ -76,7 +77,9 @@ async def list_products(request: Request, _conn: TickConn) -> FuturesProductsRes
                 # refusal and the other products still answer.
                 lines = error_lines(entry.product, STATUS_ROLL_RULES, exc)
         products.append(ProductRecord.from_lines(entry.product, lines))
-    return FuturesProductsResponse(products=products)
+    return FuturesProductsResponse(
+        products=products, max_sessions=TICK_ROLL_MAX_SESSIONS
+    )
 
 
 @router.get(

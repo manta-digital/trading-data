@@ -7,6 +7,7 @@ the mapping reads (the tick URL, for scrubbing, and the statement timeout).
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 
 import psycopg
 import pytest
@@ -17,6 +18,7 @@ from manta_trading.api_server import tick_access
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.tick_access import tick_errors
 from manta_trading.data.tick.active_contract import RollRangeTooLong
+from manta_trading.data.tick.constants import TICK_ROLL_MAX_SESSIONS
 from manta_trading.data.tick.get_plan import ContractAmbiguous, ContractNotFound
 from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.tick_calendar import TickCalendarError
@@ -79,12 +81,23 @@ def test_an_unknown_contract_is_404() -> None:
     "exc",
     [
         ContractAmbiguous("ESZ4 names two instruments"),
-        RollRangeTooLong("spans 2000 sessions"),
+        RollRangeTooLong(date(2016, 1, 4), date(2024, 1, 2), 2_000),
         TickPreflightError("2030-01-01 → 2030-02-01 is outside the calendar"),
     ],
 )
 def test_a_refusal_is_422_with_its_message(exc: BaseException) -> None:
     assert _get(exc) == (422, str(exc))
+
+
+def test_the_session_ceiling_names_its_limit() -> None:
+    """Issue #79: a client sizes product windows from ``limit``, not a copy."""
+    app = _app_raising(RollRangeTooLong(date(2016, 1, 4), date(2024, 1, 2), 2_000))
+    body = TestClient(app).get(ROUTE).json()
+
+    assert body["reason"] == "session_ceiling"
+    assert body["limit"] == TICK_ROLL_MAX_SESSIONS
+    assert body["estimate"] == 2_000
+    assert "spans 2000 sessions" in body["error"]
 
 
 def test_anything_else_stays_a_sanitized_500() -> None:

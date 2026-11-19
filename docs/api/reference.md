@@ -227,9 +227,9 @@ the `error` prose is unchanged:
 
 | Field | Type | Present on | Meaning |
 |---|---|---|---|
-| `reason` | `row_ceiling` \| `trade_ceiling` \| `range_reversed` | those three refusals | What was refused. Absent on every other error. |
-| `limit` | integer | `row_ceiling`, `trade_ceiling` | The enforced ceiling, rows or trades. |
-| `estimate` | integer | equity bars, Kalshi lists and series, futures trade ceilings | The rows or trades the request would have read. The futures row ceiling stops reading at the limit, so it has none. |
+| `reason` | `row_ceiling` \| `trade_ceiling` \| `session_ceiling` \| `range_reversed` | those four refusals | What was refused. Absent on every other error. |
+| `limit` | integer | the three ceilings | The enforced ceiling: rows, trades, or sessions (futures product reads). |
+| `estimate` | integer | equity bars, Kalshi lists and series, futures trade and session ceilings | The rows, trades or sessions the request would have read. The futures row ceiling stops reading at the limit, so it has none. |
 | `granularity` | string | equity bars | The granularity the estimate is for. |
 | `max_span_days` | integer | equity bars | The longest inclusive window this granularity admits. |
 
@@ -1727,9 +1727,11 @@ from/until` (bars say `narrow start/end`). A single ES session holds up to
 about 690,000 ticks, so ticks over a whole busy session are always refused;
 use `from`/`until`.
 
-**Product reads span at most 1,300 sessions** of roll schedule; a longer range
-is a `422` naming the cap.
+**Product reads span at most 1,300 sessions** of roll schedule.
 <!-- from: manta_trading.data.tick.constants.TICK_ROLL_MAX_SESSIONS -->
+A longer range is a `422` with `reason: session_ceiling`, `limit` and
+`estimate` (see Errors). `GET /api/v1/futures/products` publishes the cap as
+`max_sessions`, so size product windows from it rather than copying the number.
 
 **`503` means the tick tier is down, not the server.** The body is the
 standard error shape, and the message says which:
@@ -1773,6 +1775,7 @@ known. No parameters.
 | `active[].roll_no_later_than` | date | yes | The latest session the current contract can serve. |
 | `active[].reason` | string | yes | Why there is no answer (nothing held). Not a failure. |
 | `active[].error` | string | yes | A refusal or broken invariant for this rule. HTTP stays `200`. |
+| `max_sessions` | integer | no | Most sessions one product request (ticks, bars, tick bars, schedule) may span (issue #79). |
 
 ```sh
 curl 'http://127.0.0.1:8137/api/v1/futures/products'
@@ -1781,10 +1784,12 @@ curl 'http://127.0.0.1:8137/api/v1/futures/products'
 ```json
 {"products":[{"product":"ES","name":"E-mini S&P 500","calendar":"CME_EQUITY","active":[
   {"product":"ES","rule":"v.0","is_default":true,"session_date":"2024-12-31","instrument_id":5002,"raw_symbol":"ESH5","expiration":"2025-03-21T13:30:00+00:00",…,"next_roll":null,"known_through":"2025-01-03","roll_no_later_than":"2025-03-24","reason":null,"error":null},
-  {"product":"ES","rule":"c.0","is_default":false,"session_date":"2024-12-31","raw_symbol":"ESH5",…,"next_roll":{"session_date":"2025-03-24","raw_symbol":"ESM5",…},"known_through":"2027-12-31",…}]}]}
+  {"product":"ES","rule":"c.0","is_default":false,"session_date":"2024-12-31","raw_symbol":"ESH5",…,"next_roll":{"session_date":"2025-03-24","raw_symbol":"ESM5",…},"known_through":"2027-12-31",…}]}],
+ "max_sessions":1300}
 ```
 
-*Captured 2026-10-13 against the dev tick database. Abridged.*
+*Captured 2026-10-13 against the dev tick database, `max_sessions` added
+2026-11-18. Abridged.*
 
 **Errors**: `503` only when the tick or calendar database is down; a product
 whose rules cannot be answered keeps HTTP `200` with `error` on its lines.

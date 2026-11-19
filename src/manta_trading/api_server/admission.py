@@ -31,6 +31,7 @@ __all__ = [
     "not_found",
     "over_ceiling",
     "range_reversed",
+    "session_ceiling",
     "trade_ceiling",
 ]
 
@@ -62,6 +63,7 @@ class RefusalReason(StrEnum):
 
     ROW_CEILING = "row_ceiling"
     TRADE_CEILING = "trade_ceiling"
+    SESSION_CEILING = "session_ceiling"
     RANGE_REVERSED = "range_reversed"
 
 
@@ -89,6 +91,13 @@ def range_reversed(message: str) -> Refusal:
 def trade_ceiling(message: str, *, limit: int, estimate: int) -> Refusal:
     """The ``422`` for a futures read over the trade limit."""
     return _refuse(message, RefusalReason.TRADE_CEILING, limit=limit, estimate=estimate)
+
+
+def session_ceiling(message: str, *, limit: int, estimate: int) -> Refusal:
+    """The ``422`` for a futures product read spanning too many sessions."""
+    return _refuse(
+        message, RefusalReason.SESSION_CEILING, limit=limit, estimate=estimate
+    )
 
 
 def admit_rows(count: int, max_rows: int, *, remedy: str) -> None:
