@@ -290,4 +290,5 @@ Production, after release and migration 067 (cutover script per the release skil
 ### Special Considerations
 
 - In session mode `start`/`end` are session dates. Say so in the parameter description, because with `session=utc` they are UTC dates.
+- The production database session timezone is America/Denver, so `time::date` shifts dates back a day. Measurements and SQL that need a UTC date must use `(time AT TIME ZONE 'UTC')::date`, and session dates come from `trading_sessions`, never from casting a timestamp.
 - The #26 deadline is 2027-01-01. This slice carries that fix, so it should not sit unbuilt into December.
