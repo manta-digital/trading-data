@@ -13,6 +13,8 @@ import json
 import re
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +30,10 @@ SERVICE_USER = "manta-trading"
 PASS_UNIT = "mt-kalshi-pass.service"
 PASS_TIMER = "mt-kalshi-pass.timer"
 SERVE_UNIT = "mt-serve.service"
+#: ``mt serve``'s default bind; mt-serve.service passes no --port.
+SERVE_URL = "http://127.0.0.1:8100"
+#: How long a restarted mt-serve may take to answer /health before it counts as down.
+SERVE_READY_SECONDS = 60
 NOTES_DIR = Path("project-documents/user/notes")
 #: How often to look for a running pass to end.
 POLL_SECONDS = 15
@@ -166,6 +172,23 @@ def restart_serve_if_active() -> None:
     if unit_active(SERVE_UNIT):
         run(["systemctl", "restart", SERVE_UNIT], sudo=True)
         print(f"    {SERVE_UNIT} restarted onto the new ref (runbook update procedure)")
+
+
+def wait_for_serve() -> None:
+    """Wait until mt-serve answers /health; a restart returns before it binds."""
+    deadline = time.monotonic() + SERVE_READY_SECONDS
+    while True:
+        try:
+            with urllib.request.urlopen(SERVE_URL + "/api/v1/health", timeout=10):
+                return
+        except (urllib.error.URLError, ConnectionError) as exc:
+            # Not listening yet: expected for a few seconds after the restart.
+            if time.monotonic() >= deadline:
+                raise CutoverError(
+                    f"{SERVE_UNIT} not answering /health after"
+                    f" {SERVE_READY_SECONDS}s: {exc}"
+                ) from exc
+            time.sleep(1)
 
 
 def _migrate_status(track: str) -> tuple[list[str], list[str]]:

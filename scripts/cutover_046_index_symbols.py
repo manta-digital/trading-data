@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cutover_common import (  # noqa: E402
     NOTES_DIR,
     SERVE_UNIT,
+    SERVE_URL,
     CutoverError,
     install,
     log_text,
@@ -50,13 +51,12 @@ from cutover_common import (  # noqa: E402
     say,
     start_log,
     unit_active,
+    wait_for_serve,
 )
 from upgrade_production import hold_timers, release_timers  # noqa: E402
 
 MINUTE_MIGRATION = ("minute", "067_index_instruments_indx_symbols")
 
-#: ``mt serve``'s default bind; mt-serve.service passes no --port.
-SERVE_URL = "http://127.0.0.1:8100"
 INDEX_SYMBOLS = ("VIX.INDX", "DJT.INDX")
 #: An equity that shares its code with an index, and the first day of its
 #: daily bars as served before the release (read 2026-11-19).
@@ -119,6 +119,7 @@ def main(argv: list[str]) -> int:
         restart_serve_if_active()
         if not unit_active(SERVE_UNIT):
             raise CutoverError(f"{SERVE_UNIT} is not active after the restart")
+        wait_for_serve()
 
         say("6/7 verify")
         verify_symbols()
