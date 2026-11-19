@@ -20,6 +20,8 @@ This slice adds `GET /api/v1/quotes?symbols=AAPL,SPY,...`. One call returns one 
 
 There is no realtime data today. Every row is the last settled daily close, and the row says so. The PM's rule (2026-11-18): when realtime data exists we send it. When a caller asks for realtime and we don't have it, we say so and still send the best price we hold.
 
+trading-ui also asked for an expected session date, so each market's watchlist can show which session is current and mark rows behind it. That is D8.
+
 Tracked as [issue #80](https://github.com/manta-digital/trading-data/issues/80).
 
 ## Value
@@ -35,6 +37,7 @@ Included:
 - `GET /api/v1/quotes` with a `symbols` list and a `realtime` flag (shape under API Contracts).
 - Stocks, ETFs and indexes, which are everything in `instruments` today.
 - Last two daily bars per symbol from `daily_ohlcv`, read in one statement for the whole list.
+- `expected_session_date`: the latest NYSE session whose close should be stored by now (D8), read from `trading_sessions` with one bounded query.
 - A previous close adjusted for any split between the two sessions, so a split day doesn't show as a 75% crash.
 - A per-row status: served, realtime not available, unknown symbol, no recent close.
 - A published 200 response schema in `docs/api/openapi.json`, and entries in `docs/api/reference.md` and `docs/api/agents.md` that pass `scripts/check_api_docs.py --check`.
@@ -55,6 +58,7 @@ Excluded:
 
 - Slice 190 (API reference documentation): the human and agent references and the doc gate this slice extends. Complete.
 - `daily_ohlcv`, `instruments` and `splits` on the market database. All exist; no migration.
+- `trading_sessions` for the NYSE calendar (D8). Complete through 2028, but 2027 market holidays are wrong until slice 174 ships (#26); see D8.
 
 ### Interfaces Required
 
@@ -82,7 +86,8 @@ The route is registered in `app.py` beside the others.
    - **Splits**: one statement over `splits` for the same symbols and window. Skipped if no symbol has two bars.
    - **Known symbols**: one statement over `instruments`, only for symbols that came back with no bars. It tells "unknown symbol" from "no recent close".
 3. The pure builder turns those results into one `Quote` per requested symbol, in request order.
-4. The route returns `QuotesResponse` as JSON with a `200`.
+4. One bounded read of `trading_sessions` for the expected session (D8), on the same connection.
+5. The route returns `QuotesResponse` as JSON with a `200`.
 
 ### State Management
 
@@ -169,6 +174,25 @@ Status: decided
 
 `daily_ohlcv` is a raw hypertable, so there is no materialized view to fall behind, and `/api/v1/bars` already serves `1d` with no probe. Each row's `session_date` is the freshness answer. A client that wants the system-wide verdict already has `/api/v1/status`.
 
+### D8 — Expected session date
+Status: decided
+
+`expected_session_date` is one top-level `date`, never null: the latest NYSE session whose daily close the store should hold at the moment the response is built. Stocks and ETFs are the only instruments served, and they share the NYSE calendar. NYSE and NASDAQ sessions are identical for every date through 2028, so one calendar is correct. If a later slice adds a market with its own calendar, the field becomes per-row or per-calendar then; it does not change now.
+
+Rule: the latest `session_date` in `trading_sessions` where `calendar_id = 'NYSE'` and `session_close_utc <= now - DAILY_CLOSE_PUBLICATION_ALLOWANCE`. The read binds the cutoff as an aware `timestamptz`, the planning-cost lesson from slice 187, and uses `idx_trading_sessions_close`.
+
+`DAILY_CLOSE_PUBLICATION_ALLOWANCE` is 9 hours, one constant in `constants.py`, beside `MINUTE_PROVIDER_PUBLICATION_LAG`. Evidence, production read-only, 2026-11-19, twelve sessions from 2026-11-02 to 2026-11-17 (dates in UTC, not the session timezone, which is `America/Denver` and shifts a `::date` by a day):
+
+- The daily pass at 00:35 UTC the day after a session writes that session's rows. First row 3.6 hours after a 21:00 UTC close, every session checked, with about 11,400 rows each.
+- The calendar's early closes are at 18:00 UTC, so the same pass lands 6.6 hours after close. Rows are complete by about 01:35 UTC, which is 7.6 hours after an 18:00 close.
+- A 9-hour allowance flips at 03:00 UTC after an early close (about 1.4 hours after the rows are complete) and at 06:00 UTC after a normal close.
+
+The allowance is what makes an unpublished session read as behind instead of current. A short allowance would mark every row behind for hours each evening; a long one delays the signal about a stalled pass. A unit test guards the relation: for every NYSE session in the calendar, `close + DAILY_CLOSE_PUBLICATION_ALLOWANCE` falls at or after 01:35 UTC on the next calendar day.
+
+Failure is explicit. If no NYSE session closed before the cutoff within 14 days, the route answers `503` with `error` naming the calendar and `mt data extend`. It never returns a guessed date, and it never returns `null`.
+
+Known gap: until slice 174 ships (migration 067 and the 2027 holiday fix, #26), 2027 market holidays are missing from `trading_sessions` and count as sessions. For each 2027 holiday the expected session lands on the holiday, so rows read as behind until the next session closes. This gap is recorded in the release notes. The PM decides whether 191 ships before or after 174.
+
 ### Technology Choices
 
 FastAPI, Pydantic and psycopg, as the rest of the API. Nothing new.
@@ -196,6 +220,7 @@ FastAPI, Pydantic and psycopg, as the rest of the API. Nothing new.
 ```json
 {
   "realtime_requested": false,
+  "expected_session_date": "2026-11-17",
   "count": 3,
   "quotes": [
     {
@@ -237,9 +262,13 @@ FastAPI, Pydantic and psycopg, as the rest of the API. Nothing new.
 
 Prices are illustrative, not real values.
 
+`expected_session_date` is the D8 value: the latest NYSE session whose close should be stored by now. A row whose `session_date` is earlier than it is behind.
+
 `count` is the number of rows, which equals the number of distinct symbols requested.
 
 `422` (`{"error": "..."}` through the existing handler): no symbols after trimming; more than 100 distinct symbols. The over-cap message names the cap and the count received.
+
+`503`: no NYSE session closed before the cutoff within 14 days (D8). The body names `mt data extend`.
 
 `504`: statement timeout, through the existing handler.
 
@@ -254,6 +283,7 @@ Prices are illustrative, not real values.
 
 - Slice 190's doc gate: the new route must be marked up in both references or `check_api_docs.py --check` fails.
 - The 186 handlers: a `422` body is `{"error": ...}`, a statement timeout is a `504`.
+- Slice 174 (#26): the NYSE calendar's 2027 holidays. Until it ships, D8 has a known gap on those dates.
 
 ## Success Criteria
 
@@ -264,6 +294,9 @@ Prices are illustrative, not real values.
 - An unknown symbol is an `unknown_symbol` row inside a `200`. A known symbol with no bar in 31 days is a `no_recent_close` row.
 - A symbol with a split between its last two sessions shows a previous close on the post-split basis.
 - A symbol with only one bar in the window has `previous_close`, `change` and `change_pct` of `null` and status `ok`.
+- `expected_session_date` is the latest NYSE session closed at least `DAILY_CLOSE_PUBLICATION_ALLOWANCE` before the request time, on every response, whatever the symbols.
+- A row older than `expected_session_date` is behind; the route does not decide that, the client does.
+- An empty calendar window is a `503` naming `mt data extend`, never a guessed date.
 - Zero symbols, or 101 distinct symbols, is a `422` before any database work. 101 entries that collapse to 100 distinct symbols is accepted.
 
 ### Technical Requirements
@@ -317,6 +350,12 @@ curl -s -o /dev/null -w '%{http_code}\n' "http://localhost:8100/api/v1/quotes?sy
 ```
 
 Expect `422`.
+
+```bash
+curl -s 'http://localhost:8100/api/v1/quotes?symbols=SPY' | jq '.expected_session_date'
+```
+
+Expect the latest NYSE session whose close is at least nine hours past. Before 06:00 UTC on a normal day that is the session before the last close.
 
 ## Implementation Notes
 
