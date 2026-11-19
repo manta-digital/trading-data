@@ -409,10 +409,11 @@ high, low and close are such prints; stored prices are never changed.
 | Field | Type | Null? | Unit / time base | Meaning |
 |---|---|---|---|---|
 | `symbol` | string | no | — | The instrument, echoed back. |
-| `granularity` | string | no | — | The requested grain, echoed back. |
+| `granularity` | `Granularity` | no | — | The requested grain, echoed back. |
 | `adjusted` | boolean | no | — | Whether prices are adjusted. |
 | `prints` | string | no | — | The `prints` mode served, echoed back. |
 | `is_stale` | boolean | no | — | The serving aggregate is behind its source (§2.6). |
+| `applied` | object | no | — | Every query parameter used, defaults included: `granularity`, `start`, `end`, `adjusted`, `prints`, `format`. A parameter added to this route later appears here too, so a client can detect it (issue #77). |
 | `count` | integer | no | rows | Number of bars returned. |
 | `bars[].timestamp` | string | no | UTC, RFC 3339 | Bar open instant. |
 | `bars[].open` | float | no | price | First trade price in the bar. |
@@ -435,6 +436,7 @@ curl 'http://127.0.0.1:8137/api/v1/bars/SPY?granularity=1d&start=2024-06-10&end=
   "adjusted": true,
   "prints": "eligible",
   "is_stale": false,
+  "applied": {"granularity":"1d","start":"2024-06-10","end":"2024-06-14","adjusted":true,"prints":"eligible","format":"json"},
   "count": 5,
   "bars": [
     {"timestamp":"2024-06-10T00:00:00Z","open":531.8102650701792,"high":534.6130462038436,"low":531.2018321550421,"close":534.2838939710646,"volume":35686100},
@@ -1179,6 +1181,26 @@ first and markets the soonest close.
 ```sh
 curl 'http://127.0.0.1:8137/api/v1/kalshi/search?q=bitcoin&limit=2'
 ```
+
+```json
+{
+  "query": "bitcoin",
+  "series": [
+    {"ticker":"BITCOINMAXY","title":"Bitcoin min/max","category":"Crypto"},
+    {"ticker":"KXBITCOIN25","title":"Bitcoin 25 world record","category":"Crypto"}
+  ],
+  "events": [
+    {"event_ticker":"KXBTCPRICE-130000","series_ticker":"KXBTCPRICE","title":"When will Bitcoin cross $130k?","sub_title":"When will Bitcoin cross $130k?","strike_date":null},
+    {"event_ticker":"KXPERSONMENTION-26APR28B","series_ticker":"KXPERSONMENTION","title":"What will Michael Saylor say during his Bitcoin Keynote Speech?","sub_title":"Michael Saylor - Bitcoin 2026: Keynote Speech by Michael Saylor","strike_date":null}
+  ],
+  "markets": [
+    {"ticker":"KXSECPRESSMENTION-27FEB01-CRYP","event_ticker":"KXSECPRESSMENTION-27FEB01","series_ticker":"KXSECPRESSMENTION","title":"Will the White House Press Secretary say Crypto / Bitcoin at her next press briefing?","yes_sub_title":"Crypto / Bitcoin","no_sub_title":"Crypto / Bitcoin","close_time":"2027-02-01T15:00:00Z"},
+    {"ticker":"KXTREASBUYCRYPTO-26AUG-BITCOIN","event_ticker":"KXTREASBUYCRYPTO-26AUG","series_ticker":"KXTREASBUYCRYPTO","title":"Will the U.S. Department of the Treasury announce its completed purchase of Bitcoin for a government-held reserve or stockpile before Jan 21, 2029?","yes_sub_title":"Bitcoin","no_sub_title":"Bitcoin","close_time":"2029-01-21T04:59:00Z"}
+  ]
+}
+```
+
+*Captured 2026-11-18.*
 
 **Errors**: `422` for a missing or blank `q` or a `limit` outside 1 to 50; `504`
 on statement timeout.

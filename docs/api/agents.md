@@ -101,7 +101,9 @@ family — **not** a granularity token like `1m`. See §7.
 ### "What bars do you have for this symbol?"
 
 `GET /api/v1/bars/{symbol}?granularity=1d&start=…&end=…` →
-`{symbol, granularity, adjusted, prints, is_stale, count, bars[]}`.
+`{symbol, granularity, adjusted, prints, is_stale, applied, count, bars[]}`.
+`applied` echoes every query parameter used, defaults included, so a parameter
+you did not send still shows its value.
 
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date,

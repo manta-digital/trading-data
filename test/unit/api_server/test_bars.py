@@ -17,7 +17,10 @@ from fastapi.testclient import TestClient
 
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.deps import get_db_pool
-from manta_trading.api_server.models.responses import BarsResponse
+from manta_trading.api_server.models.responses import (
+    AppliedEquityBarParams,
+    BarsResponse,
+)
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
     API_SERVING_SESSION,
@@ -118,11 +121,21 @@ def test_app() -> FastAPI:
     return app
 
 
+def _applied(**overrides: Any) -> AppliedEquityBarParams:
+    values: dict[str, Any] = {
+        "granularity": Granularity.D1,
+        "start": date(2024, 1, 2),
+        "end": date(2024, 1, 4),
+        "adjusted": True,
+        "prints": PrintMode.ALL,
+        "format": "json",
+    }
+    return AppliedEquityBarParams(**(values | overrides))
+
+
 def test_from_dataframe_count() -> None:
     df = _make_ohlcv_df(3)
-    result = BarsResponse.from_dataframe(
-        "SPY", Granularity.D1, True, df, is_stale=False, prints=PrintMode.ALL
-    )
+    result = BarsResponse.from_dataframe("SPY", df, applied=_applied(), is_stale=False)
     assert result.count == 3
     assert len(result.bars) == 3
     assert result.symbol == "SPY"
@@ -132,9 +145,7 @@ def test_from_dataframe_count() -> None:
 
 def test_from_dataframe_field_types() -> None:
     df = _make_ohlcv_df(2)
-    result = BarsResponse.from_dataframe(
-        "SPY", Granularity.D1, True, df, is_stale=True, prints=PrintMode.ALL
-    )
+    result = BarsResponse.from_dataframe("SPY", df, applied=_applied(), is_stale=True)
     bar = result.bars[0]
     assert isinstance(bar.volume, int)
     assert isinstance(bar.open, float)
@@ -543,12 +554,7 @@ class TestEmptyWindowContract:
         """Proved rather than assumed: it iterates rows and touches no columns,
         so a frame with no columns at all is fine."""
         response = BarsResponse.from_dataframe(
-            "SPY",
-            Granularity.D1,
-            True,
-            pd.DataFrame(),
-            is_stale=False,
-            prints=PrintMode.ALL,
+            "SPY", pd.DataFrame(), applied=_applied(), is_stale=False
         )
         assert response.count == 0
         assert response.bars == []
@@ -697,3 +703,31 @@ class TestPrints:
         assert response.json()["error"] == PRINTS_ALL_1M_ONLY_MESSAGE
         assert not test_app.state.minute_db.get_minute_data.called
         assert not test_app.state.daily_db.get_daily_data.called
+
+
+# --- applied (issue #77) ---
+
+
+def test_applied_echoes_every_parameter_with_its_defaults(test_app: FastAPI) -> None:
+    """The engine sends granularity/start/end only; the defaults it did not
+    send come back with the values used."""
+    test_app.state.daily_db.get_daily_data.return_value = _make_ohlcv_df(2)
+    body = _request(test_app, "1d", date(2024, 1, 2), date(2024, 1, 3)).json()
+
+    assert body["applied"] == {
+        "granularity": "1d",
+        "start": "2024-01-02",
+        "end": "2024-01-03",
+        "adjusted": True,
+        "prints": "eligible",
+        "format": "json",
+    }
+
+
+def test_applied_keys_are_exactly_the_route_parameters(test_app: FastAPI) -> None:
+    """A query parameter added to the route without an echo fails here, which
+    is the detector the engine relies on (issue #77)."""
+    operation = test_app.openapi()["paths"]["/api/v1/bars/{symbol}"]["get"]
+    query = {p["name"] for p in operation["parameters"] if p["in"] == "query"}
+
+    assert set(AppliedEquityBarParams.model_fields) == query

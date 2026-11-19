@@ -60,6 +60,19 @@ class BarRecord(BaseModel):
     volume: int
 
 
+class AppliedEquityBarParams(BaseModel):
+    """Every query parameter ``/api/v1/bars`` used, defaults included (issue
+    #77). A test pins these keys to the route's parameters, so a parameter
+    added to the route cannot go unechoed."""
+
+    granularity: Granularity
+    start: date
+    end: date
+    adjusted: bool
+    prints: PrintMode
+    format: str
+
+
 class BarsResponse(BaseModel):
     """Response body for ``GET /api/v1/bars/{symbol}``."""
 
@@ -69,6 +82,7 @@ class BarsResponse(BaseModel):
     prints: PrintMode
     """Which prints were served: ``all`` (raw) or ``eligible`` (slice 171)."""
     is_stale: bool
+    applied: AppliedEquityBarParams
     count: int
     bars: list[BarRecord]
 
@@ -76,12 +90,10 @@ class BarsResponse(BaseModel):
     def from_dataframe(
         cls,
         symbol: str,
-        granularity: Granularity,
-        adjusted: bool,
         df: pd.DataFrame,
         *,
+        applied: AppliedEquityBarParams,
         is_stale: bool,
-        prints: PrintMode,
     ) -> BarsResponse:
         """Build a ``BarsResponse`` from a DB result DataFrame.
 
@@ -105,10 +117,11 @@ class BarsResponse(BaseModel):
         ]
         return cls(
             symbol=symbol,
-            granularity=granularity,
-            adjusted=adjusted,
-            prints=prints,
+            granularity=applied.granularity,
+            adjusted=applied.adjusted,
+            prints=applied.prints,
             is_stale=is_stale,
+            applied=applied,
             count=len(bars),
             bars=bars,
         )

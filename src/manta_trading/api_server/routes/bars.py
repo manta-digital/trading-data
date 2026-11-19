@@ -25,6 +25,7 @@ from manta_trading.api_server.deps import (
 from manta_trading.api_server.models.responses import (
     GATEWAY_TIMEOUT_RESPONSE,
     NOT_FOUND_RESPONSE,
+    AppliedEquityBarParams,
     BarsResponse,
 )
 from manta_trading.api_server.queries import symbol_exists
@@ -242,13 +243,19 @@ async def get_bars(
                 detail=f"Symbol '{symbol}' not found",
             )
 
+    applied = AppliedEquityBarParams(
+        granularity=granularity,
+        start=start,
+        end=end,
+        adjusted=adjusted,
+        prints=prints,
+        format=fmt,
+    )
     response = BarsResponse.from_dataframe(
         symbol,
-        granularity,
-        adjusted,
         df,
+        applied=applied,
         is_stale=verdict is not None and not verdict.is_fresh,
-        prints=prints,
     )
 
     return await send_timeseries(request, response, fmt)

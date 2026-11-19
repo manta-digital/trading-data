@@ -290,6 +290,45 @@
         "title": "AppliedBarParams",
         "type": "object"
       },
+      "AppliedEquityBarParams": {
+        "description": "Every query parameter ``/api/v1/bars`` used, defaults included (issue\n#77). A test pins these keys to the route's parameters, so a parameter\nadded to the route cannot go unechoed.",
+        "properties": {
+          "adjusted": {
+            "title": "Adjusted",
+            "type": "boolean"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "granularity": {
+            "$ref": "#/components/schemas/Granularity"
+          },
+          "prints": {
+            "$ref": "#/components/schemas/PrintMode"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "granularity",
+          "start",
+          "end",
+          "adjusted",
+          "prints",
+          "format"
+        ],
+        "title": "AppliedEquityBarParams",
+        "type": "object"
+      },
       "AvailableRange": {
         "description": "Date range over which data is available for a granularity group.",
         "properties": {
@@ -358,6 +397,9 @@
             "title": "Adjusted",
             "type": "boolean"
           },
+          "applied": {
+            "$ref": "#/components/schemas/AppliedEquityBarParams"
+          },
           "bars": {
             "items": {
               "$ref": "#/components/schemas/BarRecord"
@@ -390,6 +432,7 @@
           "adjusted",
           "prints",
           "is_stale",
+          "applied",
           "count",
           "bars"
         ],
