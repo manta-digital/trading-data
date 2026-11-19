@@ -54,6 +54,7 @@ from manta_trading.market.schema.eligible_swap_sql import (
     swap_drop_statements,
     swap_rename_statements,
 )
+from manta_trading.market.schema.migrations.index_symbols import INDEX_SYMBOLS_SQL
 from manta_trading.market.schema.seed_calendar import (
     NASDAQ_CALENDAR,
     NYSE_CALENDAR,
@@ -2805,5 +2806,17 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "pre-2020 CME rows."
         ),
         "python_fn": _apply_cme_calendar_history,
+    },
+    {
+        "id": "067_index_instruments_indx_symbols",
+        "description": (
+            "Index instruments take their {code}.INDX symbol and the US equity "
+            "calendar (issue #46). Bookkeeping rows of codes no equity shares "
+            "follow them; shared codes keep their rows (they are the equity's) "
+            "and the index rows lose the equity's first/delisted dates. Bars are "
+            "never moved: daily bars under an unshared bare code abort it. "
+            "Idempotent."
+        ),
+        "sql": INDEX_SYMBOLS_SQL,
     },
 ]

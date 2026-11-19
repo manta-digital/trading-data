@@ -32,17 +32,21 @@ Issue [#46](https://github.com/manta-digital/trading-data/issues/46), with [#4](
 
 ### 2. Move production's index rows
 
-- [ ] **2.1** List every table keyed by symbol text that holds rows for a bare index symbol, read-only on production. At least `acquisition_state` and `data_gaps`; check the rest. Record the list and counts in this group.
-- [ ] **2.2** Migration (next free id on the minute track): for `asset_class='index'` rows with `eodhd_exchange='INDX'`:
+- [x] **2.1** List every table keyed by symbol text that holds rows for a bare index symbol, read-only on production. At least `acquisition_state` and `data_gaps`; check the rest. Record the list and counts in this group.
+  - Findings (read-only on production, 2026-11-19): Tables with a `symbol` column: `acquisition_state`, `daily_ohlcv`, `data_gaps`, `dividends`, `instruments`, `minute_ohlcv`, `splits`, `universe_members`. 904 INDX instruments: 880 unshared codes, 24 shared with an equity. Unshared: 880 `acquisition_state` rows (minute, outcome `partial` — the minute pass already tries every index nightly as `{code}.US`), no gap/dividend/split/member rows, no daily bars, no minute bars in the last 400 days. Shared codes: 48 state, 243 gap, 127 dividend and 7 split rows, all the equity's.
+- [x] **2.2** Migration (next free id on the minute track): for `asset_class='index'` rows with `eodhd_exchange='INDX'`:
   - set `symbol = canonical_id` and the equity trading calendar;
   - set `first_data_date` and `delisted_date` to NULL where the bare symbol is also an equity's (the 24 collisions), since those dates came from the equity;
   - in the symbol-keyed tables from 2.1, rename bare-symbol rows to `{code}.INDX` **only for the ~880 symbols no equity shares**. Rows under a shared symbol belong to the equity and stay as they are.
   - It must be idempotent (re-running changes nothing) and delete no bar rows.
-- [ ] **2.3** Integration test on a throwaway database seeded with an equity `DJT` that has bars, an index `DJT`, an index `VIX` with an `acquisition_state` row, and `^TNX`:
-  - [ ] after the migration, `DJT.INDX` exists with no `first_data_date`, the equity `DJT` and its bars and state are unchanged, `VIX` became `VIX.INDX` with its state row, and `^TNX` is unchanged;
-  - [ ] a second run changes nothing.
-- [ ] **2.4** Cutover script on the pattern of `scripts/cutover_0244_symbol_names.py`: check-then-act, holds and releases the timers, applies the migration, and verifies against production. 904 `.INDX` symbols; zero index rows without a calendar; `/api/v1/symbols/DJT` still the equity with its bars.
-- [ ] **2.5** **Commit**: `fix: move index instruments to their .INDX symbols in production`.
+  - Migration `067_index_instruments_indx_symbols`, SQL in `market/schema/migrations/index_symbols.py`. Shared vs unshared is decided by any other instrument holding the code. It refuses on daily bars under an unshared bare code instead of moving them.
+- [x] **2.3** Integration test on a throwaway database seeded with an equity `DJT` that has bars, an index `DJT`, an index `VIX` with an `acquisition_state` row, and `^TNX`:
+  - [x] after the migration, `DJT.INDX` exists with no `first_data_date`, the equity `DJT` and its bars and state are unchanged, `VIX` became `VIX.INDX` with its state row, and `^TNX` is unchanged;
+  - [x] a second run changes nothing.
+  - `test/integration/test_migration_067_index_symbols.py`, plus an abort test. The migration-list unit tests were retargeted to 067, and the mock pool is now sized from the list.
+- [x] **2.4** Cutover script on the pattern of `scripts/cutover_0244_symbol_names.py`: check-then-act, holds and releases the timers, applies the migration, and verifies against production. 904 `.INDX` symbols; zero index rows without a calendar; `/api/v1/symbols/DJT` still the equity with its bars.
+  - `scripts/cutover_046_index_symbols.py`. It verifies through the API: VIX.INDX and DJT.INDX are indices, and DJT is still the equity with daily data from 2021-09-30.
+- [x] **2.5** **Commit**: `fix: move index instruments to their .INDX symbols in production`.
 
 ### 3. Check index data before the passes pick it up
 

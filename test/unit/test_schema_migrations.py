@@ -135,7 +135,7 @@ def _cur(conn: MagicMock) -> MagicMock:
 def _mock_db(
     table_exists: bool = True,
     applied_ids: set[str] | None = None,
-    num_extra_conns: int = 60,
+    num_extra_conns: int = len(MIGRATIONS),
 ):
     """Create a TimescaleMinuteDataDB with pre-configured mock connections.
 
@@ -237,7 +237,8 @@ class TestMigrationsListIntegrity:
         # 66 -> 67 with slice 173's 064 (eligible rollup swap).
         # 67 -> 68 with 065 (instruments.name, issue #60).
         # 68 -> 69 with slice 301's 066 (CME calendar history).
-        assert len(MIGRATIONS) == 69
+        # 69 -> 70 with 067 (index instruments' .INDX symbols, issue #46).
+        assert len(MIGRATIONS) == 70
 
 
 # ---------------------------------------------------------------------------
@@ -1316,11 +1317,12 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_066() -> None:
+def test_chain_ends_at_067() -> None:
     """The newest migration must be last (slice 922 retargeted this from 054;
     slice 221 from 056; slice 232 from 058; slice 234 from 059; the weekly
     refresh-window fix from 060; slice 171 from 061; slice 172 from 062;
-    slice 173 from 063; issue #60 from 064; slice 301 from 065).
+    slice 173 from 063; issue #60 from 064; slice 301 from 065; issue #46 from
+    066).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
@@ -1331,7 +1333,7 @@ def test_chain_ends_at_066() -> None:
     (see ``POSITION_CRITICAL_IDS``), which is why the tip check names a later
     migration.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == "066_cme_calendar_history"
+    assert MINUTE_MIGRATIONS[-1]["id"] == "067_index_instruments_indx_symbols"
 
 
 class TestMigration061WeeklyRefreshWindow:
