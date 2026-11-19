@@ -158,7 +158,9 @@ symbol exists.
 
 `search` matches the start of the ticker or anywhere in the company name,
 case-insensitive (`search=apple` finds AAPL); exact ticker first, then ticker
-prefixes, then name matches. Each row carries `name` (null when unknown). An
+prefixes, then name matches. Each row carries `name` (null when unknown).
+Indices are `{code}.INDX` (`/api/v1/bars/VIX.INDX`, `/api/v1/bars/GSPC.INDX`);
+a bare code such as `DJT` is always the equity. Index volume is not meaningful. An
 unfiltered call is allowed and returns the whole
 registry (about 32,000 rows, 3 MB); there is no row ceiling on this route.
 

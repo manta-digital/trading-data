@@ -50,17 +50,21 @@ Issue [#46](https://github.com/manta-digital/trading-data/issues/46), with [#4](
 
 ### 3. Check index data before the passes pick it up
 
-- [ ] **3.1** Measure on EODHD how far back index data goes, for 1m (VIX.INDX, GSPC.INDX, a thin index) and for daily. Record the depth and the quota cost of a full backfill of the 904 against the ~100k/day quota (memory: normal passes already use most of it).
-- [ ] **3.2** Confirm the minute pass's symbol selection includes the index rows after the migration, and see what minute accounting and `mt data health` will report for them. A health check must not turn red just because 904 symbols start with no minutes.
-- [ ] **3.3** Run the off-tape detector over one backfilled week of VIX.INDX and GSPC.INDX minutes on a throwaway database. VIX minutes trade a few contracts each, so check the marked share is sane before production runs the detector on indices. If it marks much of a normal day, stop and file what you saw on #46.
-- [ ] **3.4** Write the outcome of 3.1–3.3 here. If 3.1 shows the backfill can't fit the quota alongside normal passes, add the throttling needed. Cut cost, never scope: the whole index set stays the target.
-- [ ] **3.5** **Commit** (if 3.2–3.4 changed code): `fix: count index instruments correctly in minute accounting and health`.
+- [x] **3.1** Measure on EODHD how far back index data goes, for 1m (VIX.INDX, GSPC.INDX, a thin index) and for daily. Record the depth and the quota cost of a full backfill of the 904 against the ~100k/day quota (memory: normal passes already use most of it).
+  - [x] Measured 2026-11-19. Daily: back to 1990 for GSPC, VIX and DJT.INDX, and 2007 for ADVN. 1m: GSPC from early 2020 (present 2020-04, absent 2020-01-02); NDX and DJI present in 2023; RUT.INDX, DJT.INDX and ADVN.INDX return no 1m at all. Full minute backfill ≈ 904 × ~21 chunks of 120 days × 5 credits ≈ 95k credits once. Daily ≈ 904 credits per pass.
+- [x] **3.2** Confirm the minute pass's symbol selection includes the index rows after the migration, and see what minute accounting and `mt data health` will report for them. A health check must not turn red just because 904 symbols start with no minutes.
+  - [x] The minute pass selects every instrument, and already tries all 880 unshared indices nightly as `{code}.US`. Minute accounting excludes `eodhd_type = INDEX`, and the session-mass check only counts bars, so neither can turn red from indices starting empty.
+- [x] **3.3** Run the off-tape detector over one backfilled week of VIX.INDX and GSPC.INDX minutes on a throwaway database. VIX minutes trade a few contracts each, so check the marked share is sane before production runs the detector on indices. If it marks much of a normal day, stop and file what you saw on #46.
+  - [x] Ran `mark_symbol_days` on EODHD 1m for VIX.INDX (2,828 bars), GSPC.INDX (6,888) and NDX.INDX (6,863), 2026-11-09..13: 0 marked. GSPC and NDX carry about 1,390 1m bars a day, nearly round the clock.
+- [x] **3.4** Write the outcome of 3.1–3.3 here. If 3.1 shows the backfill can't fit the quota alongside normal passes, add the throttling needed. Cut cost, never scope: the whole index set stays the target.
+  - [x] No change needed. The one-time ~95k credits is spread by the minute pass's quota guard (402 → wait), and the whole index set stays the target.
+- [x] **3.5** **Commit** (if 3.2–3.4 changed code): `fix: count index instruments correctly in minute accounting and health`. No code changed in 3.2–3.4, so no commit.
 
 ### 4. Docs, release and production
 
-- [ ] **4.1** `docs/api/reference.md` and `docs/api/agents.md`: index symbols are `{code}.INDX` (e.g. `/api/v1/bars/VIX.INDX`), indices have no volume worth reading, and split/dividend adjustment doesn't apply to them. `scripts/check_api_docs.py` passes.
-- [ ] **4.2** CHANGELOG `### Fixed` entry: indices now have their own symbols and data, and a client asks for `VIX.INDX`. Mention that `DJT` and the other shared symbols were always the equity.
-- [ ] **4.3** **Commit**: `docs: document .INDX index symbols`.
+- [x] **4.1** `docs/api/reference.md` and `docs/api/agents.md`: index symbols are `{code}.INDX` (e.g. `/api/v1/bars/VIX.INDX`), indices have no volume worth reading, and split/dividend adjustment doesn't apply to them. `scripts/check_api_docs.py` passes.
+- [x] **4.2** CHANGELOG `### Fixed` entry: indices now have their own symbols and data, and a client asks for `VIX.INDX`. Mention that `DJT` and the other shared symbols were always the equity.
+- [x] **4.3** **Commit**: `docs: document .INDX index symbols`.
 - [ ] **4.4** Release (patch) and run the cutover from 2.4 per the release skill.
 - [ ] **4.5** Production check:
   - [ ] run the daily pass for `VIX.INDX` and `GSPC.INDX` only (`--list` with those two);

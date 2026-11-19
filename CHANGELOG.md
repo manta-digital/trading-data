@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Indices have their own symbols and data** (issues #46, #4). The 904 US indices from EODHD are now `{code}.INDX` (`VIX.INDX`, `GSPC.INDX`), get a trading calendar, and are fetched from EODHD's index exchange; before, they were requested as US stocks and had no data. A bare code is always the equity: `DJT`, `MID`, `DWS` and the other 21 codes an index shares were always the equity's bars, and only the index rows' first-data dates were borrowed from them. Migration 067 moves the rows (`scripts/cutover_046_index_symbols.py`); daily bars fill on the next daily pass and minute bars (from 2020 for the major indices; many thin indices have none) through the minute passes.
+
 ## [0.27.5] - 2026-11-19
 
 ### Added

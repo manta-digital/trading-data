@@ -516,10 +516,10 @@ List instruments, optionally filtered by ticker prefix or company name.
 | Field | Type | Null? | Meaning |
 |---|---|---|---|
 | `count` | integer | no | Instruments returned. |
-| `symbols[].symbol` | string | no | Ticker. |
+| `symbols[].symbol` | string | no | Ticker. Indices carry EODHD's index exchange: `VIX.INDX`, `GSPC.INDX` (issue #46), so an index never shares a symbol with an equity. `DJT` is the equity; `DJT.INDX` the Dow Jones Transportation index. |
 | `symbols[].exchange` | string | yes | Listing exchange. |
 | `symbols[].type` | string | yes | Instrument type, e.g. `ETF`, `Common Stock`. |
-| `symbols[].asset_class` | string | yes | e.g. `equity`. |
+| `symbols[].asset_class` | string | yes | `equity` or `index`. Index bars carry no meaningful volume (VIX reports 0 daily), and split/dividend adjustment never applies to them. |
 | `symbols[].active` | boolean | no | Whether the instrument is currently listed. |
 | `symbols[].name` | string | yes | Company or index name from EODHD's symbol list; null until the registry is rebuilt after migration 065. |
 
