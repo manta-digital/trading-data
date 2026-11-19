@@ -74,10 +74,18 @@ async def _product(
     start: Any,
     end: Any,
     family: SchemaFamily = SchemaFamily.TICK_TIER,
+    bounds: tuple[datetime | None, datetime | None] = (None, None),
 ) -> GetPlan:
     async with await psycopg.AsyncConnection.connect(tick_url) as conn:
         return await product_plan(
-            conn, (tick_url, calendar_url), ES, DEFAULT_ROLL_RULE, start, end, family
+            conn,
+            (tick_url, calendar_url),
+            ES,
+            DEFAULT_ROLL_RULE,
+            start,
+            end,
+            family,
+            bounds=bounds,
         )
 
 
@@ -284,6 +292,98 @@ async def test_missing_ends_default_to_the_held_sessions(
     plan = await _product(migrated_tick_db, session_migrated_db, start, end)
 
     assert (plan.start, plan.end) == (first, last)
+
+
+def _utc(*parts: int) -> datetime:
+    return datetime(*parts, tzinfo=UTC)
+
+
+# Issue #81: with no start/end, [from, until) chooses the planned sessions. A
+# CME equity session dated D runs 22:00 UTC on D-1 to 21:00 UTC on D (CDT).
+@pytest.mark.parametrize(
+    ("bounds", "first", "last"),
+    [
+        # Mid-session to mid-session: the two sessions the window touches.
+        (
+            (_utc(2024, 9, 17, 12), _utc(2024, 9, 18, 12)),
+            date(2024, 9, 17),
+            date(2024, 9, 19),
+        ),
+        # From after 09-17's close: 09-17 is not reached.
+        (
+            (_utc(2024, 9, 17, 21, 30), _utc(2024, 9, 18, 12)),
+            date(2024, 9, 18),
+            date(2024, 9, 19),
+        ),
+        # One side only: the other still defaults to the held sessions.
+        ((_utc(2024, 9, 19, 12), None), date(2024, 9, 19), date(2024, 9, 28)),
+        ((None, _utc(2024, 9, 5, 12)), date(2024, 9, 3), date(2024, 9, 6)),
+    ],
+)
+async def test_from_until_narrow_the_planned_sessions(
+    seeded: SeededRoll,
+    migrated_tick_db: str,
+    session_migrated_db: str,
+    bounds: tuple[datetime | None, datetime | None],
+    first: date,
+    last: date,
+) -> None:
+    plan = await _product(
+        migrated_tick_db, session_migrated_db, None, None, bounds=bounds
+    )
+
+    assert (plan.start, plan.end) == (first, last)
+    planned = [d for d, _ in _sessions(plan)] + [
+        u.session_date for u in plan.unresolved
+    ]
+    assert planned and min(planned) >= first and max(planned) < last
+
+
+async def test_start_end_win_over_from_until(
+    seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    plan = await _product(
+        migrated_tick_db,
+        session_migrated_db,
+        date(2024, 9, 16),
+        date(2024, 9, 20),
+        bounds=(_utc(2024, 9, 17, 12), _utc(2024, 9, 18, 12)),
+    )
+
+    assert (plan.start, plan.end) == (date(2024, 9, 16), date(2024, 9, 20))
+
+
+async def test_bounds_reaching_no_session_are_an_empty_plan(
+    seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    # Saturday 09-14 to Sunday noon: Friday's session closed, Monday's not open.
+    plan = await _product(
+        migrated_tick_db,
+        session_migrated_db,
+        None,
+        None,
+        bounds=(_utc(2024, 9, 14), _utc(2024, 9, 15, 12)),
+    )
+
+    assert plan.segments == () and plan.unresolved == () and plan.incomplete == ()
+
+
+async def test_contract_from_until_narrow_the_planned_sessions(
+    seeded: SeededRoll, migrated_tick_db: str, session_migrated_db: str
+) -> None:
+    async with await psycopg.AsyncConnection.connect(migrated_tick_db) as conn:
+        plan = await contract_plan(
+            conn,
+            session_migrated_db,
+            "ESU4",
+            None,
+            None,
+            SchemaFamily.TICK_TIER,
+            bounds=(_utc(2024, 9, 10, 12), _utc(2024, 9, 11, 12)),
+        )
+
+    assert (plan.start, plan.end) == (date(2024, 9, 10), date(2024, 9, 12))
+    assert [d for d, _ in _sessions(plan)] == [date(2024, 9, 10), date(2024, 9, 11)]
 
 
 async def test_a_range_over_the_cap_refuses(

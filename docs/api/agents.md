@@ -468,13 +468,14 @@ Futures routes stop reading at the ceiling and quote no count.
 
 **Futures windows are different.** `start` and `end` are session dates and
 `end` is **exclusive**: `start=2024-09-16&end=2024-09-21` is five sessions,
-09-16 through 09-20. Omit both to get every held session. The tick routes add
-`from`/`until`, UTC instants, half-open `[from, until)`. To read a session
-larger than the ceiling, page: take a window, and use its `until` as the next
-request's `from`; pages never overlap or skip. A refusal reads
+09-16 through 09-20. Every futures series route also takes `from`/`until`,
+UTC instants, half-open `[from, until)`. With no `start`/`end`, the sessions
+`[from, until)` reaches are the ones planned, so `incomplete` and `unresolved`
+describe only that window. Omit all four to get every held session. To read a
+session larger than the ceiling, page: take a window, and use its `until` as
+the next request's `from`; pages never overlap or skip. A refusal reads
 `the request matches more than the 75,000 row limit; narrow start/end or
-from/until`. Bars take no instant bounds; at `1m` one request covers about 54
-sessions.
+from/until`.
 
 ## 4. Reading a result
 

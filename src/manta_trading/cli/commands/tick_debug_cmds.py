@@ -190,8 +190,8 @@ def debug_units(
 
 
 async def _session_open(settings: Settings, product: str, day: date) -> int:
-    from manta_trading.data.tick.get_plan import sessions_dated
     from manta_trading.data.tick.ingest_records import utc_ns
+    from manta_trading.data.tick.plan_sessions import sessions_dated
     from manta_trading.data.tick.store_context import TickPreflightError
     from manta_trading.data.tick.tick_calendar import calendar_url
 

@@ -187,6 +187,32 @@ def test_the_default_range_spans_held_ticks_and_bars(
     assert any(b["session_date"] == str(BARS_ONLY) for b in body["bars"])
 
 
+def test_from_until_alone_plan_only_the_sessions_they_reach(
+    ticks_only: ParityDb, tick_client: TestClient
+) -> None:
+    """Issue #81: held data spans 12-02 and 12-03; a window inside 12-03's
+    session plans 12-03 alone, so nothing about 12-02 is reported."""
+    _seed_bars_only_session(ticks_only)
+    lower = datetime.fromtimestamp(min(ticks_only.tick_minutes) / NS_PER_SECOND, UTC)
+
+    body = _get(
+        tick_client,
+        PRODUCT,
+        granularity="5m",
+        rule="c.0",
+        **{
+            "from": lower.isoformat(),
+            "until": (lower + timedelta(hours=1)).isoformat(),
+        },
+    )
+
+    assert (body["applied"]["start"], body["applied"]["end"]) == (
+        str(SESSION),
+        str(SESSION + timedelta(days=1)),
+    )
+    assert {run["first_session"] for run in body["sources"]} == {str(SESSION)}
+
+
 # -- 1-second bars (issue #40) ---------------------------------------------------
 
 

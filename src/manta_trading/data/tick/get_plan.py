@@ -16,22 +16,21 @@ read and is listed in ``incomplete``. No CLI import: 231 builds on this.
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
 from manta_trading.data.base.session_index import Session
-from manta_trading.data.tick.active_contract import build_schedule, roll_conninfo
-from manta_trading.data.tick.constants import calendar_for_product
+from manta_trading.data.tick.active_contract import build_schedule
 from manta_trading.data.tick.ingest_records import utc_ns
 from manta_trading.data.tick.manifest_reads import COVERAGE_PREDICATE, Conn
+from manta_trading.data.tick.plan_sessions import Bounds, sessions_dated, span_reached
 from manta_trading.data.tick.roll_inputs import held_session_bounds
 from manta_trading.data.tick.roll_rules import RollRule
 from manta_trading.data.tick.roll_types import ActiveContract, Unresolved
 from manta_trading.data.tick.schema_families import FAMILY_LEDGER, SchemaFamily
 from manta_trading.data.tick.session_days import utc_midnight
-from manta_trading.data.tick.status_reads import calendar_sessions, shape_of
+from manta_trading.data.tick.status_reads import shape_of
 from manta_trading.data.tick.store_context import TickPreflightError
 from manta_trading.data.tick.tick_format import ts_text
 from manta_trading.data.tick.tick_reads import TickWindow
@@ -106,21 +105,6 @@ class _Candidate:
     asset: str | None
     activation_ns: int
     expiration_ns: int
-
-
-async def sessions_dated(
-    calendar_url: str, product: str, start: date, end: date
-) -> list[Session]:
-    """The calendar sessions dated ``[start, end)``; a range past the calendar
-    refuses naming ``mt data extend``."""
-    found = await asyncio.to_thread(
-        calendar_sessions,
-        roll_conninfo(calendar_url),
-        calendar_for_product(product),
-        utc_midnight(start),
-        utc_midnight(end),
-    )
-    return [s for s in found if start <= s.session_date < end]
 
 
 async def _incomplete(
@@ -262,12 +246,19 @@ async def contract_plan(
     end: date | None,
     family: SchemaFamily,
     range_over: Sequence[SchemaFamily] | None = None,
+    *,
+    bounds: Bounds = (None, None),
 ) -> GetPlan:
-    """The plan for ``--contract``; ``start``/``end`` default to its sessions
-    held in ``range_over`` (``family`` alone unless given; TD2)."""
+    """The plan for ``--contract``; a missing ``start``/``end`` comes from the
+    sessions ``bounds`` reach (#81), else its sessions held in ``range_over``
+    (``family`` alone unless given; TD2)."""
     candidate = _one(symbol, await _candidates(conn, symbol, start, end))
     entry = _entry_for(candidate, symbol)
     target = ContractTarget(symbol, candidate.instrument_id, entry.product)
+    reached = await span_reached(calendar_url, entry.product, (start, end), bounds)
+    if reached is None:
+        return GetPlan(target, start, end, (), (), (), (), None)
+    start, end = reached
     if start is None or end is None:
         held = _span(
             [
@@ -316,14 +307,21 @@ async def product_plan(
     end: date | None,
     family: SchemaFamily,
     range_over: Sequence[SchemaFamily] | None = None,
+    *,
+    bounds: Bounds = (None, None),
 ) -> GetPlan:
-    """The plan for ``--product`` under ``rule``; ``start``/``end`` default to
-    the sessions held in ``range_over`` (``family`` alone unless given; TD2).
+    """The plan for ``--product`` under ``rule``; a missing ``start``/``end``
+    comes from the sessions ``bounds`` reach (#81), else the sessions held in
+    ``range_over`` (``family`` alone unless given; TD2).
     ``urls`` is ``(tick_url, calendar_url)``: ``build_schedule`` opens its own
     connections (229 TD9). Its failures
     (``RollRangeTooLong``, a calendar refusal, an outage) propagate."""
     tick_url, calendar_url = urls
     target = ProductTarget(entry.product, rule)
+    reached = await span_reached(calendar_url, entry.product, (start, end), bounds)
+    if reached is None:
+        return GetPlan(target, start, end, (), (), (), (), None)
+    start, end = reached
     span = await resolve_range(conn, entry, start, end, family, range_over)
     if span is None:
         return GetPlan(target, start, end, (), (), (), (), None)

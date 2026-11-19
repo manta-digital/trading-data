@@ -207,7 +207,12 @@ async def contract_bars(
     or the row ceiling."""
     size = bar_size(granularity)
     plan_for = contract_plan_for(
-        request, symbol, (start, end), SchemaFamily.TICK_TIER, TIME_BAR_RANGE
+        request,
+        symbol,
+        (start, end),
+        SchemaFamily.TICK_TIER,
+        TIME_BAR_RANGE,
+        (from_, until),
     )
     query = (size, from_, until)
     return await _time_bars(request, conn, plan_for, query, (max_rows, max_trades), fmt)
@@ -232,7 +237,13 @@ async def product_bars(
     contract per session, never merged."""
     size = bar_size(granularity)
     plan_for = product_plan_for(
-        request, product, rule, (start, end), SchemaFamily.TICK_TIER, TIME_BAR_RANGE
+        request,
+        product,
+        rule,
+        (start, end),
+        SchemaFamily.TICK_TIER,
+        TIME_BAR_RANGE,
+        (from_, until),
     )
     query = (size, from_, until)
     return await _time_bars(request, conn, plan_for, query, (max_rows, max_trades), fmt)

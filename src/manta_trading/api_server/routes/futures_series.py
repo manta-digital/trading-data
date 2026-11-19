@@ -91,14 +91,23 @@ def contract_plan_for(
     span: tuple[date | None, date | None],
     family: SchemaFamily,
     range_over: Sequence[SchemaFamily] | None = None,
+    instants: tuple[datetime | None, datetime | None] = (None, None),
 ) -> PlanFor:
     """The contract plan of ``family``, built on the read's own connection;
-    a missing side of ``span`` defaults over ``range_over`` (``get_plan``)."""
+    a missing side of ``span`` comes from the sessions ``instants`` reach, else
+    defaults over ``range_over`` (``get_plan``)."""
     calendar_url = request.app.state.calendar_url
+    bounds = instant_bounds(*instants)
 
     async def plan(conn: Conn) -> GetPlan:
         return await contract_plan(
-            conn, calendar_url, symbol, *span, family, range_over
+            conn,
+            calendar_url,
+            symbol,
+            *span,
+            family,
+            range_over,
+            bounds=(bounds.lower, bounds.upper),
         )
 
     return plan
@@ -111,13 +120,25 @@ def product_plan_for(
     span: tuple[date | None, date | None],
     family: SchemaFamily,
     range_over: Sequence[SchemaFamily] | None = None,
+    instants: tuple[datetime | None, datetime | None] = (None, None),
 ) -> PlanFor:
-    """Resolves the product (404) and the rule (422) before any read."""
+    """Resolves the product (404), the rule and ``instants`` (422) before any
+    read; ``instants`` narrow a missing side of ``span`` as for contracts."""
     entry, parsed = product_entry(product), parse_rule(rule)
     urls = (request.app.state.tick_url, request.app.state.calendar_url)
+    bounds = instant_bounds(*instants)
 
     async def plan(conn: Conn) -> GetPlan:
-        return await product_plan(conn, urls, entry, parsed, *span, family, range_over)
+        return await product_plan(
+            conn,
+            urls,
+            entry,
+            parsed,
+            *span,
+            family,
+            range_over,
+            bounds=(bounds.lower, bounds.upper),
+        )
 
     return plan
 
@@ -158,7 +179,9 @@ async def contract_ticks(
 ) -> Response:
     """One contract's ticks over ``[start, end)`` sessions, clipped to
     ``[from, until)``, in key order. Refused past the row ceiling."""
-    plan_for = contract_plan_for(request, symbol, (start, end), SchemaFamily.TICK_TIER)
+    plan_for = contract_plan_for(
+        request, symbol, (start, end), SchemaFamily.TICK_TIER, instants=(from_, until)
+    )
     return await _ticks(request, conn, plan_for, max_rows, (from_, until), fmt)
 
 
@@ -180,6 +203,11 @@ async def product_ticks(
     """A product's ticks under ``rule``: each session from the contract the
     rule names (``segments``); ``unresolved`` sessions have no rows."""
     plan_for = product_plan_for(
-        request, product, rule, (start, end), SchemaFamily.TICK_TIER
+        request,
+        product,
+        rule,
+        (start, end),
+        SchemaFamily.TICK_TIER,
+        instants=(from_, until),
     )
     return await _ticks(request, conn, plan_for, max_rows, (from_, until), fmt)

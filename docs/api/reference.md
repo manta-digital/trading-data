@@ -1481,7 +1481,8 @@ reads the sessions dated 09-16 through 09-20. A CME session opens the evening
 before its date (the session dated 09-18 runs 22:00 UTC 09-17 → 21:00 UTC
 09-18), so a UTC-day window would cut every session in two. This is the
 opposite of §2.2's inclusive `end`; it is the tick tier's convention, shared
-with `mt data tick get`. An omitted `start` or `end` defaults to the first held
+with `mt data tick get`. An omitted `start` or `end` comes from `from`/`until`
+when those are given (next paragraph). Otherwise it defaults to the first held
 session, or the day after the last one. `end` at or before `start` is a `422`.
 
 **Ticks and tick bars also take `from` and `until`**, UTC instants (naive input
@@ -1495,6 +1496,14 @@ on them (below). For time bars they select the bars whose start (`time`) is in
 whatever the bounds say, so a full ES session at `1s` (about 82,800 bars, over
 the row ceiling) is read in pieces. `from` must be before `until` (`422`
 otherwise).
+
+**With no `start`/`end`, `from`/`until` also choose the sessions.** The planned
+sessions are the ones `[from, until)` reaches: those opening before `until` and
+closing at or after `from`. So `segments`, `unresolved` and `incomplete`
+describe the window you asked for, and `start`/`end` in the response echo the
+sessions chosen. A given `start` or `end` still wins over the instant on its
+side. A window that reaches no session, such as a Saturday, returns an empty
+plan with no rows.
 
 **Time bars come from held provider bars where those can make the size, and
 from ticks everywhere else.** Each session is decided on its own:
@@ -1841,7 +1850,7 @@ as columnar blocks (§6.1).
 
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
-| `start`, `end` | date | no | the contract's sessions held as ticks | Session dates; `end` **exclusive**. |
+| `start`, `end` | date | no | the sessions `from`/`until` reach, else the contract's sessions held as ticks | Session dates; `end` **exclusive**. |
 | `from` | date-time | no | — | First instant, inclusive. |
 | `until` | date-time | no | — | Instant bound, **exclusive**. |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
@@ -1920,7 +1929,7 @@ Futures bar sizes are any whole number of seconds, minutes or hours up to
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
 | `granularity` | bar size | **yes** | — | One of the sizes above; others are a `422` naming the accepted form. |
-| `start`, `end` | date | no | the contract's sessions held as ticks or provider bars | Session dates; `end` **exclusive**. |
+| `start`, `end` | date | no | the sessions `from`/`until` reach, else the contract's sessions held as ticks or provider bars | Session dates; `end` **exclusive**. |
 | `from` | date-time | no | — | Bars starting at or after this instant (§6.1). |
 | `until` | date-time | no | — | Bars starting before this instant, **exclusive**. |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
@@ -2026,7 +2035,7 @@ bounded by the row ceiling (§6.1).
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
 | `ticks_per_bar` | integer | **yes** | — | Trades per bar, `1` or more; `0`, negatives and non-integers are a `422`. No upper bound. |
-| `start`, `end` | date | no | the contract's sessions held as ticks | Session dates; `end` **exclusive**. |
+| `start`, `end` | date | no | the sessions `from`/`until` reach, else the contract's sessions held as ticks | Session dates; `end` **exclusive**. |
 | `from` | date-time | no | — | First `open_time`, inclusive. |
 | `until` | date-time | no | — | `open_time` bound, **exclusive**. |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |

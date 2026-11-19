@@ -181,7 +181,9 @@ async def contract_tick_bars(
     """One contract's bars of ``ticks_per_bar`` trades over ``[start, end)``
     sessions, those opened in ``[from, until)``. Refused past the trade limit
     or the row ceiling."""
-    plan_for = contract_plan_for(request, symbol, (start, end), SchemaFamily.TICK_TIER)
+    plan_for = contract_plan_for(
+        request, symbol, (start, end), SchemaFamily.TICK_TIER, instants=(from_, until)
+    )
     query = (ticks_per_bar, from_, until)
     return await _tick_bars(request, conn, plan_for, query, (max_rows, max_trades), fmt)
 
@@ -206,7 +208,12 @@ async def product_tick_bars(
     """A product's tick bars under ``rule``: each session from the contract the
     rule names, the count restarting at every session open."""
     plan_for = product_plan_for(
-        request, product, rule, (start, end), SchemaFamily.TICK_TIER
+        request,
+        product,
+        rule,
+        (start, end),
+        SchemaFamily.TICK_TIER,
+        instants=(from_, until),
     )
     query = (ticks_per_bar, from_, until)
     return await _tick_bars(request, conn, plan_for, query, (max_rows, max_trades), fmt)

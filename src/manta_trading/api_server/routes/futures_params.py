@@ -26,10 +26,13 @@ RULE_DESCRIPTION = (
     f"default {DEFAULT_ROLL_RULE}."
 )
 
-START_DESCRIPTION = "First session date. Omitted: the first held session."
+START_DESCRIPTION = (
+    "First session date. Omitted: the first session [from, until) reaches,"
+    " else the first held session."
+)
 END_DESCRIPTION = (
-    "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day "
-    "after the last held session."
+    "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after"
+    " the last session [from, until) reaches, else after the last held session."
 )
 
 

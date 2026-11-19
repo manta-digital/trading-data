@@ -22,8 +22,9 @@ from dataclasses import dataclass, replace
 from datetime import date
 
 from manta_trading.data.tick.bar_constants import TICKS_SOURCE
-from manta_trading.data.tick.get_plan import GetPlan, sessions_dated
+from manta_trading.data.tick.get_plan import GetPlan
 from manta_trading.data.tick.manifest_reads import Conn
+from manta_trading.data.tick.plan_sessions import sessions_dated
 from manta_trading.data.tick.schema_families import SCHEMA_FAMILY, SchemaFamily
 from manta_trading.data.tick.status_reads import ledger_totals, shape_of
 from manta_trading.data.tick.tick_bar_reads import plan_entry

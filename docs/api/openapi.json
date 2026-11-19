@@ -4495,7 +4495,7 @@
   "info": {
     "description": "Data serving API for OHLCV bars, symbol metadata, gap status, the Kalshi prediction-market catalog and time series, and operations coverage: pass state, source freshness and provider credits.",
     "title": "Manta Trading API",
-    "version": "0.27.2"
+    "version": "0.27.3"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4662,7 +4662,7 @@
             }
           },
           {
-            "description": "First session date. Omitted: the first held session.",
+            "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
             "in": "query",
             "name": "start",
             "required": false,
@@ -4676,12 +4676,12 @@
                   "type": "null"
                 }
               ],
-              "description": "First session date. Omitted: the first held session.",
+              "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
               "title": "Start"
             }
           },
           {
-            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
             "in": "query",
             "name": "end",
             "required": false,
@@ -4695,7 +4695,7 @@
                   "type": "null"
                 }
               ],
-              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
               "title": "End"
             }
           },
@@ -4832,7 +4832,7 @@
             }
           },
           {
-            "description": "First session date. Omitted: the first held session.",
+            "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
             "in": "query",
             "name": "start",
             "required": false,
@@ -4846,12 +4846,12 @@
                   "type": "null"
                 }
               ],
-              "description": "First session date. Omitted: the first held session.",
+              "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
               "title": "Start"
             }
           },
           {
-            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
             "in": "query",
             "name": "end",
             "required": false,
@@ -4865,7 +4865,7 @@
                   "type": "null"
                 }
               ],
-              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
               "title": "End"
             }
           },
@@ -4990,7 +4990,7 @@
             }
           },
           {
-            "description": "First session date. Omitted: the first held session.",
+            "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
             "in": "query",
             "name": "start",
             "required": false,
@@ -5004,12 +5004,12 @@
                   "type": "null"
                 }
               ],
-              "description": "First session date. Omitted: the first held session.",
+              "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
               "title": "Start"
             }
           },
           {
-            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
             "in": "query",
             "name": "end",
             "required": false,
@@ -5023,7 +5023,7 @@
                   "type": "null"
                 }
               ],
-              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
               "title": "End"
             }
           },
@@ -5219,7 +5219,7 @@
             }
           },
           {
-            "description": "First session date. Omitted: the first held session.",
+            "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
             "in": "query",
             "name": "start",
             "required": false,
@@ -5233,12 +5233,12 @@
                   "type": "null"
                 }
               ],
-              "description": "First session date. Omitted: the first held session.",
+              "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
               "title": "Start"
             }
           },
           {
-            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
             "in": "query",
             "name": "end",
             "required": false,
@@ -5252,7 +5252,7 @@
                   "type": "null"
                 }
               ],
-              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
               "title": "End"
             }
           },
@@ -5458,7 +5458,7 @@
             }
           },
           {
-            "description": "First session date. Omitted: the first held session.",
+            "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
             "in": "query",
             "name": "start",
             "required": false,
@@ -5472,12 +5472,12 @@
                   "type": "null"
                 }
               ],
-              "description": "First session date. Omitted: the first held session.",
+              "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
               "title": "Start"
             }
           },
           {
-            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
             "in": "query",
             "name": "end",
             "required": false,
@@ -5491,7 +5491,7 @@
                   "type": "null"
                 }
               ],
-              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
               "title": "End"
             }
           }
@@ -5589,7 +5589,7 @@
             }
           },
           {
-            "description": "First session date. Omitted: the first held session.",
+            "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
             "in": "query",
             "name": "start",
             "required": false,
@@ -5603,12 +5603,12 @@
                   "type": "null"
                 }
               ],
-              "description": "First session date. Omitted: the first held session.",
+              "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
               "title": "Start"
             }
           },
           {
-            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
             "in": "query",
             "name": "end",
             "required": false,
@@ -5622,7 +5622,7 @@
                   "type": "null"
                 }
               ],
-              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
               "title": "End"
             }
           },
@@ -5765,7 +5765,7 @@
             }
           },
           {
-            "description": "First session date. Omitted: the first held session.",
+            "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
             "in": "query",
             "name": "start",
             "required": false,
@@ -5779,12 +5779,12 @@
                   "type": "null"
                 }
               ],
-              "description": "First session date. Omitted: the first held session.",
+              "description": "First session date. Omitted: the first session [from, until) reaches, else the first held session.",
               "title": "Start"
             }
           },
           {
-            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+            "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
             "in": "query",
             "name": "end",
             "required": false,
@@ -5798,7 +5798,7 @@
                   "type": "null"
                 }
               ],
-              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last held session.",
+              "description": "End session date, EXCLUSIVE (unlike /api/v1/bars). Omitted: the day after the last session [from, until) reaches, else after the last held session.",
               "title": "End"
             }
           },
