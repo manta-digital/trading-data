@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.5] - 2026-11-19
+
+### Added
+- **`limit` on equity bars: the latest N bars** (issue #13). `GET /api/v1/bars/{symbol}?granularity=5m&limit=100` returns the 100 most recent bars without `start`/`end`; add `end` to page back. The read anchors on the symbol's held range and widens a bounded window only for a sparse symbol, which returns what it has with a `200`. `limit` beside `start`, or over the row ceiling, is a `422`.
+- **Equity bars echo every applied parameter** (issue #77). `/api/v1/bars` responses gain `applied` (`granularity`, `start`, `end`, `limit`, `adjusted`, `prints`, `format`), defaults included, as the futures bars routes already do. A test pins it to the route's parameters, so a parameter added later cannot go unechoed.
+- **`max_sessions` on `GET /api/v1/futures/products`** (issue #79): the 1,300-session cap on product reads, so a client sizes its windows from the server's value.
+
+### Changed
+- **Structured `422` refusals** (issue #23). Ceiling and reversed-range refusals keep their prose and add `reason` (`row_ceiling`, `trade_ceiling`, `session_ceiling`, `range_reversed`), `limit`, and where known `estimate`, `granularity` and `max_span_days`.
+- **The published error contract is complete** (issue #51). `openapi.json` declares both `422` bodies (`ErrorResponse` or `HTTPValidationError`) on every route and the `404` on the 17 routes that send it; `BarsResponse.granularity` is the `Granularity` enum. A test walks the committed schema for the `200`, `422` and `404` promises.
+
+### Fixed
+- **Kalshi `result` and `expiration_value` are `null` when unset** (issue #67). Production stored Kalshi's `""` verbatim and served it; the reference documents `null`.
+- **`tape_complete_through` is described correctly**: the end of the last fully collected trades window, not the newest trade's time.
+
 ## [0.27.4] - 2026-11-18
 
 ### Changed
