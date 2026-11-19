@@ -298,9 +298,16 @@
             "type": "boolean"
           },
           "end": {
-            "format": "date",
-            "title": "End",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
           },
           "format": {
             "title": "Format",
@@ -309,19 +316,38 @@
           "granularity": {
             "$ref": "#/components/schemas/Granularity"
           },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
           "prints": {
             "$ref": "#/components/schemas/PrintMode"
           },
           "start": {
-            "format": "date",
-            "title": "Start",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
           }
         },
         "required": [
           "granularity",
           "start",
           "end",
+          "limit",
           "adjusted",
           "prints",
           "format"
@@ -4619,7 +4645,7 @@
   "paths": {
     "/api/v1/bars/{symbol}": {
       "get": {
-        "description": "Return OHLCV bars for ``symbol`` over the requested date range.\n\nFor a cagg-served granularity the response carries ``is_stale``, probed\nagainst the exact view the bars came from (slice 185 D7). ``M1``/``D1`` read\nraw hypertables, so no probe is issued and ``is_stale`` is always ``False``.\n\nWindows are admitted before any database work (186 D4): a reversed range or\none whose estimated bar count exceeds the configured ceiling is a ``422``,\nnot a slow ``500``.\n\n``prints`` defaults to ``eligible`` (slice 173): tape-eligible bars at every\ngranularity, the rollups holding eligible values and the daily family\nserving its EOD bars. ``prints=all`` (raw prints) is served at ``1m`` only;\nany other granularity is a ``422``.",
+        "description": "Return OHLCV bars for ``symbol`` over ``start``..``end``, or the\n``limit`` most recent at or before ``end``.\n\nFor a cagg-served granularity the response carries ``is_stale``, probed\nagainst the exact view the bars came from (slice 185 D7). ``M1``/``D1`` read\nraw hypertables, so no probe is issued and ``is_stale`` is always ``False``.\n\nRequests are admitted before any database work (186 D4): a reversed range,\nan estimate over the ceiling, ``limit`` over it or beside ``start`` is a\n``422``, not a slow ``500``. ``prints=all`` (raw prints) is served at ``1m``\nonly (slice 173).",
         "operationId": "get_bars_api_v1_bars__symbol__get",
         "parameters": [
           {
@@ -4642,21 +4668,54 @@
           {
             "in": "query",
             "name": "start",
-            "required": true,
+            "required": false,
             "schema": {
-              "format": "date",
-              "title": "Start",
-              "type": "string"
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
             }
           },
           {
             "in": "query",
             "name": "end",
-            "required": true,
+            "required": false,
             "schema": {
-              "format": "date",
-              "title": "End",
-              "type": "string"
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "description": "The N most recent bars at or before end (the latest held when end is omitted). Replaces start; at most the row ceiling.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The N most recent bars at or before end (the latest held when end is omitted). Replaces start; at most the row ceiling.",
+              "title": "Limit"
             }
           },
           {

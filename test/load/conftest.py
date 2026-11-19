@@ -58,7 +58,9 @@ from load.manifest_scale_seed import (
     manifest_scale,  # noqa: F401  (305: pytest discovers it here)
 )
 from manta_trading.api_server.app import create_app
-from manta_trading.api_server.routes.bars import _max_span_days
+from manta_trading.api_server.routes.bars_admission import (
+    max_span_days as _max_span_days,
+)
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
     COVERAGE_BUCKET_INTERVAL,

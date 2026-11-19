@@ -63,7 +63,9 @@ import httpx
 import pytest
 
 from manta_trading.api_server.app import create_app
-from manta_trading.api_server.routes.bars import _max_span_days
+from manta_trading.api_server.routes.bars_admission import (
+    max_span_days as _max_span_days,
+)
 from manta_trading.constants import API_MAX_BARS_PER_REQUEST, Granularity, PrintMode
 from manta_trading.market.maintenance.cagg_freshness import reset_freshness_cache
 
@@ -169,6 +171,29 @@ def test_symbol_detail_latency(prod_shaped_db: str) -> None:
     print("\n" + _report("symbol-detail", median, samples, _SYMBOL_DETAIL_BOUND_S))
     assert median < _SYMBOL_DETAIL_BOUND_S, _report(
         "symbol-detail", median, samples, _SYMBOL_DETAIL_BOUND_S
+    )
+
+
+_LATEST_BARS_BOUND_S = 1.0
+"""Issue #13: "the latest N" is the chart's hot path and must stay sub-second."""
+
+
+def test_latest_minute_bars_latency(prod_shaped_db: str) -> None:
+    """``limit`` at ``1m`` (issue #13): the held-range lookup plus one bounded
+    window read, at prod row shape."""
+    url = f"/api/v1/bars/{symbol_name(0)}?granularity=1m&limit=1000"
+
+    async def _run() -> tuple[float, list[float], int]:
+        async with _client(prod_shaped_db) as client:
+            median, samples = await _measure(client, url)
+            count = (await client.get(url)).json()["count"]
+            return median, samples, count
+
+    median, samples, count = asyncio.run(_run())
+    print("\n" + _report("latest-1m", median, samples, _LATEST_BARS_BOUND_S))
+    assert count > 0, "the fixture seeds minute bars; limit must return some"
+    assert median < _LATEST_BARS_BOUND_S, _report(
+        "latest-1m", median, samples, _LATEST_BARS_BOUND_S
     )
 
 

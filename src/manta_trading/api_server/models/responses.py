@@ -66,8 +66,13 @@ class AppliedEquityBarParams(BaseModel):
     added to the route cannot go unechoed."""
 
     granularity: Granularity
-    start: date
-    end: date
+    start: date | None
+    """The first day read: the request's own, or where a ``limit`` read began.
+    Null only when ``limit`` found nothing held."""
+    end: date | None
+    """The last day read: the request's own, or a ``limit`` read's anchor (the
+    latest held at or before ``end``)."""
+    limit: int | None
     adjusted: bool
     prints: PrintMode
     format: str

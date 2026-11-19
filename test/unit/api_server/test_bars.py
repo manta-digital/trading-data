@@ -21,6 +21,7 @@ from manta_trading.api_server.models.responses import (
     AppliedEquityBarParams,
     BarsResponse,
 )
+from manta_trading.api_server.queries import UniverseEdgeCache
 from manta_trading.constants import (
     API_MAX_BARS_PER_REQUEST,
     API_SERVING_SESSION,
@@ -28,6 +29,7 @@ from manta_trading.constants import (
     GRANULARITY_SOURCE,
     PRINTS_ALL_1M_ONLY_MESSAGE,
     TRADING_DAYS_PER_CALENDAR_DAY,
+    CycleGranularity,
     Granularity,
     PrintMode,
 )
@@ -115,6 +117,7 @@ def test_app() -> FastAPI:
     app.state.db_pool = MagicMock(name="sentinel_pool")
     app.state.minute_db = MagicMock(spec=TimescaleMinuteDataDB)
     app.state.daily_db = MagicMock(spec=TimescaleDailyDataDB)
+    app.state.universe_edges = UniverseEdgeCache()
     app.state.max_bars_per_request = API_MAX_BARS_PER_REQUEST
     app.state.statement_timeout = API_SERVING_SESSION.statement_timeout
     app.dependency_overrides[get_db_pool] = _stub_pool
@@ -126,6 +129,7 @@ def _applied(**overrides: Any) -> AppliedEquityBarParams:
         "granularity": Granularity.D1,
         "start": date(2024, 1, 2),
         "end": date(2024, 1, 4),
+        "limit": None,
         "adjusted": True,
         "prints": PrintMode.ALL,
         "format": "json",
@@ -718,6 +722,7 @@ def test_applied_echoes_every_parameter_with_its_defaults(test_app: FastAPI) -> 
         "granularity": "1d",
         "start": "2024-01-02",
         "end": "2024-01-03",
+        "limit": None,
         "adjusted": True,
         "prints": "eligible",
         "format": "json",
@@ -731,3 +736,109 @@ def test_applied_keys_are_exactly_the_route_parameters(test_app: FastAPI) -> Non
     query = {p["name"] for p in operation["parameters"] if p["in"] == "query"}
 
     assert set(AppliedEquityBarParams.model_fields) == query
+
+
+# --- limit: the N most recent bars (issue #13) ---
+
+HELD = {CycleGranularity.DAILY: (date(2020, 1, 2), date(2024, 6, 14))}
+
+
+def _days(start: date, end: date) -> pd.DataFrame:
+    """One daily bar per calendar day in ``[start, end]``."""
+    index = pd.date_range(start=start, end=end, freq="1D", tz="UTC")
+    n = len(index)
+    return pd.DataFrame(
+        {
+            "open": [100.0] * n,
+            "high": [101.0] * n,
+            "low": [99.0] * n,
+            "close": [100.5] * n,
+            "volume": [1_000] * n,
+        },
+        index=index,
+    )
+
+
+def _limit(test_app: FastAPI, query: str, held: Any = HELD) -> Any:
+    with patch(f"{_BARS_MODULE}.available_ranges", return_value=held):
+        return TestClient(test_app).get(f"/api/v1/bars/SPY?granularity=1d&{query}")
+
+
+class TestLimit:
+    def test_limit_returns_the_latest_bars_ending_at_the_held_edge(
+        self, test_app: FastAPI
+    ) -> None:
+        test_app.state.daily_db.get_daily_data.side_effect = (
+            lambda _s, start, end, *_a, **_k: _days(start, end)
+        )
+        body = _limit(test_app, "limit=5").json()
+
+        assert body["count"] == 5
+        assert body["bars"][-1]["timestamp"] == "2024-06-14T00:00:00Z"
+        assert body["applied"]["limit"] == 5
+        assert body["applied"]["end"] == "2024-06-14"
+        assert test_app.state.daily_db.get_daily_data.call_count == 1
+
+    def test_limit_with_end_counts_back_from_end(self, test_app: FastAPI) -> None:
+        test_app.state.daily_db.get_daily_data.side_effect = (
+            lambda _s, start, end, *_a, **_k: _days(start, end)
+        )
+        body = _limit(test_app, "limit=3&end=2024-03-01").json()
+
+        assert [b["timestamp"][:10] for b in body["bars"]] == [
+            "2024-02-28",
+            "2024-02-29",
+            "2024-03-01",
+        ]
+
+    def test_a_sparse_symbol_widens_until_its_first_bar_and_returns_all(
+        self, test_app: FastAPI
+    ) -> None:
+        """Fewer than N held: every bar comes back, 200 not 404."""
+        sparse = _days(date(2020, 1, 2), date(2020, 1, 4))
+        test_app.state.daily_db.get_daily_data.side_effect = (
+            lambda _s, start, end, *_a, **_k: sparse[
+                (sparse.index.date >= start) & (sparse.index.date <= end)
+            ]
+        )
+        response = _limit(test_app, "limit=10")
+
+        assert response.status_code == 200
+        assert response.json()["count"] == 3
+        last_call = test_app.state.daily_db.get_daily_data.call_args
+        assert last_call.args[1] == date(2020, 1, 2)  # widened to the first bar
+
+    def test_limit_beside_start_is_422(self, test_app: FastAPI) -> None:
+        response = _limit(test_app, "limit=5&start=2024-01-01")
+        assert response.status_code == 422
+        assert "omit start" in response.json()["error"]
+
+    def test_no_window_and_no_limit_is_422(self, test_app: FastAPI) -> None:
+        response = _limit(test_app, "end=2024-01-01")
+        assert response.status_code == 422
+        assert "unless limit is given" in response.json()["error"]
+
+    def test_limit_over_the_ceiling_is_a_structured_422(
+        self, test_app: FastAPI
+    ) -> None:
+        body = _limit(test_app, f"limit={API_MAX_BARS_PER_REQUEST + 1}").json()
+
+        assert body["reason"] == "row_ceiling"
+        assert body["limit"] == API_MAX_BARS_PER_REQUEST
+        assert body["estimate"] == API_MAX_BARS_PER_REQUEST + 1
+        assert not test_app.state.daily_db.get_daily_data.called
+
+    def test_limit_for_an_unknown_symbol_is_404(self, test_app: FastAPI) -> None:
+        test_app.dependency_overrides[get_db_pool] = lambda: _pool_where_symbol(False)
+        response = _limit(test_app, "limit=5", held={})
+        assert response.status_code == 404
+
+    def test_limit_before_anything_held_is_an_empty_200(
+        self, test_app: FastAPI
+    ) -> None:
+        test_app.dependency_overrides[get_db_pool] = lambda: _pool_where_symbol(True)
+        response = _limit(test_app, "limit=5&end=2019-01-01")
+
+        assert response.status_code == 200
+        assert response.json()["count"] == 0
+        assert not test_app.state.daily_db.get_daily_data.called

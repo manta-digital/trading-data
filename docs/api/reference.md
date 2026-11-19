@@ -351,19 +351,21 @@ about. For that, use `/api/v1/status`.
 ### 3.2 `GET /api/v1/bars/{symbol}`
 
 <!-- endpoint: /api/v1/bars/{symbol}
-     params: granularity:Granularity, start:date, end:date,
+     params: granularity:Granularity, start:date, end:date, limit:integer,
              adjusted:boolean, prints:PrintMode, format:json|msgpack
      errors: 404, 422, 504 -->
 
-OHLCV bars for one instrument over an inclusive date window.
+OHLCV bars for one instrument over an inclusive date window, or the `limit`
+most recent bars.
 
 **Parameters**
 
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
 | `granularity` | `Granularity` | yes | — | Bar size; see the token set below. |
-| `start` | date | yes | — | Inclusive first day, UTC. |
-| `end` | date | yes | — | Inclusive last day, UTC (§2.2). |
+| `start` | date | unless `limit` | — | Inclusive first day, UTC. Not allowed with `limit`. |
+| `end` | date | unless `limit` | latest held, with `limit` | Inclusive last day, UTC (§2.2). With `limit`, the day to count back from. |
+| `limit` | integer | no | — | The N most recent bars at or before `end`, 1 to the row ceiling (issue #13). |
 | `adjusted` | boolean | no | `true` | Split/dividend-adjusted prices. |
 | `prints` | `PrintMode` | no | `eligible` | `eligible`: tape-eligible bars, every grain. `all`: raw bars, `1m` only (below). |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
@@ -374,6 +376,14 @@ Granularity tokens are
 
 `1m` and `1d` are raw; every other grain is served by a continuous aggregate
 and can report `is_stale: true` (§2.6).
+
+**`limit`: the latest N bars.** `?granularity=5m&limit=100` returns the 100
+most recent bars, oldest first, ending at the symbol's latest held bar; add
+`end` to page back (`limit=100&end=2024-06-10`). A symbol with fewer than N
+bars held returns all of them, still a `200`. `applied.start` and
+`applied.end` report the window actually read. `limit` beside `start`, or
+neither `limit` nor both of `start` and `end`, is a `422`; `limit` over the
+row ceiling is a `422` with `reason: row_ceiling`.
 
 Print modes are `all` `eligible`.
 <!-- from: manta_trading.constants.PrintMode -->

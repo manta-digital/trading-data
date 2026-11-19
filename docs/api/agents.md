@@ -106,11 +106,13 @@ family — **not** a granularity token like `1m`. See §7.
 you did not send still shows its value.
 
 <!-- endpoint: /api/v1/bars/{symbol}
-     params: granularity:Granularity, start:date, end:date,
+     params: granularity:Granularity, start:date, end:date, limit:integer,
              adjusted:boolean, prints:PrintMode, format:json|msgpack
      errors: 404, 422, 504 -->
 
-`start` and `end` are inclusive dates. Check `is_stale`: `true` means the
+`start` and `end` are inclusive dates. For "the latest N bars" pass `limit=N`
+instead of `start` (with `end` to page back); a sparse symbol returns what it
+has. Check `is_stale`: `true` means the
 aggregate serving this grain is behind its source and the bars may be
 incomplete. It is always `false` for `1m` and `1d`, which are raw — by
 construction, not by luck.
