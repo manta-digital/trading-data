@@ -143,7 +143,7 @@ Status: decided
 - Phases, half-open, per session: **pre** `[extended_open, open)`, **regular** `[open, close)`, **post** `[close, extended_close)`. `session=regular` reads the regular phase only. `session=extended` reads all three.
 - Each bucket starts at `anchor + floor((time − anchor) / width) × width`, where the anchor is the phase's start. Regular 1h bars start at 09:30, 10:30 … 15:30 ET, and the 15:30 bar is half an hour. Extended 1h bars are pre 04:00 … 08:00 plus a short 09:00–09:30, then regular as above, then post 16:00 … 19:00.
 - Anchoring at the phase start keeps bars from crossing the open or the close.
-- The last bar of a phase may be short. Its `time` is its start. Its end is the next bar's start or the phase end. This is documented, not flagged per bar.
+- The last bar of a phase may be short. Its `timestamp` is its start. Its end is the next bar's start or the phase end. This is documented, not flagged per bar.
 - **Rejected:** one grid for the whole extended day (it crosses the close), and anchoring pre-market backwards from 09:30 (it gives a pre-market bar starting at 03:30).
 
 ### D3 — `session` is opt-in; `utc` stays the default
@@ -224,7 +224,7 @@ Status: decided
 In session mode `start` and `end` are session dates. A session bar:
 
 ```json
-{"time": "2026-11-18T14:30:00Z", "open": 0, "high": 0, "low": 0, "close": 0, "volume": 0,
+{"timestamp": "2026-11-18T14:30:00Z", "open": 0, "high": 0, "low": 0, "close": 0, "volume": 0,
  "session_date": "2026-11-18", "phase": "regular"}
 ```
 
@@ -295,7 +295,7 @@ The cutover script runs the dry check first. It lists every date whose status ch
 Production, after release and the cutover (the migration touches calendar tables and gap rows only).
 
 1. **Regular hours, one session:**
-   `curl -s 'http://127.0.0.1:8100/api/v1/bars/SPY?granularity=1h&session=regular&start=2026-11-18&end=2026-11-18' | jq '.count, [.bars[] | .time]'`
+   `curl -s 'http://127.0.0.1:8100/api/v1/bars/SPY?granularity=1h&session=regular&start=2026-11-18&end=2026-11-18' | jq '.count, [.bars[] | .timestamp]'`
    → `7`, and times from `2026-11-18T14:30:00Z` to `2026-11-18T20:30:00Z` (09:30 to 15:30 ET).
 2. **Early close:** the same with `start=end=2025-11-28` → `4`, the last bar at `2025-11-28T17:30:00Z` (12:30 ET).
 3. **Extended:** `session=extended` for 2026-11-18 → 17 bars, and `jq '[.bars[] | .phase] | group_by(.) | map({(.[0]): length}) | add'` → `{"post":4,"pre":6,"regular":7}`.

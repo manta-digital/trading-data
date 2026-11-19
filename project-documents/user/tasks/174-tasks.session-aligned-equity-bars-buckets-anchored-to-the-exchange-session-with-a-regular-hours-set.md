@@ -1,0 +1,506 @@
+---
+docType: tasks
+slice: session-aligned-equity-bars-buckets-anchored-to-the-exchange-session-with-a-regular-hours-set
+project: trading-data
+lld: user/slices/174-slice.session-aligned-equity-bars-buckets-anchored-to-the-exchange-session-with-a-regular-hours-set.md
+parent: user/architecture/140-slices.data-quality-operations.md
+dependencies:
+- 144
+- 171
+- 173
+- 182
+- 186
+- 221
+- 301
+interfaces:
+- 190
+projectState: Slice design committed and its review (CONCERNS) answered. Equity bars
+  wider than 1m come from four UTC-bucketed eligible caggs; nothing marks pre, regular
+  or post minutes. NYSE/NASDAQ holidays come from a rule generator (seed_calendar.py)
+  seeded 2020-2026, with 2021-12-31 wrongly closed and 2025-01-09 missing (#26). adjusted()
+  picks the factor by UTC date (#28). Latest minute migration is 067 (#46, index symbols).
+dateCreated: 20261119
+dateUpdated: 20261119
+status: not_started
+turns: 86
+promptTokens: 7410456
+cachedTokens: 7201913
+cacheWriteTokens: 208437
+completionTokens: 58828
+durationSeconds: 622.8
+costUsd: 4.285177
+usageRounds: 3
+pricedRounds: 3
+usageByModel:
+  claude-opus-5-5:
+    rounds: 3
+    costUsd: 4.285176999999999
+    completionTokens: 58828
+revision_number: 2
+---
+
+# Tasks: Session-Aligned Equity Bars
+
+## Context Summary
+
+- Working on slice 174. It adds `session=utc|regular|extended` to `GET /api/v1/bars/{symbol}`.
+  Session bars are built at read time from eligible 1m bars, each phase (pre, regular, post)
+  bucketed from its own start, with bounds from `trading_sessions`. The default (`utc`) is
+  today's bars.
+- It also fixes the NYSE/NASDAQ holiday data and reconciles the gap rows it moves (#26),
+  picks the adjustment factor by exchange-local date on every intraday read (intraday half
+  of #28), and documents the bar stamped at the extended close (#78).
+- Prerequisites, all merged: 144 (`trading_sessions`, `OutOfHorizonError`), 221
+  (`holidays_seeded_through`, `extend_calendar_sessions`), 301 (migration 066, the
+  explicit-dated-rows pattern), 171/173 (`eligible_sql`, eligible default), 182 (bars
+  response), 186 (admission, 20 s serving timeout, ceilings as constant plus `Settings`).
+- Tooling: `uv run --extra dev ruff format <touched files>` and `ruff check <touched files>`
+  (never a directory; grep `git diff main` for deletions before each commit); mypy with the
+  src paths and the tests in one invocation; integration tests need `MT_TIMESCALE_TEST_URL`
+  exported from `.env` (strip the quotes). Run the unit, integration and load tiers
+  separately. Known pre-existing failures are in the project memory notes; re-run a failure
+  in isolation before investigating it.
+- Production SQL that needs a date never casts a timestamp: the production session timezone
+  is America/Denver. Use `(time AT TIME ZONE 'UTC')::date`, the calendar's timezone, or
+  `trading_sessions.session_date`.
+- The served bar key is `timestamp` (`BarRecord`); use it in docs and checks.
+- Module names below are suggestions; keep each file under about 300 lines. New tests go in
+  new files: `test/unit/api_server/test_bars.py` is already 35 KB.
+- Merge, push, release, the cutover and the production checks are not tasks; see "Phase 7
+  handoff" at the end. Nothing here merges or pushes.
+- Next planned slice: per the 140 slice plan.
+
+## 1. What the close-stamp bar holds (#78)
+
+Read-only on production. Runs first so the API docs carry the answer (design D4: the
+close-stamp bar is outside every session bar).
+
+- [ ] **1.1 Investigate and write the note**
+  - [ ] A one-off script outside the repo, run with `uv run python` from the dev checkout,
+    URLs from `Settings`, one read-only transaction (`default_transaction_read_only=on`).
+    It writes nothing.
+  - [ ] Sample: at least 20 symbols (the 10 largest by minute rows plus 10 spread across the
+    universe) over at least 3 months of full sessions, plus every early-close session held
+    (from `trading_holidays` with `market_status='early_close'`, 2025 and 2026).
+  - [ ] For each symbol and session, find the bar stamped exactly at the extended close
+    instant (20:00 ET, or the early-close day's extended close) and record: present or not;
+    single-price or not; its close against the `daily_ohlcv` close; its volume against
+    (a) the daily volume, (b) the sum of 04:00-20:00 ET minutes, (c) the sum of regular
+    minutes, (d) the daily volume minus (c); and the 15:59 ET minute's volume against the
+    median regular minute's (does the closing auction appear in the last regular minute?).
+  - [ ] Record which `utc` rollup bucket holds the bar today, and whether `prints=eligible`
+    serves it (#78 work item 4).
+  - [ ] Write `user/notes/174-close-stamp-bar.md` (front matter as `309-time-bar-measurement.md`:
+    `docType: notes`, `project`, `dateCreated`, `dateUpdated`, `status: complete`): the
+    procedure, a summary table, the finding (what the bar holds, stated with the evidence,
+    or "not established" with what was ruled out), and what it means for regular-session
+    volume summed from session bars. If not established, 14.1 documents what was observed,
+    says its meaning is unconfirmed, and tells clients it is outside every session bar;
+    15.1 then writes `BLOCKED:` for design criterion 11 with the evidence, so the PM decides
+    whether it closes.
+  - [ ] Add a comment to #78 linking the note's finding (`gh issue comment 78`). Do not
+    close #78; its `closing_print` decision (work item 3) is follow-up work.
+  - [ ] If the production database is unreachable from this checkout, write `BLOCKED:` and
+    the reason here and continue with section 2; section 14 needs this note.
+
+**Commit**: `docs: record what the equity close-stamp bar holds (#78)`
+
+## 2. NYSE/NASDAQ holidays as explicit dated rows
+
+- [ ] **2.1 The holiday table**
+  - [ ] First, fetch the source: NYSE's published holiday and early-close schedule. Record
+    the source URL(s) in the module docstring. Early-close rows carry an extended close of
+    17:00 ET. If the
+    source cannot be fetched, or does not yet publish every 2027 or 2028 date, write
+    `BLOCKED:` with what is missing and stop sections 2-6 and 9-13 (they need the migrated
+    calendar); never write a row the fetched source does not show. Sections 1, 7, 8, 12.1,
+    14.2 and 14.3 continue.
+  - [ ] New module `src/manta_trading/market/schema/nyse_calendar_history.py`: every NYSE
+    full closure and early close for 2020-2028 as explicit dated rows (date, name, status,
+    early close time, extended close time), on the pattern of the `seed_cme_*` data modules
+    that `migrations/cme_calendar_history.py` imports. Nothing is generated from a rule.
+  - [ ] Separately, in a new module `market/schema/nyse_session_changes.py`, transcribe from
+    the same source the literal `EXPECTED_SESSION_CHANGES`, in the plan's buckets (4.1):
+    `opened` 2021-12-31; `closed` 2025-01-09 and each 2027-2028 full closure; `retimed` each
+    2027-2028 early close. It is typed from the source, not derived from the table, so the
+    two transcriptions check each other.
+  - [ ] Define `NYSE_HOLIDAYS_SEEDED_THROUGH` (2028-12-31) once in this module. NASDAQ uses
+    the same rows; expose one function that returns the rows for a given calendar id.
+  - [ ] Compare against `generate_holidays('NYSE', 2020, 2026)`. The only differences allowed
+    are 2021-12-31 (open, not closed) and 2025-01-09 (closed). If the published schedule
+    disagrees with any other 2020-2026 row, write `BLOCKED:` with the date and both values
+    and stop: the design allows only the known defects to change.
+  - [ ] `generate_holidays` stays for migrations 007/008 (a fresh database replays them).
+    Grep its callers; any caller other than those migrations switches to the new table.
+- [ ] **2.2 Tests** (`test/unit/market/schema/test_nyse_calendar_history.py`)
+  - [ ] 2021-12-31 absent, 2025-01-09 a full closure, every 2027 and 2028 year has its
+    closures, every early-close row has a 17:00 extended close, no weekend dates, no
+    duplicate dates, NYSE and NASDAQ rows identical apart from the calendar id.
+  - [ ] The difference from `generate_holidays` over 2020-2026 is exactly the two known
+    dates (pins the comparison above).
+  - [ ] The table's 2027-2028 closures and early closes equal `EXPECTED_SESSION_CHANGES`
+    for those years, date for date.
+
+No commit here: sections 2-4 commit together at the section 4 marker (the table changes no
+behavior until the migration uses it).
+
+## 3. Extended bounds in session population
+
+- [ ] **3.1 `populate_trading_sessions` computes the extended bounds**
+  - [ ] `src/manta_trading/data/base/session_population.py`: each row gains
+    `extended_open_utc` and `extended_close_utc`, built with `session_interval` from the
+    calendar's `extended_open`/`extended_close` (a holiday's `extended_close_time` overrides
+    the close), so each side gets its own UTC offset across DST.
+  - [ ] A calendar with `has_extended_hours = false` gets `None` for both. A calendar with
+    `has_extended_hours = true` and a missing extended time raises `ValueError` naming the
+    calendar (no silent fallback).
+  - [ ] `session_extension.py`: `_read_calendar` and `_read_holidays` read the new inputs, and
+    the session insert writes the two columns, so `extend_calendar_sessions` and auto-extend
+    write them for new rows. The CME dated-hours path is unchanged (its bounds stay `None`).
+- [ ] **3.2 Tests** (extend `test/unit/data/base/` session population tests)
+  - [ ] A full winter and a full summer NYSE day: extended bounds 09:00Z/01:00Z next day and
+    08:00Z/00:00Z next day. An early close: extended close 22:00Z (winter). Both DST change
+    weekends (2025-11-02, 2026-03-08): the sessions either side carry the right offsets.
+  - [ ] A CME calendar row yields `None` bounds; an extended calendar missing its extended
+    time raises.
+
+No commit here: section 3 writes columns that section 4's migration adds.
+
+## 4. The calendar migration and the change plan
+
+- [ ] **4.1 The change plan (dry check core)**
+  - [ ] New module `src/manta_trading/market/schema/nyse_session_plan.py` with
+    `plan_nyse_session_changes(conn) -> SessionChangePlan`: reads current NYSE and NASDAQ
+    `trading_sessions`, computes the new rows in Python with `populate_trading_sessions` over
+    the explicit table from the calendar's first session to `NYSE_HOLIDAYS_SEEDED_THROUGH`,
+    and returns per calendar: `closed` (an existing session row the new data removes),
+    `retimed` (an existing row whose open, close or extended close changes), `opened` (a new
+    session date at or before the current horizon) and `appended` (a new session date past
+    it). Writes nothing. Production's NYSE/NASDAQ rows already run to 2028-12-29 (read
+    2026-11-19), so the 2027-2028 closures are `closed`, their early closes `retimed`, and
+    `appended` is empty.
+- [ ] **4.2 The migration**
+  - [ ] Read the last id in `MINUTE_MIGRATIONS` (`market/schema/migrations/minute.py`) and
+    use the next free id; do not trust a number from the design.
+  - [ ] Its `python_fn` lives in a new `market/schema/migrations/nyse_session_bounds.py`
+    (as `cme_calendar_history.py` does; `minute.py` is already 127 KB), in the runner's one
+    transaction:
+    - [ ] 1. add `extended_open_utc`, `extended_close_utc` (nullable `TIMESTAMPTZ`) to
+      `trading_sessions` and `extended_close_time` (`TIME`) to `trading_holidays`;
+    - [ ] 2. replace the NYSE and NASDAQ `trading_holidays` rows with the explicit set;
+    - [ ] 3. set `holidays_seeded_through` to `NYSE_HOLIDAYS_SEEDED_THROUGH` for both;
+    - [ ] 4. upsert NYSE and NASDAQ `trading_sessions` through `populate_trading_sessions`
+      (open, close, both extended bounds; `ON CONFLICT ... DO UPDATE`), and delete the
+      session row of every date the plan closes;
+    - [ ] 5. refuse (raise, rolling back) if any NYSE/NASDAQ session row is left with a NULL
+      extended bound.
+  - [ ] The `description` says what changes and that gap rows are reconciled by the cutover.
+- [ ] **4.3 Tests** (`test/integration/test_migration_nyse_session_bounds.py`, throwaway DB)
+  - [ ] Pinned plan: on a database migrated to the previous id, with NYSE/NASDAQ sessions
+    populated through 2028-12-31 from the old rule data (production's shape), the plan's
+    `opened`, `closed` and `retimed` equal `EXPECTED_SESSION_CHANGES` and `appended` is
+    empty, for both calendars.
+  - [ ] After the migration: 2021-12-31 is a session, 2025-01-09 and every 2027-2028 closure
+    in `EXPECTED_SESSION_CHANGES` are not, an early-close session has a 17:00 ET extended
+    close, every NYSE/NASDAQ row has both extended bounds, `holidays_seeded_through` is
+    2028-12-31 (design criterion 10, calendar part). A second plan after the migration is
+    empty.
+  - [ ] `extend_calendar_sessions` after the migration writes extended bounds for new rows.
+
+**Commit**: `feat: store extended session bounds and explicit NYSE holidays (#26)`
+
+## 5. Gap reconciliation over the changed dates
+
+- [ ] **5.1 `reconcile_calendar_gaps`**
+  - [ ] New module `src/manta_trading/data/gaps/calendar_reconcile.py`:
+    `reconcile_calendar_gaps(conn, dates) -> ReconcileReport`, called with the `opened` and
+    `closed` dates of `EXPECTED_SESSION_CHANGES` (not the live plan, which is empty once the
+    migration is applied). For every symbol on the NYSE or NASDAQ calendar with an
+    `acquisition_state` row, for `minute` and `daily`, and for every date given, recompute
+    gaps through `update_data_gaps`; a second call changes nothing. No
+    hand-written gap SQL (design D8: reconcile through the existing gap writer).
+  - [ ] Window: the changed date's ET day, widened to the full span of every gap row that
+    intersects it (the writer deletes intersecting rows and recomputes only inside the window,
+    so a narrower window would lose the rest of a multi-day row). Clamp to the span the daemon
+    seeds for that symbol; skip a date outside it (a symbol listed after 2021-12-31 gets no gap).
+  - [ ] Minute passes `precomputed_ranges` from `compute_missing_minute_sessions` (as
+    `daemon/minute.py` does; without them the writer inserts one gap over the whole window);
+    daily lets the writer call `compute_missing_ranges`. Take the advisory lock as the daemons
+    do (they may run at the same time). Pass the row's current `acquisition_state.last_attempt_outcome` so reconciliation does not
+    change it, and `FetchStatus.UNKNOWN` for unfilled rows.
+  - [ ] The report lists gap rows over the changed dates before and after, per symbol and
+    granularity.
+- [ ] **5.2 Tests** (`test/integration/test_calendar_gap_reconcile.py`, throwaway DB)
+  - [ ] A gap row covering 2025-01-08..2025-01-10 is replaced by rows for 01-08 and 01-10 only;
+    a gap row for 2025-01-09 alone is removed.
+  - [ ] A symbol with no bars on 2021-12-31 gains a gap row for it in both granularities; a
+    symbol with bars does not; a symbol whose history starts in 2023 does not.
+  - [ ] `last_attempt_outcome` and gap rows on unchanged dates are untouched. After
+    reconciliation, gap rows over the changed dates match a fresh recompute (criterion 10,
+    gap part).
+
+No commit here: sections 5 and 6 commit together at the section 6 marker.
+
+## 6. The cutover script
+
+- [ ] **6.1 `scripts/cutover_174_calendar.py`**
+  - [ ] Read `scripts/cutover_301_calendar_history.py` first and follow it: one command, a
+    log and a report, check-then-act, no prompts.
+  - [ ] While the 174 migration is pending: run `plan_nyse_session_changes` and print it with
+    the gap rows over its dates (dry check); stop with an error if it differs from
+    `EXPECTED_SESSION_CHANGES`; apply pending minute migrations; re-plan and require it empty.
+  - [ ] Once it is applied (by this run, an earlier run, or `mt data migrate apply`): require
+    an empty plan, then run `reconcile_calendar_gaps` over the pinned dates. Reconciliation is
+    keyed on the pinned dates, so a migration applied through the generic path is reconciled
+    the next time the cutover runs.
+  - [ ] Write the report (plan or "migration already applied", migration id, gap rows
+    before/after) to `user/notes/` with a timestamped name, as earlier cutovers do. A re-run
+    reports no gap row changes.
+- [ ] **6.2 Test** (`test/integration/test_cutover_174_calendar.py`, throwaway DB at the
+  previous migration id, cutover behavior only): the first run applies and reconciles; a
+  second run reports no gap row changes; after `mt data migrate apply` alone, the cutover
+  still reconciles; a pending migration with a plan that differs from the pinned set stops
+  before any write.
+
+**Commit**: `feat: reconcile NYSE gap rows through a calendar cutover (#26)`
+
+## 7. Adjustment by exchange-local date (design D5)
+
+- [ ] **7.1 `adjusted()` takes the timezone its dates are read in**
+  - [ ] `src/manta_trading/data/adjustment/_adjusted.py`: a required keyword
+    `dates_in: ZoneInfo`; each bar's factor date is its index timestamp converted to that
+    zone, then `.date()`. No default.
+  - [ ] `TimescaleMinuteDataDB` passes the symbol's calendar timezone (`instruments.
+    trading_calendar_id` → `trading_calendars.timezone`, one lookup per read). A symbol with
+    no calendar raises an error naming the symbol.
+  - [ ] `TimescaleDailyDataDB`: read how daily bars are stamped and pass the zone that keeps
+    each bar's session date unchanged (UTC if stamped at 00:00 UTC), with a one-line comment.
+    Daily values must not change.
+  - [ ] Update the seven existing `adjusted()` calls in
+    `test/unit/data/adjustment/test_adjusted.py` to pass `dates_in`.
+- [ ] **7.2 Tests**
+  - [ ] Unit (`test/unit/data/adjustment/test_adjusted.py`): a winter minute at 00:30Z on the
+    ex-date's UTC date (19:30 ET the evening before) takes the previous day's factor; in
+    summer, the 20:00 EDT close stamp (00:00Z on the ex-date's UTC date) does too; a daily
+    frame is unchanged. Run both cases against the unfixed code first and confirm they fail.
+  - [ ] Integration (throwaway DB): pick a winter Tuesday-to-Friday ex-date from
+    `corporate_actions` fixtures or seed one; every adjusted `1m` bar of the evening session
+    before it, 19:00-19:59 ET included, uses that session's factor (criterion 7, `utc` part;
+    the `extended` part is in section 9). In the same setup, the `utc` `1h` bucket at 00:00Z
+    (the 19:00-19:59 ET minutes) uses that session's factor, not the ex-date's.
+
+**Commit**: `feat: pick the intraday adjustment factor by exchange-local date (#28)`
+
+## 8. Session phases, enums and estimates
+
+- [ ] **8.1 Enums and the pure phase module**
+  - [ ] `constants.py`: `SessionMode` (`utc`, `regular`, `extended`) and `SessionPhase`
+    (`pre`, `regular`, `post`) as `StrEnum`s, each defined once.
+  - [ ] New `src/manta_trading/market/session_phases.py`: `SessionBounds` (session date, the
+    four UTC bounds); `phases_for(bounds, mode)` returns the half-open phase intervals the
+    mode reads (pre `[extended_open, open)`, regular `[open, close)`, post `[close,
+    extended_close)`; design D2: a bar never crosses a phase); `assign(ts, bounds, mode,
+    width)` returns a minute's phase and bucket start (`anchor + floor((ts - anchor) / width)
+    * width`, anchor = phase start), or `None` outside the phases read; `estimate_bars(bounds_list,
+    mode, width)` sums `ceil(phase_minutes / width)` per phase; `estimate_minutes(...)` sums
+    phase lengths. An `extended` call on bounds with a `None` extended side raises.
+- [ ] **8.2 Tests** (`test/unit/market/test_session_phases.py`)
+  - [ ] Full session at 1h: regular 7, extended 17 (pre 6, regular 7, post 4); extended 4h 5;
+    early close (13:00) regular 1h 4. Minutes: 390 regular, 960 extended, 210 regular early
+    close. DST weekend sessions give the same counts.
+  - [ ] Bounds with a `None` extended side raise for `extended` and work for `regular`.
+  - [ ] `assign` at full-day, early-close and DST boundaries: 09:29 ET is pre (bucket 09:00),
+    09:30 regular (bucket 09:30), 10:29 bucket 09:30, 15:59 bucket 15:30, 16:00 post; on an
+    early close 12:59 bucket 12:30 and 13:00 post; the extended close instant is `None`; the
+    same ET times either side of a DST change give buckets an hour apart in UTC.
+
+No commit here: sections 8 and 9 commit together at the section 9 marker.
+
+## 9. Session SQL and `get_session_bars`
+
+- [ ] **9.1 Extract the eligible OHLCV expressions**
+  - [ ] In `eligible_rollups_sql.py`, move the `FIRST`/`MAX`/`MIN`/`LAST`/`SUM ... FILTER`
+    forms of `eligible_rollup_select` into a helper the session statement can call. No
+    behavior change.
+  - [ ] Test: the rendered `eligible_rollup_select` text for each granularity equals the text
+    rendered before the change; the existing rollup and value-parity tests pass.
+
+**Commit**: `refactor: extract the eligible OHLCV expressions for reuse` (stage only this
+task's files; section 8's files wait for the section 9 marker)
+
+- [ ] **9.2 The statement**
+  - [ ] New `src/manta_trading/market/session_bars_sql.py`: render one statement that joins
+    the symbol's `trading_sessions` rows (session dates in `[start, end]`) to `minute_ohlcv`
+    rows in the phases the mode reads, assigns each minute its phase and bucket
+    (`anchor + floor((time - anchor) / width) * width`, anchor = phase start), and groups by
+    session date, phase and bucket.
+  - [ ] Prices and volume use `eligible_value` / `has_eligible_price` and the same
+    `FIRST`/`MAX`/`MIN`/`LAST`/`SUM ... FILTER` forms through the 9.1 helper. `prints=all` renders
+    raw columns. A bucket with no eligible price has no bar.
+  - [ ] Regular mode references only `session_open_utc`/`session_close_utc` (section 10
+    measures it on production before the migration lands there).
+- [ ] **9.3 `TimescaleMinuteDataDB.get_session_bars`**
+  - [ ] Beside `get_minute_data`: `(symbol, granularity, mode, start, end, *, adjusted,
+    prints)`, returning a frame indexed by bucket start with OHLCV plus `session_date` and
+    `phase`. Width comes from the existing granularity-to-minutes table in `constants.py`.
+  - [ ] Raises `OutOfHorizonError` when `end` is past the calendar's `holidays_seeded_through`.
+    An `extended` read over a session row with a NULL extended bound raises an error that
+    names the symbol and date (logged as a 500 by the global handler).
+  - [ ] Adjustment inside, through `adjusted(..., dates_in=<calendar tz>)`, as
+    `get_minute_data` does.
+- [ ] **9.4 Integration tests** (`test/integration/test_session_bars.py`, throwaway DB with
+  migrated calendar rows and seeded minutes)
+  - [ ] Criteria 1-4: regular 1h full session 7 bars from 09:30 ET with `phase=regular`;
+    2025-11-28 4 bars, last 12:30 ET; extended 6/7/4 with no bar crossing 09:30 or the close;
+    09:30 ET anchoring either side of both DST changes.
+  - [ ] Criterion 5: for at least two seeded symbols (one with off-tape marks), 1m, 5m, 15m, 1h
+    and 4h, both modes, each bar equals the aggregate of the eligible 1m bars it covers (open,
+    high, low, close, volume), including a bucket with an off-tape-marked minute and an
+    all-marked bucket (absent).
+  - [ ] Every seeded minute's SQL phase and bucket equal `assign`'s.
+  - [ ] Criterion 6: a minute seeded at the extended close instant is in no session bar, at
+    `1m` with `extended` (as walkthrough step 6 reads it).
+  - [ ] With the connection's `TIME ZONE` set to `America/Denver` (production's), a session
+    whose post-market minutes cross UTC midnight returns the same `session_date` on every bar
+    as under UTC.
+  - [ ] Criterion 7, `extended` part: the same post-market minute gets the same factor from
+    `get_minute_data` and `get_session_bars`.
+  - [ ] Bar counts equal `estimate_bars` for full, early-close and DST sessions (keeps the SQL
+    and the estimator in agreement). `prints=all` returns raw values. Past the horizon raises
+    `OutOfHorizonError`; a NULL extended bound raises.
+
+**Commit**: `feat: build session-aligned equity bars at read time`
+
+## 10. The session minute ceiling, measured on production
+
+Done before anything reads the ceiling, so no commit carries an unmeasured default.
+
+- [ ] **10.1 Measure and set the default** (design D6, admission)
+  - [ ] A one-off script outside the repo, run with `uv run python`, URLs from `Settings`, one
+    read-only transaction on production with the serving statement timeout. It writes nothing.
+  - [ ] Symbol: the one with the most regular-hours minute rows over the last year (from the
+    coverage cagg). Time `get_session_bars` regular 1h over windows of 3, 6, 12, 24 and 36
+    months ending at the latest held session, 20 runs each; record each window's minute
+    estimate (`estimate_minutes`) and its p95. A run cancelled by the statement timeout
+    counts as over 5 s.
+  - [ ] Default rule: the largest measured minute count whose p95 is within 5 s (a quarter of
+    the 20 s timeout), rounded down to a round number. It must admit the 12-month window,
+    whose p95 must be under 2 s (the load-test bound for the same read in 13.1). If either
+    fails, write `BLOCKED:` with the timings, stop tasks 11, 12.2-12.3 and 13 and the
+    measured numbers in 14.1, and continue everything else.
+  - [ ] Add `MAX_SESSION_MINUTES_PER_REQUEST` to `constants.py` beside
+    `API_MAX_BARS_PER_REQUEST`, its docstring recording the date, symbol, windows and timings
+    and naming `MT_API_MAX_SESSION_MINUTES`; add `api_max_session_minutes` to `Settings`
+    (`config/__init__.py`, `gt=0`) and a dependency beside `get_max_bars`.
+  - [ ] Write `user/notes/174-session-minute-measurement.md` (front matter as the 309 note):
+    procedure, table, the default chosen.
+  - [ ] If production is unreachable, write `BLOCKED:` here, with the same stop list as above.
+
+No commit here: sections 10 and 11 commit together at the section 11 marker.
+
+## 11. Session admission
+
+- [ ] **11.1 Refusals and estimates**
+  - [ ] `RefusalReason` gains `CALENDAR_HORIZON`, `MINUTE_CEILING`, `SESSION_GRANULARITY`.
+  - [ ] Static checks in `bars_admission.check_request` (no DB): `session` other than `utc`
+    with `1d`, `1w`, `1mo`, `1q` → 422 `session_granularity`; `prints=all` allowed at every
+    intraday size when `session` is not `utc`, unchanged (1m only) for `utc`.
+  - [ ] Session checks in a new `api_server/routes/bars_session_admission.py`, run in the
+    executor after the static checks: look up the symbol's calendar (unknown symbol → the
+    existing 404); `end` past `holidays_seeded_through` → 422 `calendar_horizon` with the
+    bound; read the range's session bounds once and refuse over the row ceiling
+    (`estimate_bars`, `row_ceiling` as today) or over the minute ceiling (`estimate_minutes`,
+    422 `minute_ceiling` with `limit` and `estimate`). The 186 estimator stays for `utc`.
+  - [ ] With `limit`: unchanged (design D6), only the existing `limit` ≤ row ceiling check. A
+    minute bound for session `limit` reads is deferred to issue #82.
+- [ ] **11.2 Tests** (`test/unit/api_server/test_bars_session_admission.py`, plus an
+  integration test for the DB-backed checks)
+  - [ ] Each refusal's status, `reason` and fields; `prints=all` at 1h with `regular` admitted
+    and at 1h with `utc` refused; a range ending 2028-12-31 admitted and 2029-01-02 refused.
+
+**Commit**: `feat: admit session bar requests by minute ceiling and horizon`
+
+## 12. Response models and the route
+
+- [ ] **12.1 Models** (`api_server/models/responses.py`)
+  - [ ] `SessionBarRecord` (`BarRecord` plus `session_date`, `phase: SessionPhase`) and a
+    session response model whose bars are `SessionBarRecord`, built `from_dataframe` like
+    `BarsResponse`. `BarsResponse`/`BarRecord` unchanged (design D9: session fields only on
+    session responses).
+  - [ ] `AppliedEquityBarParams` gains `session: SessionMode`.
+- [ ] **12.2 Route** (`api_server/routes/bars.py`)
+  - [ ] `session: SessionMode = SessionMode.UTC` query parameter; its description says that in
+    session mode `start`/`end` are session dates, and with `utc` UTC dates.
+  - [ ] `_fetcher` calls `get_session_bars` when `session` is not `utc`; the route stays a thin
+    wrapper. No freshness probe in session mode (`is_stale` false, as for `1m`). `limit`
+    reuses the same `fetch` closure.
+  - [ ] `responses=` declares both 200 bodies, so `openapi.json` shows both.
+- [ ] **12.3 Tests** (`test/unit/api_server/test_bars_session.py`, integration in
+  `test/integration/api_server/`)
+  - [ ] Criterion 8: with no `session`, the body equals today's plus `applied.session = "utc"`,
+    with no `session_date`/`phase` keys; the existing bars tests pass unchanged apart from
+    `applied`. The test that pins `applied` keys to the route's parameters passes.
+  - [ ] Session responses carry `session_date` and `phase`; criterion 9's three refusals
+    through the route; `limit` with `regular` returns the latest N session bars.
+
+**Commit**: `feat: serve session-aligned bars on /api/v1/bars`
+
+## 13. Load test
+
+- [ ] **13.1 One-year regular 1h read** (`test/load/test_174_session_bars_nfr.py`, template
+  `test/load/test_309_time_bars_nfr.py`)
+  - [ ] Entry point: the HTTP route through `httpx.ASGITransport` against `create_app` on a
+    test-cluster database, with the shipped minute ceiling, as the template does. Seed a year
+    of SPY minutes; run the one-year `1h` `regular` read repeatedly while polling
+    `/api/v1/health`.
+  - [ ] Pass: the read is admitted, its p95 is under 2 s (20 s statement timeout as the hard
+    limit), and `/health` p95 is under 0.5 s during it. Record the numbers in the 174
+    measurement note.
+  - [ ] Gate: `MT_RUN_LOAD_TESTS=1`, and the docstring gives the manual command, as the
+    template does. CI runs no test job and GitHub-hosted runners cannot reach the test
+    cluster. No CI wiring task here: the gate is deferred to issue #32 (and slice 907), and
+    this test is recorded on #32.
+
+**Commit**: `test: add the session bars load test`
+
+## 14. Docs, OpenAPI, architecture and changelog
+
+- [ ] **14.1 API references and OpenAPI**
+  - [ ] `docs/api/reference.md` and `docs/api/agents.md`: `session` and its values; session
+    dates in session mode; `session_date`, `phase`; the short last bar of a phase (its
+    `timestamp` is its start); the three new 422 reasons; the close-stamp bar from the section
+    1 note and what it means for regular-session volume; the D5 adjustment rule.
+  - [ ] Regenerate `docs/api/openapi.json` as earlier slices did; `scripts/check_api_docs.py`
+    and `test/integration/test_api_docs_examples.py` pass.
+- [ ] **14.2 Architecture amendments** (design Included item 6)
+  - [ ] `140-arch.data-quality-operations.md`: equity caggs section (session reads bypass the
+    caggs); the `adjusted()` date rule (exchange-local date); the `prints=all` rule (every
+    intraday size in session mode); the calendar contract (new `trading_sessions` and
+    `trading_holidays` columns, explicit NYSE/NASDAQ rows).
+  - [ ] `180-arch.data-serving.md`: the bars contract (`session`, `session_date`, `phase`, the
+    new refusals, the session ceiling).
+- [ ] **14.3 CHANGELOG** (Unreleased): the feature, the #26 calendar fix, and the D5
+  correction called out as a client-visible change to winter post-market adjusted values.
+
+**Commit**: `docs: document session-aligned equity bars and amend 140 and 180`
+
+## 15. Full validation
+
+- [ ] **15.1 Checks**
+  - [ ] Unit, integration and load tiers run separately; no failure beyond the known
+    pre-existing ones (each re-run in isolation).
+  - [ ] `ruff check`, `ruff format --check` and mypy on touched files add no errors over main.
+  - [ ] Walk the design's success criteria 1-11 and confirm each maps to a passing test or a
+    written note; list any that does not under this task (criterion 11 when the 1.1 finding
+    is "not established").
+
+**Commit**: `test: validate slice 174` (only if this section changed files)
+
+## Phase 7 (not in this file)
+
+Release, the cutover, the production walkthrough and telling clients follow the `/release`
+skill and the design's Verification Walkthrough after the code review passes. The cutover is
+`uv run python scripts/cutover_174_calendar.py vX.Y.Z` (the `/release` new-migration step);
+it applies the migration itself, so `mt data migrate apply` is not run first. Confirm the UI
+agent's name (the design's mt-ui) with `ListAgents`. Then close #26 and comment on #28 that
+its intraday half is done.
