@@ -95,18 +95,23 @@ def _patch_runner_psycopg_connect():
 @pytest.fixture(autouse=True)
 def _stub_calendar_session_extension():
     """Stub the session extension migrations 058's and 059's callables run,
-    and 066's whole callable.
+    and 066's and 068's whole callables.
 
     The runner tests here hand every migration MagicMock connections, whose
     rows are not dates. The extension has its own integration tests
     (``test_calendar_extension.py``, ``test_migration_057_058_cme_calendar.py``),
-    and 066 its own (``test_migration_066_cme_calendar_history.py``).
+    and 066 its own (``test_migration_066_cme_calendar_history.py``), and 068
+    its own (``test_migration_nyse_session_bounds.py``).
     """
     with (
         patch("manta_trading.data.base.session_extension.extend_calendar_sessions"),
         patch(
             "manta_trading.market.schema.migrations.cme_calendar_history."
             "apply_cme_calendar_history"
+        ),
+        patch(
+            "manta_trading.market.schema.migrations.nyse_session_bounds."
+            "apply_nyse_session_bounds"
         ),
     ):
         yield
@@ -238,7 +243,8 @@ class TestMigrationsListIntegrity:
         # 67 -> 68 with 065 (instruments.name, issue #60).
         # 68 -> 69 with slice 301's 066 (CME calendar history).
         # 69 -> 70 with 067 (index instruments' .INDX symbols, issue #46).
-        assert len(MIGRATIONS) == 70
+        # 70 -> 71 with slice 174's 068 (NYSE session bounds, issue #26).
+        assert len(MIGRATIONS) == 71
 
 
 # ---------------------------------------------------------------------------
@@ -1317,12 +1323,12 @@ class TestMigration052CoverageRefreshPolicies:
         assert _interval_literal(COVERAGE_BUCKET_INTERVAL) in self._get()["sql"]
 
 
-def test_chain_ends_at_067() -> None:
+def test_chain_ends_at_068() -> None:
     """The newest migration must be last (slice 922 retargeted this from 054;
     slice 221 from 056; slice 232 from 058; slice 234 from 059; the weekly
     refresh-window fix from 060; slice 171 from 061; slice 172 from 062;
     slice 173 from 063; issue #60 from 064; slice 301 from 065; issue #46 from
-    066).
+    066; slice 174 from 067).
 
     Carries the check ``TestMigration050DailyChunkInterval`` used to make about
     050. Retarget this when a later slice adds a migration — that is the point:
@@ -1333,7 +1339,7 @@ def test_chain_ends_at_067() -> None:
     (see ``POSITION_CRITICAL_IDS``), which is why the tip check names a later
     migration.
     """
-    assert MINUTE_MIGRATIONS[-1]["id"] == "067_index_instruments_indx_symbols"
+    assert MINUTE_MIGRATIONS[-1]["id"] == "068_nyse_session_bounds"
 
 
 class TestMigration061WeeklyRefreshWindow:

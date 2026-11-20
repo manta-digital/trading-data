@@ -421,6 +421,15 @@ def _apply_cme_calendar_history(conn: Any) -> None:
     apply_cme_calendar_history(conn)
 
 
+def _apply_nyse_session_bounds(conn: Any) -> None:
+    """Python callable for migration 068 (slice 174); see its module."""
+    from manta_trading.market.schema.migrations.nyse_session_bounds import (
+        apply_nyse_session_bounds,
+    )
+
+    apply_nyse_session_bounds(conn)
+
+
 def _history_horizon_disjunct() -> str:
     """Build the third disjunct of the symbols_x_granularity WHERE clause.
 
@@ -2818,5 +2827,21 @@ MINUTE_MIGRATIONS: list[dict[str, Any]] = [
             "Idempotent."
         ),
         "sql": INDEX_SYMBOLS_SQL,
+    },
+    {
+        "id": "068_nyse_session_bounds",
+        "description": (
+            "Extended session bounds and explicit NYSE/NASDAQ holidays (slice "
+            "174, #26): add trading_sessions.extended_open_utc/"
+            "extended_close_utc and trading_holidays.extended_close_time, "
+            "replace both calendars' holidays with the dated 2020-2028 rows "
+            "(2021-12-31 and 2020/2026-07-02 full days, 2025-01-09 closed, "
+            "early closes with a 17:00 extended close), move "
+            "holidays_seeded_through to 2028-12-31, rewrite every session with "
+            "both extended bounds and delete the dates now closed. Gap rows "
+            "over the changed dates are reconciled by "
+            "scripts/cutover_174_calendar.py."
+        ),
+        "python_fn": _apply_nyse_session_bounds,
     },
 ]

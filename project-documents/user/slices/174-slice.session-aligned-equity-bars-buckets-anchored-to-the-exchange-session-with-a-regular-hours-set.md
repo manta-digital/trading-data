@@ -190,6 +190,7 @@ Status: decided
 
 - Session bars filter by `trading_sessions`. A wrongly closed day (2021-12-31) drops a real session's bars, and from 2027-01-01 every holiday becomes a trading day in the table. This slice already adds columns to `trading_sessions` and re-populates it, so fixing #26 in the same migration touches the table once.
 - Holidays and early closes for 2020–2028 become explicit dated rows from NYSE's published schedule. Early-close rows also carry the extended close (17:00 ET, which #78's 17:00 stamps confirm). NASDAQ uses the same rows.
+- **Amended in implementation (PM, 2026-11-19):** the rule generator also made 2020-07-02 and 2026-07-02 13:00 early closes. With July 4 on a Saturday, NYSE closes Friday the 3rd and does not shorten Thursday; NYSE's schedule and production minutes (closing spike at 16:00, minutes past 17:00) agree. Both become full sessions in the same migration, listed as `retimed`.
 - **Gap rows.** `data_gaps` never stores holiday ranges, and gap rows change only when a range is recomputed. After the migration, the cutover recomputes gaps through the existing gap writer over every date whose status changed, for the minute and daily granularities:
   - a date that stops being a session (2025-01-09, the 2027–2028 holidays) loses any gap row that covered it;
   - a date that becomes a session (2021-12-31) gains a gap row if bars are missing.

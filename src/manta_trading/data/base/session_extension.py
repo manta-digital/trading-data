@@ -37,6 +37,20 @@ _UPSERT_SESSIONS_SQL = """
             session_close_utc = EXCLUDED.session_close_utc
 """
 
+_UPSERT_SESSIONS_EXTENDED_SQL = """
+    INSERT INTO trading_sessions
+        (calendar_id, session_date, session_open_utc, session_close_utc,
+         extended_open_utc, extended_close_utc)
+    VALUES (%(calendar_id)s, %(session_date)s,
+            %(session_open_utc)s, %(session_close_utc)s,
+            %(extended_open_utc)s, %(extended_close_utc)s)
+    ON CONFLICT (calendar_id, session_date) DO UPDATE
+        SET session_open_utc   = EXCLUDED.session_open_utc,
+            session_close_utc  = EXCLUDED.session_close_utc,
+            extended_open_utc  = EXCLUDED.extended_open_utc,
+            extended_close_utc = EXCLUDED.extended_close_utc
+"""
+
 
 def holiday_bound_message(
     calendar_id: str, horizon: date | None, holidays_seeded_through: date
@@ -81,16 +95,20 @@ def extend_calendar_sessions(
         ValueError: ``calendar_id`` is not in ``trading_calendars``.
         NoHoursEraError: the calendar is dated and has no era for ``start``.
     """
-    calendars_row, seeded_through = _read_calendar(conn, calendar_id)
+    extended = has_extended_columns(conn)
+    calendars_row, seeded_through = _read_calendar(conn, calendar_id, extended)
     clamped = end > seeded_through
     effective_end = min(end, seeded_through)
 
     rows_upserted = 0
     if start <= effective_end:
-        rows = _populate(conn, calendar_id, start, effective_end, calendars_row)
+        rows = _populate(
+            conn, calendar_id, start, effective_end, calendars_row, extended
+        )
         if rows:
+            sql = _UPSERT_SESSIONS_EXTENDED_SQL if extended else _UPSERT_SESSIONS_SQL
             with conn.cursor() as cur:
-                cur.executemany(_UPSERT_SESSIONS_SQL, rows)
+                cur.executemany(sql, rows)
                 rows_upserted = cur.rowcount
 
     return CalendarExtension(
@@ -108,9 +126,10 @@ def _populate(
     start: date,
     end: date,
     calendars_row: dict[str, Any],
+    extended: bool,
 ) -> list[dict[str, Any]]:
     """Session rows for ``[start, end]``, split at era boundaries when dated."""
-    holidays = _read_holidays(conn, calendar_id)
+    holidays = _read_holidays(conn, calendar_id, extended)
     if not is_dated(conn, calendar_id):
         return populate_trading_sessions(
             calendar_id, start, end, calendars_row, holidays
@@ -132,13 +151,31 @@ def _populate(
     return rows
 
 
+def has_extended_columns(conn: psycopg.Connection[Any]) -> bool:
+    """Whether ``trading_sessions`` has the extended bound columns (slice 174).
+
+    Migrations 058 and 066 extend sessions before the 174 migration adds them,
+    so a fresh database replays this code against both schemas.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = current_schema() "
+            "AND table_name = 'trading_sessions' "
+            "AND column_name = 'extended_open_utc')"
+        )
+        row = cur.fetchone()
+    return bool(row and row[0])
+
+
 def _read_calendar(
-    conn: psycopg.Connection[Any], calendar_id: str
+    conn: psycopg.Connection[Any], calendar_id: str, extended: bool
 ) -> tuple[dict[str, Any], date]:
     """The calendar's population inputs and its holiday bound."""
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT timezone, market_open, market_close, holidays_seeded_through "
+            "SELECT timezone, market_open, market_close, holidays_seeded_through, "
+            "has_extended_hours, extended_open, extended_close "
             "FROM trading_calendars WHERE calendar_id = %s",
             (calendar_id,),
         )
@@ -150,16 +187,22 @@ def _read_calendar(
         "market_open": row["market_open"],
         "market_close": row["market_close"],
     }
+    if extended:
+        calendars_row["has_extended_hours"] = row["has_extended_hours"]
+        calendars_row["extended_open"] = row["extended_open"]
+        calendars_row["extended_close"] = row["extended_close"]
     return calendars_row, row["holidays_seeded_through"]
 
 
 def _read_holidays(
-    conn: psycopg.Connection[Any], calendar_id: str
+    conn: psycopg.Connection[Any], calendar_id: str, extended: bool
 ) -> list[dict[str, Any]]:
+    columns = "holiday_date, market_status, early_close_time, late_open_time"
+    if extended:
+        columns += ", extended_close_time"
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT holiday_date, market_status, early_close_time, late_open_time "
-            "FROM trading_holidays WHERE calendar_id = %s",
+            f"SELECT {columns} FROM trading_holidays WHERE calendar_id = %s",
             (calendar_id,),
         )
         return list(cur.fetchall())

@@ -222,8 +222,9 @@ def _dump(url: str, first: date) -> list[tuple[Any, ...]]:
     with psycopg.connect(url) as connection:
         return connection.execute(
             "SELECT calendar_id, session_date, session_open_utc, session_close_utc "
-            "FROM trading_sessions WHERE session_date >= %s ORDER BY 1, 2",
-            (first,),
+            "FROM trading_sessions WHERE session_date >= %s "
+            "AND calendar_id = ANY(%s) ORDER BY 1, 2",
+            (first, list(_CME)),
         ).fetchall()
 
 

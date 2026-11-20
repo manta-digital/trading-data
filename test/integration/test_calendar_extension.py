@@ -16,6 +16,9 @@ from psycopg_pool import ConnectionPool
 from manta_trading.data.base.session_eras import is_dated
 from manta_trading.data.base.session_extension import extend_calendar_sessions
 from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+from manta_trading.market.schema.nyse_calendar_history import (
+    NYSE_HOLIDAYS_SEEDED_THROUGH,
+)
 from manta_trading.market.schema.runner import apply_migrations
 
 _TEST_CALENDAR = "ZZZ221_EXT"
@@ -52,12 +55,16 @@ def test_057_column_is_not_null(conn: psycopg.Connection) -> None:
     assert row == ("NO",)
 
 
-def test_057_nyse_nasdaq_seeded_through_2026(conn: psycopg.Connection) -> None:
+def test_nyse_nasdaq_seeded_through_bound(conn: psycopg.Connection) -> None:
+    # 057 set 2026-12-31; slice 174's 068 moves it to the explicit table's end.
     rows = conn.execute(
         "SELECT calendar_id, holidays_seeded_through FROM trading_calendars "
         "WHERE calendar_id IN ('NYSE', 'NASDAQ') ORDER BY calendar_id"
     ).fetchall()
-    assert rows == [("NASDAQ", date(2026, 12, 31)), ("NYSE", date(2026, 12, 31))]
+    assert rows == [
+        ("NASDAQ", NYSE_HOLIDAYS_SEEDED_THROUGH),
+        ("NYSE", NYSE_HOLIDAYS_SEEDED_THROUGH),
+    ]
 
 
 def test_extension_clamps_to_holiday_bound(

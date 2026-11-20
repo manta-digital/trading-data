@@ -25,6 +25,9 @@ from manta_trading.cli.app import app
 from manta_trading.data.base.session_extension import extend_calendar_sessions
 from manta_trading.data.base.trading_calendar import MarketStatus
 from manta_trading.market.schema.migrations.minute import MINUTE_MIGRATIONS
+from manta_trading.market.schema.nyse_calendar_history import (
+    NYSE_HOLIDAYS_SEEDED_THROUGH,
+)
 from manta_trading.market.schema.runner import apply_migrations
 from manta_trading.market.schema.seed_cme_calendar import (
     CME_EQUITY_CALENDAR_ID,
@@ -197,13 +200,15 @@ def test_reapplying_is_a_noop(migrated_db: str) -> None:
 
 
 def test_nyse_sessions_unchanged(ephemeral_db: str) -> None:
-    cut = next(
-        i for i, m in enumerate(MINUTE_MIGRATIONS) if m["id"] == _FIRST_221_MIGRATION
-    )
+    # Through 067: slice 174's 068 rewrites NYSE/NASDAQ sessions on purpose
+    # (test_migration_nyse_session_bounds.py pins what it changes).
+    ids = [m["id"] for m in MINUTE_MIGRATIONS]
+    cut = ids.index(_FIRST_221_MIGRATION)
+    before_174 = ids.index("068_nyse_session_bounds")
     with ConnectionPool(ephemeral_db, min_size=1, max_size=2) as pool:
         apply_migrations(pool, MINUTE_MIGRATIONS[:cut])
         through_056 = _dump_sessions(ephemeral_db)
-        apply_migrations(pool, MINUTE_MIGRATIONS)
+        apply_migrations(pool, MINUTE_MIGRATIONS[:before_174])
         through_058 = _dump_sessions(ephemeral_db)
         with pool.connection() as connection:
             for calendar_id in _NYSE_NASDAQ:
@@ -257,8 +262,8 @@ def test_calendars_list_shows_every_calendar(session_migrated_db: str) -> None:
     assert bounds == {
         CME_EQUITY_CALENDAR_ID: CME_EQUITY_HOLIDAYS_SEEDED_THROUGH.isoformat(),
         CME_METALS_CALENDAR_ID: CME_METALS_HOLIDAYS_SEEDED_THROUGH.isoformat(),
-        "NASDAQ": "2026-12-31",
-        "NYSE": "2026-12-31",
+        "NASDAQ": NYSE_HOLIDAYS_SEEDED_THROUGH.isoformat(),
+        "NYSE": NYSE_HOLIDAYS_SEEDED_THROUGH.isoformat(),
     }
 
 

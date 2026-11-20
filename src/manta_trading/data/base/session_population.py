@@ -72,8 +72,20 @@ def populate_trading_sessions(
         are absent. Each interval comes from :func:`session_interval`, so the
         open-after-close rule applies to every calendar; for a calendar whose
         open precedes its close (NYSE, NASDAQ) the output is unchanged.
+
+        When ``calendars_row`` carries ``has_extended_hours`` (with
+        ``extended_open``/``extended_close``), each row also has
+        ``extended_open_utc`` and ``extended_close_utc`` (``None`` for a
+        calendar without extended hours); a holiday row's
+        ``extended_close_time`` overrides the close. Without the key the rows
+        have no extended keys, as before slice 174.
+
+    Raises:
+        ValueError: the calendar has extended hours but no extended times.
     """
     tz = ZoneInfo(calendars_row["timezone"])
+    with_extended = "has_extended_hours" in calendars_row
+    extended = _extended_inputs(calendar_id, calendars_row) if with_extended else None
     default_open: time = calendars_row["market_open"]
     default_close: time = calendars_row["market_close"]
 
@@ -108,14 +120,59 @@ def populate_trading_sessions(
             current, open_t, close_t, tz
         )
 
-        rows.append(
-            {
-                "calendar_id": calendar_id,
-                "session_date": current,
-                "session_open_utc": session_open_utc,
-                "session_close_utc": session_close_utc,
-            }
-        )
+        row: dict[str, Any] = {
+            "calendar_id": calendar_id,
+            "session_date": current,
+            "session_open_utc": session_open_utc,
+            "session_close_utc": session_close_utc,
+        }
+        if with_extended:
+            row.update(_extended_bounds(current, extended, holiday, tz))
+        rows.append(row)
         current += one_day
 
     return rows
+
+
+def _extended_inputs(
+    calendar_id: str, calendars_row: dict[str, Any]
+) -> tuple[time, time] | None:
+    """The calendar's default extended ``(open, close)``, or ``None`` without them.
+
+    Callers that write the extended columns pass ``has_extended_hours``; a
+    calendar with extended hours must carry both times (no silent fallback).
+    """
+    if not calendars_row["has_extended_hours"]:
+        return None
+    ext_open, ext_close = (
+        calendars_row.get("extended_open"),
+        calendars_row.get("extended_close"),
+    )
+    if ext_open is None or ext_close is None:
+        raise ValueError(
+            f"calendar {calendar_id!r} has extended hours but no extended "
+            f"open/close (extended_open={ext_open}, extended_close={ext_close})"
+        )
+    return ext_open, ext_close
+
+
+def _extended_bounds(
+    session_date: date,
+    extended: tuple[time, time] | None,
+    holiday: dict[str, Any] | None,
+    tz: ZoneInfo,
+) -> dict[str, datetime | None]:
+    """``extended_open_utc``/``extended_close_utc`` for one session.
+
+    A holiday row's ``extended_close_time`` (an early close's late session)
+    overrides the calendar's extended close.
+    """
+    if extended is None:
+        return {"extended_open_utc": None, "extended_close_utc": None}
+    ext_open, ext_close = extended
+    if holiday is not None and holiday.get("extended_close_time") is not None:
+        ext_close = holiday["extended_close_time"]
+    ext_open_utc, ext_close_utc = session_interval(
+        session_date, ext_open, ext_close, tz
+    )
+    return {"extended_open_utc": ext_open_utc, "extended_close_utc": ext_close_utc}

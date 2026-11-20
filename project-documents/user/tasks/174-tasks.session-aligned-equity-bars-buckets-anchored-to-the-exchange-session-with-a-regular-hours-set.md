@@ -20,7 +20,7 @@ projectState: Slice design committed and its review (CONCERNS) answered. Equity 
   seeded 2020-2026, with 2021-12-31 wrongly closed and 2025-01-09 missing (#26). adjusted()
   picks the factor by UTC date (#28). Latest minute migration is 067 (#46, index symbols).
 dateCreated: 20261119
-dateUpdated: 20261119
+dateUpdated: 20261120
 status: in_progress
 turns: 86
 promptTokens: 7410456
@@ -109,69 +109,74 @@ close-stamp bar is outside every session bar).
 
 ## 2. NYSE/NASDAQ holidays as explicit dated rows
 
-- [ ] **2.1 The holiday table**
-  - [ ] First, fetch the source: NYSE's published holiday and early-close schedule. Record
+- [x] **2.1 The holiday table**
+  - [x] First, fetch the source: NYSE's published holiday and early-close schedule. Record
     the source URL(s) in the module docstring. Early-close rows carry an extended close of
     17:00 ET. If the
     source cannot be fetched, or does not yet publish every 2027 or 2028 date, write
     `BLOCKED:` with what is missing and stop sections 2-6 and 9-13 (they need the migrated
     calendar); never write a row the fetched source does not show. Sections 1, 7, 8, 12.1,
     14.2 and 14.3 continue.
-  - [ ] New module `src/manta_trading/market/schema/nyse_calendar_history.py`: every NYSE
+  - [x] New module `src/manta_trading/market/schema/nyse_calendar_history.py`: every NYSE
     full closure and early close for 2020-2028 as explicit dated rows (date, name, status,
     early close time, extended close time), on the pattern of the `seed_cme_*` data modules
     that `migrations/cme_calendar_history.py` imports. Nothing is generated from a rule.
-  - [ ] Separately, in a new module `market/schema/nyse_session_changes.py`, transcribe from
+  - [x] Separately, in a new module `market/schema/nyse_session_changes.py`, transcribe from
     the same source the literal `EXPECTED_SESSION_CHANGES`, in the plan's buckets (4.1):
-    `opened` 2021-12-31; `closed` 2025-01-09 and each 2027-2028 full closure; `retimed` each
+    `opened` 2021-12-31; `closed` 2025-01-09 and each 2027-2028 full closure; `retimed` 2020-07-02 and 2026-07-02 (full days, not early closes) and each
     2027-2028 early close. It is typed from the source, not derived from the table, so the
     two transcriptions check each other.
-  - [ ] Define `NYSE_HOLIDAYS_SEEDED_THROUGH` (2028-12-31) once in this module. NASDAQ uses
+  - [x] Define `NYSE_HOLIDAYS_SEEDED_THROUGH` (2028-12-31) once in this module. NASDAQ uses
     the same rows; expose one function that returns the rows for a given calendar id.
-  - [ ] Compare against `generate_holidays('NYSE', 2020, 2026)`. The only differences allowed
-    are 2021-12-31 (open, not closed) and 2025-01-09 (closed). If the published schedule
+  - [x] Compare against `generate_holidays('NYSE', 2020, 2026)`. The only differences allowed
+    are 2021-12-31 (open, not closed), 2025-01-09 (closed), and 2020-07-02 and 2026-07-02
+    (full days, not the generator's 13:00 early closes). If the published schedule
     disagrees with any other 2020-2026 row, write `BLOCKED:` with the date and both values
     and stop: the design allows only the known defects to change.
-  - [ ] `generate_holidays` stays for migrations 007/008 (a fresh database replays them).
+  - [x] `generate_holidays` stays for migrations 007/008 (a fresh database replays them).
     Grep its callers; any caller other than those migrations switches to the new table.
-- [ ] **2.2 Tests** (`test/unit/market/schema/test_nyse_calendar_history.py`)
-  - [ ] 2021-12-31 absent, 2025-01-09 a full closure, every 2027 and 2028 year has its
+  PM 2026-11-19: 2020-07-02 and 2026-07-02 were full days the generator made 13:00 early closes; fixed in the same migration as retimed (D8 amended). Generator diff is therefore four dates, not two.
+- [x] **2.2 Tests** (`test/unit/market/schema/test_nyse_calendar_history.py`)
+  - [x] 2021-12-31 absent, 2025-01-09 a full closure, every 2027 and 2028 year has its
     closures, every early-close row has a 17:00 extended close, no weekend dates, no
     duplicate dates, NYSE and NASDAQ rows identical apart from the calendar id.
-  - [ ] The difference from `generate_holidays` over 2020-2026 is exactly the two known
+  - [x] The difference from `generate_holidays` over 2020-2026 is exactly the four known
     dates (pins the comparison above).
-  - [ ] The table's 2027-2028 closures and early closes equal `EXPECTED_SESSION_CHANGES`
+  - [x] The table's 2027-2028 closures and early closes equal `EXPECTED_SESSION_CHANGES`
     for those years, date for date.
+  Result: `test/unit/market/schema/test_nyse_calendar_history.py`, 9 pass.
 
 No commit here: sections 2-4 commit together at the section 4 marker (the table changes no
 behavior until the migration uses it).
 
 ## 3. Extended bounds in session population
 
-- [ ] **3.1 `populate_trading_sessions` computes the extended bounds**
-  - [ ] `src/manta_trading/data/base/session_population.py`: each row gains
+- [x] **3.1 `populate_trading_sessions` computes the extended bounds**
+  - [x] `src/manta_trading/data/base/session_population.py`: each row gains
     `extended_open_utc` and `extended_close_utc`, built with `session_interval` from the
     calendar's `extended_open`/`extended_close` (a holiday's `extended_close_time` overrides
     the close), so each side gets its own UTC offset across DST.
-  - [ ] A calendar with `has_extended_hours = false` gets `None` for both. A calendar with
+  - [x] A calendar with `has_extended_hours = false` gets `None` for both. A calendar with
     `has_extended_hours = true` and a missing extended time raises `ValueError` naming the
     calendar (no silent fallback).
-  - [ ] `session_extension.py`: `_read_calendar` and `_read_holidays` read the new inputs, and
+  - [x] `session_extension.py`: `_read_calendar` and `_read_holidays` read the new inputs, and
     the session insert writes the two columns, so `extend_calendar_sessions` and auto-extend
     write them for new rows. The CME dated-hours path is unchanged (its bounds stay `None`).
-- [ ] **3.2 Tests** (extend `test/unit/data/base/` session population tests)
-  - [ ] A full winter and a full summer NYSE day: extended bounds 09:00Z/01:00Z next day and
+  Note: `populate_trading_sessions` adds the extended bounds only when the calendar row carries `has_extended_hours` (callers without it get the old rows), and `extend_calendar_sessions` writes the two columns only when `has_extended_columns(conn)` is true, so migrations 058 and 066 still replay on a fresh database before 068.
+- [x] **3.2 Tests** (extend `test/unit/data/base/` session population tests)
+  - [x] A full winter and a full summer NYSE day: extended bounds 09:00Z/01:00Z next day and
     08:00Z/00:00Z next day. An early close: extended close 22:00Z (winter). Both DST change
     weekends (2025-11-02, 2026-03-08): the sessions either side carry the right offsets.
-  - [ ] A CME calendar row yields `None` bounds; an extended calendar missing its extended
+  - [x] A CME calendar row yields `None` bounds; an extended calendar missing its extended
     time raises.
+  Result: `test/unit/data/base/test_session_population_extended.py` (new file), 11 pass.
 
 No commit here: section 3 writes columns that section 4's migration adds.
 
 ## 4. The calendar migration and the change plan
 
-- [ ] **4.1 The change plan (dry check core)**
-  - [ ] New module `src/manta_trading/market/schema/nyse_session_plan.py` with
+- [x] **4.1 The change plan (dry check core)**
+  - [x] New module `src/manta_trading/market/schema/nyse_session_plan.py` with
     `plan_nyse_session_changes(conn) -> SessionChangePlan`: reads current NYSE and NASDAQ
     `trading_sessions`, computes the new rows in Python with `populate_trading_sessions` over
     the explicit table from the calendar's first session to `NYSE_HOLIDAYS_SEEDED_THROUGH`,
@@ -181,33 +186,35 @@ No commit here: section 3 writes columns that section 4's migration adds.
     it). Writes nothing. Production's NYSE/NASDAQ rows already run to 2028-12-29 (read
     2026-11-19), so the 2027-2028 closures are `closed`, their early closes `retimed`, and
     `appended` is empty.
-- [ ] **4.2 The migration**
-  - [ ] Read the last id in `MINUTE_MIGRATIONS` (`market/schema/migrations/minute.py`) and
+- [x] **4.2 The migration**
+  - [x] Read the last id in `MINUTE_MIGRATIONS` (`market/schema/migrations/minute.py`) and
     use the next free id; do not trust a number from the design.
-  - [ ] Its `python_fn` lives in a new `market/schema/migrations/nyse_session_bounds.py`
+  - [x] Its `python_fn` lives in a new `market/schema/migrations/nyse_session_bounds.py`
     (as `cme_calendar_history.py` does; `minute.py` is already 127 KB), in the runner's one
     transaction:
-    - [ ] 1. add `extended_open_utc`, `extended_close_utc` (nullable `TIMESTAMPTZ`) to
+    - [x] 1. add `extended_open_utc`, `extended_close_utc` (nullable `TIMESTAMPTZ`) to
       `trading_sessions` and `extended_close_time` (`TIME`) to `trading_holidays`;
-    - [ ] 2. replace the NYSE and NASDAQ `trading_holidays` rows with the explicit set;
-    - [ ] 3. set `holidays_seeded_through` to `NYSE_HOLIDAYS_SEEDED_THROUGH` for both;
-    - [ ] 4. upsert NYSE and NASDAQ `trading_sessions` through `populate_trading_sessions`
+    - [x] 2. replace the NYSE and NASDAQ `trading_holidays` rows with the explicit set;
+    - [x] 3. set `holidays_seeded_through` to `NYSE_HOLIDAYS_SEEDED_THROUGH` for both;
+    - [x] 4. upsert NYSE and NASDAQ `trading_sessions` through `populate_trading_sessions`
       (open, close, both extended bounds; `ON CONFLICT ... DO UPDATE`), and delete the
       session row of every date the plan closes;
-    - [ ] 5. refuse (raise, rolling back) if any NYSE/NASDAQ session row is left with a NULL
+    - [x] 5. refuse (raise, rolling back) if any NYSE/NASDAQ session row is left with a NULL
       extended bound.
-  - [ ] The `description` says what changes and that gap rows are reconciled by the cutover.
-- [ ] **4.3 Tests** (`test/integration/test_migration_nyse_session_bounds.py`, throwaway DB)
-  - [ ] Pinned plan: on a database migrated to the previous id, with NYSE/NASDAQ sessions
+  - [x] The `description` says what changes and that gap rows are reconciled by the cutover.
+  Note: the id is `068_nyse_session_bounds` in `minute.py`; step 4 calls `extend_calendar_sessions` (which runs `populate_trading_sessions` and upserts with `ON CONFLICT ... DO UPDATE`) after deleting the plan's closed dates.
+- [x] **4.3 Tests** (`test/integration/test_migration_nyse_session_bounds.py`, throwaway DB)
+  - [x] Pinned plan: on a database migrated to the previous id, with NYSE/NASDAQ sessions
     populated through 2028-12-31 from the old rule data (production's shape), the plan's
     `opened`, `closed` and `retimed` equal `EXPECTED_SESSION_CHANGES` and `appended` is
     empty, for both calendars.
-  - [ ] After the migration: 2021-12-31 is a session, 2025-01-09 and every 2027-2028 closure
+  - [x] After the migration: 2021-12-31 is a session, 2025-01-09 and every 2027-2028 closure
     in `EXPECTED_SESSION_CHANGES` are not, an early-close session has a 17:00 ET extended
     close, every NYSE/NASDAQ row has both extended bounds, `holidays_seeded_through` is
     2028-12-31 (design criterion 10, calendar part). A second plan after the migration is
     empty.
-  - [ ] `extend_calendar_sessions` after the migration writes extended bounds for new rows.
+  - [x] `extend_calendar_sessions` after the migration writes extended bounds for new rows.
+  Updated for 068: `test_schema_migrations` count 71 and `chain_ends_at_068` (068 callable stubbed like 066); 057/058 NYSE-unchanged check now runs through 067; the seeded-through test (`test_calendar_extension.py`) expects 2028-12-31; 066 populated-DB dump scoped to CME calendars. Result: 2 pass.
 
 **Commit**: `feat: store extended session bounds and explicit NYSE holidays (#26)`
 
