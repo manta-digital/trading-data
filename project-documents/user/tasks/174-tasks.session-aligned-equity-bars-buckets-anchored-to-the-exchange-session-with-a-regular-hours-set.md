@@ -21,7 +21,7 @@ projectState: Slice design committed and its review (CONCERNS) answered. Equity 
   picks the factor by UTC date (#28). Latest minute migration is 067 (#46, index symbols).
 dateCreated: 20261119
 dateUpdated: 20261119
-status: not_started
+status: in_progress
 turns: 86
 promptTokens: 7410456
 cachedTokens: 7201913
@@ -75,22 +75,22 @@ revision_number: 2
 Read-only on production. Runs first so the API docs carry the answer (design D4: the
 close-stamp bar is outside every session bar).
 
-- [ ] **1.1 Investigate and write the note**
-  - [ ] A one-off script outside the repo, run with `uv run python` from the dev checkout,
+- [x] **1.1 Investigate and write the note**
+  - [x] A one-off script outside the repo, run with `uv run python` from the dev checkout,
     URLs from `Settings`, one read-only transaction (`default_transaction_read_only=on`).
     It writes nothing.
-  - [ ] Sample: at least 20 symbols (the 10 largest by minute rows plus 10 spread across the
+  - [x] Sample: at least 20 symbols (the 10 largest by minute rows plus 10 spread across the
     universe) over at least 3 months of full sessions, plus every early-close session held
     (from `trading_holidays` with `market_status='early_close'`, 2025 and 2026).
-  - [ ] For each symbol and session, find the bar stamped exactly at the extended close
+  - [x] For each symbol and session, find the bar stamped exactly at the extended close
     instant (20:00 ET, or the early-close day's extended close) and record: present or not;
     single-price or not; its close against the `daily_ohlcv` close; its volume against
     (a) the daily volume, (b) the sum of 04:00-20:00 ET minutes, (c) the sum of regular
     minutes, (d) the daily volume minus (c); and the 15:59 ET minute's volume against the
     median regular minute's (does the closing auction appear in the last regular minute?).
-  - [ ] Record which `utc` rollup bucket holds the bar today, and whether `prints=eligible`
+  - [x] Record which `utc` rollup bucket holds the bar today, and whether `prints=eligible`
     serves it (#78 work item 4).
-  - [ ] Write `user/notes/174-close-stamp-bar.md` (front matter as `309-time-bar-measurement.md`:
+  - [x] Write `user/notes/174-close-stamp-bar.md` (front matter as `309-time-bar-measurement.md`:
     `docType: notes`, `project`, `dateCreated`, `dateUpdated`, `status: complete`): the
     procedure, a summary table, the finding (what the bar holds, stated with the evidence,
     or "not established" with what was ruled out), and what it means for regular-session
@@ -98,10 +98,12 @@ close-stamp bar is outside every session bar).
     says its meaning is unconfirmed, and tells clients it is outside every session bar;
     15.1 then writes `BLOCKED:` for design criterion 11 with the evidence, so the PM decides
     whether it closes.
-  - [ ] Add a comment to #78 linking the note's finding (`gh issue comment 78`). Do not
+  - [x] Add a comment to #78 linking the note's finding (`gh issue comment 78`). Do not
     close #78; its `closing_print` decision (work item 3) is follow-up work.
   - [ ] If the production database is unreachable from this checkout, write `BLOCKED:` and
-    the reason here and continue with section 2; section 14 needs this note.
+    the reason here and continue with section 2; section 14 needs this note. (not needed: production was reachable)
+
+  Finding: close price established; volume meaning not established (15.1 criterion 11 applies). Side finding: 2020-07-02 and 2026-07-02 are wrongly 13:00 early closes in the generator; see section 2.
 
 **Commit**: `docs: record what the equity close-stamp bar holds (#78)`
 
