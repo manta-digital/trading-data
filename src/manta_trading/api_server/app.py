@@ -61,6 +61,7 @@ from manta_trading.constants import (
     API_SERVING_SESSION,
     DbSessionSettings,
 )
+from manta_trading.data.base.symbol_calendar import UnknownSymbolError
 from manta_trading.logging import get_logger
 from manta_trading.market.db_session import make_configure_connection
 from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
@@ -296,6 +297,14 @@ def create_app(db_url: str | None = None, tick_db_url: str | None = None) -> Fas
             status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
             content=tick_unavailable_body(exc),
         )
+
+    @app.exception_handler(UnknownSymbolError)
+    async def _unknown_symbol_handler(
+        _request: Request, exc: UnknownSymbolError
+    ) -> JSONResponse:
+        """A read that needs the symbol's instrument (its calendar, slice 174)
+        found none: "unknown symbol", the same 404 as an empty unknown read."""
+        return JSONResponse(status_code=404, content={"error": str(exc)})
 
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(

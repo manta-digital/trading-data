@@ -6,7 +6,7 @@ _adjusted.py provides the adjusted-on-read function added in slice 153.
 
 from __future__ import annotations
 
-from manta_trading.data.adjustment._adjusted import adjusted
+from manta_trading.data.adjustment._adjusted import adjusted, symbol_calendar_zone
 from manta_trading.data.adjustment.ingest import (
     IngestResult,
     ingest_corporate_actions,
@@ -25,6 +25,7 @@ __all__ = [
     "IngestResult",
     "Split",
     "adjusted",
+    "symbol_calendar_zone",
     "compute_k_factor",
     "compute_snapshot_id",
     "ingest_corporate_actions",

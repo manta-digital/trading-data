@@ -6,6 +6,7 @@ from bisect import bisect_left
 from collections.abc import Sequence
 from datetime import date, datetime, time
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import psycopg
@@ -17,6 +18,7 @@ from manta_trading.data.adjustment.k_factor import (
     compute_k_factor,
     compute_snapshot_id,
 )
+from manta_trading.data.base.symbol_calendar import symbol_calendar
 
 
 def adjusted(
@@ -24,17 +26,25 @@ def adjusted(
     symbol: str,
     conn: psycopg.Connection,
     *,
+    dates_in: ZoneInfo,
     ca_snapshot: CaSnapshot | None = None,
 ) -> pd.DataFrame:
     """Return df with OHLC adjusted for splits/dividends; volume unchanged.
 
+    Each bar's factor comes from its date in ``dates_in`` (slice 174 D5): an
+    intraday bar's exchange-local date, so a winter post-market minute after
+    19:00 ET takes its own session's factor, not the next UTC day's. The index
+    must be timezone-aware.
+
     Returns same object when empty or no corporate actions exist.
-    Raises KeyError if prev_close is missing for a dividend ex-date.
+    Raises KeyError if prev_close is missing for a dividend ex-date, and
+    ValueError for a naive index.
     """
     if df.empty:
         return df
 
-    bar_dates: list[date] = sorted({ts.date() for ts in df.index})
+    local_dates = _local_dates(df.index, dates_in)
+    bar_dates: list[date] = sorted(set(local_dates))
 
     if ca_snapshot is None:
         ca_snapshot = _load_snapshot(symbol, bar_dates[0], conn)
@@ -49,7 +59,7 @@ def adjusted(
 
     result = df.copy()
     k_series = pd.Series(
-        [k_by_date[ts.date()] for ts in result.index],
+        [k_by_date[d] for d in local_dates],
         index=result.index,
         dtype="float64",
     )
@@ -58,6 +68,25 @@ def adjusted(
             result[col] = result[col] * k_series
 
     return result
+
+
+def symbol_calendar_zone(conn: psycopg.Connection, symbol: str) -> ZoneInfo:
+    """The timezone of ``symbol``'s trading calendar, the zone its bars are dated in.
+
+    Raises:
+        UnknownSymbolError: no instrument has this symbol.
+        ValueError: its instruments have no calendar, or disagree.
+    """
+    return symbol_calendar(conn, symbol).zone
+
+
+def _local_dates(index: pd.Index, zone: ZoneInfo) -> list[date]:
+    """Each timestamp's date in ``zone``; a naive timestamp is an error."""
+    if not isinstance(index, pd.DatetimeIndex) or index.tz is None:
+        raise ValueError(
+            "adjusted() needs a timezone-aware DatetimeIndex to date its bars"
+        )
+    return [ts.date() for ts in index.tz_convert(zone)]
 
 
 _DAILY_CLOSES_SQL = """

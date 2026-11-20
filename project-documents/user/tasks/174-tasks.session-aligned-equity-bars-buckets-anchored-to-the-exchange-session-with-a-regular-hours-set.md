@@ -314,24 +314,25 @@ No commit here: sections 5 and 6 commit together at the section 6 marker.
 
 ## 7. Adjustment by exchange-local date (design D5)
 
-- [ ] **7.1 `adjusted()` takes the timezone its dates are read in**
-  - [ ] `src/manta_trading/data/adjustment/_adjusted.py`: a required keyword
+- [x] **7.1 `adjusted()` takes the timezone its dates are read in**
+  - [x] `src/manta_trading/data/adjustment/_adjusted.py`: a required keyword
     `dates_in: ZoneInfo`; each bar's factor date is its index timestamp converted to that
     zone, then `.date()`. No default.
-  - [ ] `TimescaleMinuteDataDB` passes the symbol's calendar timezone (`instruments.
+  - [x] `TimescaleMinuteDataDB` passes the symbol's calendar timezone (`instruments.
     trading_calendar_id` → `trading_calendars.timezone`, one lookup per read). A symbol with
     no calendar raises an error naming the symbol.
-  - [ ] `TimescaleDailyDataDB`: read how daily bars are stamped and pass the zone that keeps
+  - [x] `TimescaleDailyDataDB`: read how daily bars are stamped and pass the zone that keeps
     each bar's session date unchanged (UTC if stamped at 00:00 UTC), with a one-line comment.
     Daily values must not change.
-  - [ ] Update the seven existing `adjusted()` calls in
+  - [x] Update the seven existing `adjusted()` calls in
     `test/unit/data/adjustment/test_adjusted.py` to pass `dates_in`.
-- [ ] **7.2 Tests**
-  - [ ] Unit (`test/unit/data/adjustment/test_adjusted.py`): a winter minute at 00:30Z on the
+  Note: a symbol with bars but no instrument row (468 such orphans on production, 2026-11-20, mostly units and warrants) raises `UnknownSymbolError` on adjusted reads, which the API maps to its unknown-symbol 404; `adjusted=false` still serves them. An instrument without a calendar raises `ValueError` naming the symbol (none on production). Tested in `test_adjustment_local_date.py`.
+- [x] **7.2 Tests**
+  - [x] Unit (`test/unit/data/adjustment/test_adjusted.py`): a winter minute at 00:30Z on the
     ex-date's UTC date (19:30 ET the evening before) takes the previous day's factor; in
     summer, the 20:00 EDT close stamp (00:00Z on the ex-date's UTC date) does too; a daily
     frame is unchanged. Run both cases against the unfixed code first and confirm they fail.
-  - [ ] Integration (throwaway DB): pick a winter Tuesday-to-Friday ex-date from
+  - [x] Integration (throwaway DB): pick a winter Tuesday-to-Friday ex-date from
     `corporate_actions` fixtures or seed one; every adjusted `1m` bar of the evening session
     before it, 19:00-19:59 ET included, uses that session's factor (criterion 7, `utc` part;
     the `extended` part is in section 9). In the same setup, the `utc` `1h` bucket at 00:00Z

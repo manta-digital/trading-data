@@ -7,6 +7,7 @@ monthly, and quarterly continuous aggregates installed in slice 152.
 from __future__ import annotations
 
 from datetime import date
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from psycopg_pool import ConnectionPool
@@ -22,6 +23,7 @@ from manta_trading.logging import get_logger
 
 _logger = get_logger(__name__)
 
+_UTC = ZoneInfo("UTC")
 _DAILY_GRAINS = {Granularity.D1, Granularity.W1, Granularity.MO1, Granularity.Q1}
 _MINUTE_GRAINS = {Granularity.M1, Granularity.M5, Granularity.M15, Granularity.H1, Granularity.H4}
 
@@ -112,7 +114,9 @@ class TimescaleDailyDataDB:
         if adjusted and not df.empty:
             pool = self._ensure_pool()
             with pool.connection() as conn:
-                df = adjusted_fn(df, symbol, conn)
+                # Daily bars (and their rollups) are stamped 00:00 UTC on the
+                # session date, so UTC dates are the session dates (174 D5).
+                df = adjusted_fn(df, symbol, conn, dates_in=_UTC)
 
         return df
 

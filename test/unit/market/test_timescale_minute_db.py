@@ -6,6 +6,7 @@ import os
 from datetime import UTC, datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock, call, patch
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -109,10 +110,17 @@ def test_adjusted_true_calls_adjusted_fn_when_nonempty() -> None:
     _mock_pool_returning_rows(db, [(ts, 100.0, 110.0, 90.0, 105.0, 1_000_000)])
 
     sentinel_df = pd.DataFrame({"close": [99.9]})
-    with patch(
-        "manta_trading.market.timescale_minute_db.adjusted_fn",
-        return_value=sentinel_df,
-    ) as mock_adj:
+    zone = ZoneInfo("America/New_York")
+    with (
+        patch(
+            "manta_trading.market.timescale_minute_db.adjusted_fn",
+            return_value=sentinel_df,
+        ) as mock_adj,
+        patch(
+            "manta_trading.market.timescale_minute_db.symbol_calendar_zone",
+            return_value=zone,
+        ),
+    ):
         result = db.get_minute_data(
             "AAPL",
             datetime(2020, 8, 28, 9, 30, tzinfo=timezone.utc),
@@ -120,6 +128,8 @@ def test_adjusted_true_calls_adjusted_fn_when_nonempty() -> None:
             adjusted=True,
         )
         assert mock_adj.call_count == 1
+        # Factors are dated in the symbol's calendar zone (slice 174 D5).
+        assert mock_adj.call_args.kwargs["dates_in"] is zone
         assert result is sentinel_df
 
 

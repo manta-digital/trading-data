@@ -104,6 +104,12 @@ def test_adjustment_applies_after_the_clamp(db: TimescaleMinuteDataDB) -> None:
             "INSERT INTO splits (symbol, ex_date, ratio_to, ratio_from)"
             " VALUES ('SPY', '2026-12-01', 2, 1)"
         )
+        # Adjustment dates bars in the symbol's calendar zone (slice 174 D5).
+        conn.execute(
+            "INSERT INTO instruments (canonical_id, symbol, asset_class, venue,"
+            " trading_calendar_id, eodhd_type, eodhd_exchange)"
+            " VALUES ('SPY.US', 'SPY', 'etf', 'US', 'NYSE', 'ETF', 'NYSE ARCA')"
+        )
     raw = _read(db, "SPY", PrintMode.ELIGIBLE)
     adjusted = _read(db, "SPY", PrintMode.ELIGIBLE, adjusted=True)
     pd.testing.assert_frame_equal(adjusted[PRICES], raw[PRICES] * 0.5)

@@ -24,6 +24,8 @@ from manta_trading.constants import (
     PrintMode,
 )
 from manta_trading.data.adjustment import adjusted as adjusted_fn
+from manta_trading.data.adjustment import symbol_calendar_zone
+from manta_trading.data.base.symbol_calendar import UnknownSymbolError
 from manta_trading.data.quality.off_tape_store import mark_inserted
 from manta_trading.logging import get_logger
 from manta_trading.market.schema.eligible_sql import eligible_value, has_eligible_price
@@ -295,10 +297,15 @@ class TimescaleMinuteDataDB:
             if adjusted and not df.empty:
                 pool = self._ensure_pool()
                 with pool.connection() as conn:
-                    df = adjusted_fn(df, symbol, conn)
+                    zone = symbol_calendar_zone(conn, symbol)
+                    df = adjusted_fn(df, symbol, conn, dates_in=zone)
 
             return df
 
+        except UnknownSymbolError:
+            # No instrument, so no calendar to date the bars by: the API's
+            # "unknown symbol" 404, not a failed query (slice 174).
+            raise
         except psycopg.errors.QueryCanceled:
             # A cancelled query is not "no data" — it is "we do not know".
             # Returning an empty frame here made a statement_timeout

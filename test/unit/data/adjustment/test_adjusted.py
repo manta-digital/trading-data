@@ -6,6 +6,7 @@ import os
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -22,6 +23,8 @@ from manta_trading.data.adjustment.k_factor import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+_UTC = ZoneInfo("UTC")
 
 def _make_df(dates: list[date]) -> pd.DataFrame:
     """Build a synthetic OHLCV DataFrame with UTC DatetimeIndex."""
@@ -94,7 +97,7 @@ def test_split_adjusts_pre_exdate_bars() -> None:
     snap = _snapshot_4for1()
     conn = MagicMock()
 
-    result = adjusted(df, "AAPL", conn, ca_snapshot=snap)
+    result = adjusted(df, "AAPL", conn, ca_snapshot=snap, dates_in=_UTC)
 
     # Bar on 2020-08-28 (before ex_date 2020-08-31): k = 1/4
     assert result["close"].iloc[0] == pytest.approx(105.0 / 4)
@@ -113,7 +116,7 @@ def test_split_volume_unchanged() -> None:
     snap = _snapshot_4for1()
     conn = MagicMock()
 
-    result = adjusted(df, "AAPL", conn, ca_snapshot=snap)
+    result = adjusted(df, "AAPL", conn, ca_snapshot=snap, dates_in=_UTC)
 
     assert result["volume"].iloc[0] == 1_000_000
 
@@ -124,7 +127,7 @@ def test_no_cas_returns_same_object() -> None:
     snap = _snapshot_empty()
     conn = MagicMock()
 
-    result = adjusted(df, "AAPL", conn, ca_snapshot=snap)
+    result = adjusted(df, "AAPL", conn, ca_snapshot=snap, dates_in=_UTC)
 
     assert result is df
 
@@ -136,7 +139,7 @@ def test_missing_prev_close_raises_keyerror() -> None:
     conn = MagicMock()
 
     with pytest.raises(KeyError):
-        adjusted(df, "AAPL", conn, ca_snapshot=snap)
+        adjusted(df, "AAPL", conn, ca_snapshot=snap, dates_in=_UTC)
 
 
 def test_provided_snapshot_skips_load_snapshot() -> None:
@@ -149,7 +152,7 @@ def test_provided_snapshot_skips_load_snapshot() -> None:
     with patch(
         "manta_trading.data.adjustment._adjusted._load_snapshot"
     ) as mock_load:
-        adjusted(df, "AAPL", conn, ca_snapshot=snap)
+        adjusted(df, "AAPL", conn, ca_snapshot=snap, dates_in=_UTC)
         mock_load.assert_not_called()
 
 
@@ -161,7 +164,7 @@ def test_empty_df_returns_immediately() -> None:
     with patch(
         "manta_trading.data.adjustment._adjusted._load_snapshot"
     ) as mock_load:
-        result = adjusted(df, "AAPL", conn)
+        result = adjusted(df, "AAPL", conn, dates_in=_UTC)
         mock_load.assert_not_called()
         assert result is df
 
@@ -173,7 +176,7 @@ def test_does_not_mutate_input() -> None:
     snap = _snapshot_4for1()
     conn = MagicMock()
 
-    result = adjusted(df, "AAPL", conn, ca_snapshot=snap)
+    result = adjusted(df, "AAPL", conn, ca_snapshot=snap, dates_in=_UTC)
 
     assert result is not df
     assert df["close"].iloc[0] == original_close
@@ -317,3 +320,68 @@ def test_aapl_split_integration() -> None:
         assert adj_close_post == pytest.approx(raw_close_post, rel=0.10)
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Factor date in the calendar's timezone (slice 174 D5, #28)
+# ---------------------------------------------------------------------------
+
+_ET = ZoneInfo("America/New_York")
+
+
+def _split_snapshot(ex_date: date) -> CaSnapshot:
+    splits = (Split("AAPL", ex_date, Decimal("4"), Decimal("1")),)
+    return CaSnapshot(
+        symbol="AAPL",
+        splits=splits,
+        dividends=(),
+        prev_closes={},
+        snapshot_id=compute_snapshot_id(splits, ()),
+    )
+
+
+def _one_bar(ts: datetime) -> pd.DataFrame:
+    return pd.DataFrame(
+        {"open": [100.0], "high": [100.0], "low": [100.0], "close": [100.0],
+         "volume": [1]},
+        index=pd.DatetimeIndex([ts]),
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("ts", "ex_date"),
+    [
+        # Winter: 00:30Z on the ex-date's UTC date is 19:30 EST the evening before.
+        (datetime(2026, 1, 13, 0, 30, tzinfo=UTC), date(2026, 1, 13)),
+        # Summer: the 20:00 EDT close stamp is 00:00Z on the ex-date's UTC date.
+        (datetime(2026, 7, 15, 0, 0, tzinfo=UTC), date(2026, 7, 15)),
+    ],
+)
+def test_post_market_minute_takes_its_sessions_factor(
+    ts: datetime, ex_date: date
+) -> None:
+    result = adjusted(
+        _one_bar(ts), "AAPL", MagicMock(), ca_snapshot=_split_snapshot(ex_date),
+        dates_in=_ET,
+    )  # fmt: skip
+    assert result["close"].iloc[0] == pytest.approx(25.0)
+
+
+def test_daily_frame_unchanged_by_utc_dates() -> None:
+    dates = [date(2020, 8, 28), date(2020, 8, 31)]
+    df = _make_df(dates).set_axis(
+        pd.DatetimeIndex([datetime(d.year, d.month, d.day, tzinfo=UTC) for d in dates])
+    )
+    result = adjusted(
+        df, "AAPL", MagicMock(), ca_snapshot=_snapshot_4for1(), dates_in=ZoneInfo("UTC")
+    )
+    assert list(result["close"]) == pytest.approx([105.0 / 4, 105.0])
+
+
+def test_naive_index_raises() -> None:
+    df = _one_bar(datetime(2026, 1, 13, 0, 30))
+    with pytest.raises(ValueError, match="timezone"):
+        adjusted(
+            df, "AAPL", MagicMock(), ca_snapshot=_split_snapshot(date(2026, 1, 13)),
+            dates_in=_ET,
+        )  # fmt: skip
