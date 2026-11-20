@@ -342,10 +342,10 @@ No commit here: sections 5 and 6 commit together at the section 6 marker.
 
 ## 8. Session phases, enums and estimates
 
-- [ ] **8.1 Enums and the pure phase module**
-  - [ ] `constants.py`: `SessionMode` (`utc`, `regular`, `extended`) and `SessionPhase`
+- [x] **8.1 Enums and the pure phase module**
+  - [x] `constants.py`: `SessionMode` (`utc`, `regular`, `extended`) and `SessionPhase`
     (`pre`, `regular`, `post`) as `StrEnum`s, each defined once.
-  - [ ] New `src/manta_trading/market/session_phases.py`: `SessionBounds` (session date, the
+  - [x] New `src/manta_trading/market/session_phases.py`: `SessionBounds` (session date, the
     four UTC bounds); `phases_for(bounds, mode)` returns the half-open phase intervals the
     mode reads (pre `[extended_open, open)`, regular `[open, close)`, post `[close,
     extended_close)`; design D2: a bar never crosses a phase); `assign(ts, bounds, mode,
@@ -353,12 +353,13 @@ No commit here: sections 5 and 6 commit together at the section 6 marker.
     * width`, anchor = phase start), or `None` outside the phases read; `estimate_bars(bounds_list,
     mode, width)` sums `ceil(phase_minutes / width)` per phase; `estimate_minutes(...)` sums
     phase lengths. An `extended` call on bounds with a `None` extended side raises.
-- [ ] **8.2 Tests** (`test/unit/market/test_session_phases.py`)
-  - [ ] Full session at 1h: regular 7, extended 17 (pre 6, regular 7, post 4); extended 4h 5;
+- [x] **8.2 Tests** (`test/unit/market/test_session_phases.py`)
+  - [x] Full session at 1h: regular 7, extended 17 (pre 6, regular 7, post 4); extended 4h 5;
     early close (13:00) regular 1h 4. Minutes: 390 regular, 960 extended, 210 regular early
     close. DST weekend sessions give the same counts.
-  - [ ] Bounds with a `None` extended side raise for `extended` and work for `regular`.
-  - [ ] `assign` at full-day, early-close and DST boundaries: 09:29 ET is pre (bucket 09:00),
+  - [x] Bounds with a `None` extended side raise for `extended` and work for `regular`.
+  Note: the one-sided case is covered by `test_one_missing_extended_side_raises`.
+  - [x] `assign` at full-day, early-close and DST boundaries: 09:29 ET is pre (bucket 09:00),
     09:30 regular (bucket 09:30), 10:29 bucket 09:30, 15:59 bucket 15:30, 16:00 post; on an
     early close 12:59 bucket 12:30 and 13:00 post; the extended close instant is `None`; the
     same ET times either side of a DST change give buckets an hour apart in UTC.
@@ -377,44 +378,48 @@ No commit here: sections 8 and 9 commit together at the section 9 marker.
 **Commit**: `refactor: extract the eligible OHLCV expressions for reuse` (stage only this
 task's files; section 8's files wait for the section 9 marker)
 
-- [ ] **9.2 The statement**
-  - [ ] New `src/manta_trading/market/session_bars_sql.py`: render one statement that joins
+- [x] **9.2 The statement**
+  - [x] New `src/manta_trading/market/session_bars_sql.py`: render one statement that joins
     the symbol's `trading_sessions` rows (session dates in `[start, end]`) to `minute_ohlcv`
     rows in the phases the mode reads, assigns each minute its phase and bucket
     (`anchor + floor((time - anchor) / width) * width`, anchor = phase start), and groups by
     session date, phase and bucket.
-  - [ ] Prices and volume use `eligible_value` / `has_eligible_price` and the same
+  Note: deviation from the literal text. The statement does not join `trading_sessions` itself: `session_bounds` reads those rows in Python, and `phases_for` passes the phases as arrays, so the phase rule has one definition.
+  - [x] Prices and volume use `eligible_value` / `has_eligible_price` and the same
     `FIRST`/`MAX`/`MIN`/`LAST`/`SUM ... FILTER` forms through the 9.1 helper. `prints=all` renders
     raw columns. A bucket with no eligible price has no bar.
-  - [ ] Regular mode references only `session_open_utc`/`session_close_utc` (section 10
+  - [x] Regular mode references only `session_open_utc`/`session_close_utc` (section 10
     measures it on production before the migration lands there).
-- [ ] **9.3 `TimescaleMinuteDataDB.get_session_bars`**
-  - [ ] Beside `get_minute_data`: `(symbol, granularity, mode, start, end, *, adjusted,
+- [x] **9.3 `TimescaleMinuteDataDB.get_session_bars`**
+  - [x] Beside `get_minute_data`: `(symbol, granularity, mode, start, end, *, adjusted,
     prints)`, returning a frame indexed by bucket start with OHLCV plus `session_date` and
     `phase`. Width comes from the existing granularity-to-minutes table in `constants.py`.
-  - [ ] Raises `OutOfHorizonError` when `end` is past the calendar's `holidays_seeded_through`.
+  - [x] Raises `OutOfHorizonError` when `end` is past the calendar's `holidays_seeded_through`.
     An `extended` read over a session row with a NULL extended bound raises an error that
     names the symbol and date (logged as a 500 by the global handler).
-  - [ ] Adjustment inside, through `adjusted(..., dates_in=<calendar tz>)`, as
+  Note: the 500 log is not exercised at this layer; the route (12.2) is where it can be checked.
+  - [x] Adjustment inside, through `adjusted(..., dates_in=<calendar tz>)`, as
     `get_minute_data` does.
-- [ ] **9.4 Integration tests** (`test/integration/test_session_bars.py`, throwaway DB with
+- [x] **9.4 Integration tests** (`test/integration/test_session_bars.py`, throwaway DB with
   migrated calendar rows and seeded minutes)
-  - [ ] Criteria 1-4: regular 1h full session 7 bars from 09:30 ET with `phase=regular`;
+  - [x] Criteria 1-4: regular 1h full session 7 bars from 09:30 ET with `phase=regular`;
     2025-11-28 4 bars, last 12:30 ET; extended 6/7/4 with no bar crossing 09:30 or the close;
     09:30 ET anchoring either side of both DST changes.
-  - [ ] Criterion 5: for at least two seeded symbols (one with off-tape marks), 1m, 5m, 15m, 1h
+  - [x] Criterion 5: for at least two seeded symbols (one with off-tape marks), 1m, 5m, 15m, 1h
     and 4h, both modes, each bar equals the aggregate of the eligible 1m bars it covers (open,
     high, low, close, volume), including a bucket with an off-tape-marked minute and an
     all-marked bucket (absent).
-  - [ ] Every seeded minute's SQL phase and bucket equal `assign`'s.
-  - [ ] Criterion 6: a minute seeded at the extended close instant is in no session bar, at
+  - [x] Every seeded minute's SQL phase and bucket equal `assign`'s.
+  Note: `test_every_minute_placed_as_assign_places_it` checks every eligible 1m minute at extended, for AAA and BBB.
+  - [x] Criterion 6: a minute seeded at the extended close instant is in no session bar, at
     `1m` with `extended` (as walkthrough step 6 reads it).
-  - [ ] With the connection's `TIME ZONE` set to `America/Denver` (production's), a session
+  - [x] With the connection's `TIME ZONE` set to `America/Denver` (production's), a session
     whose post-market minutes cross UTC midnight returns the same `session_date` on every bar
     as under UTC.
-  - [ ] Criterion 7, `extended` part: the same post-market minute gets the same factor from
+  Note: reads on plain psycopg connections, because the serving pool forces UTC (`_configure_connection`); each zone is checked with `SHOW TimeZone`.
+  - [x] Criterion 7, `extended` part: the same post-market minute gets the same factor from
     `get_minute_data` and `get_session_bars`.
-  - [ ] Bar counts equal `estimate_bars` for full, early-close and DST sessions (keeps the SQL
+  - [x] Bar counts equal `estimate_bars` for full, early-close and DST sessions (keeps the SQL
     and the estimator in agreement). `prints=all` returns raw values. Past the horizon raises
     `OutOfHorizonError`; a NULL extended bound raises.
 

@@ -1504,6 +1504,27 @@ class PrintMode(StrEnum):
     ELIGIBLE = "eligible"
 
 
+class SessionMode(StrEnum):
+    """How intraday bars are bucketed (slice 174).
+
+    ``utc``: UTC-aligned buckets from the rollups (the default). ``regular``:
+    buckets anchored at the regular open, regular hours only. ``extended``:
+    pre, regular and post phases, each bucketed from its own start.
+    """
+
+    UTC = "utc"
+    REGULAR = "regular"
+    EXTENDED = "extended"
+
+
+class SessionPhase(StrEnum):
+    """A part of an exchange session; a session bar never crosses one (174 D2)."""
+
+    PRE = "pre"
+    REGULAR = "regular"
+    POST = "post"
+
+
 OFF_TAPE_DAY_TZ: Final[ZoneInfo] = ZoneInfo("America/New_York")
 """Timezone whose calendar date defines a detector day (slice 171)."""
 

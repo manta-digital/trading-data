@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import io
 import time
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -22,6 +22,7 @@ from manta_trading.constants import (
     DbSessionSettings,
     Granularity,
     PrintMode,
+    SessionMode,
 )
 from manta_trading.data.adjustment import adjusted as adjusted_fn
 from manta_trading.data.adjustment import symbol_calendar_zone
@@ -29,6 +30,7 @@ from manta_trading.data.base.symbol_calendar import UnknownSymbolError
 from manta_trading.data.quality.off_tape_store import mark_inserted
 from manta_trading.logging import get_logger
 from manta_trading.market.schema.eligible_sql import eligible_value, has_eligible_price
+from manta_trading.market.session_bars import read_session_bars
 
 if TYPE_CHECKING:
     from manta_trading.market.schema.databases import Database
@@ -322,6 +324,35 @@ class TimescaleMinuteDataDB:
             # like "no data for this symbol" (issue #37).
             _logger.exception("TimescaleDB query failed for %s", symbol)
             raise
+
+    def get_session_bars(
+        self,
+        symbol: str,
+        granularity: Granularity,
+        mode: SessionMode,
+        start: date,
+        end: date,
+        *,
+        adjusted: bool,
+        prints: PrintMode,
+    ) -> pd.DataFrame:
+        """Session-aligned bars over the session dates ``[start, end]`` (slice 174).
+
+        Built at read time from eligible 1m bars; see ``session_bars``. The
+        frame is indexed by bucket start (UTC) and carries ``session_date``
+        and ``phase`` beside OHLCV.
+
+        Raises:
+            OutOfHorizonError: ``end`` is past the calendar's holiday bound.
+            MissingExtendedBoundsError: an extended read over a session row
+                without extended bounds (broken data: a logged 500).
+            UnknownSymbolError: the symbol has no instrument.
+        """
+        with self._ensure_pool().connection() as conn:
+            return read_session_bars(
+                conn, symbol, granularity, mode, start, end,
+                adjusted=adjusted, prints=prints,
+            )  # fmt: skip
 
     def _get_aggregated_data(
         self,
