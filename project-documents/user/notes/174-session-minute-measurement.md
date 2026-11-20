@@ -51,3 +51,17 @@ At 390 regular minutes per full session that is about 500 sessions (two years) o
 `regular` reads. An `extended` session counts 960 minutes, so the same ceiling
 admits about 203 extended sessions (ten months). Extended minutes are sparser than
 regular ones, so counting them at full weight errs toward refusing.
+
+## Load test (task 13.1)
+
+`test/load/test_174_session_bars_nfr.py`, run 2026-11-20 on the test cluster
+(`MT_RUN_LOAD_TESTS=1 uv run python scripts/run_tests.py load -- test/load/test_174_session_bars_nfr.py`):
+a year of dense SPY minutes (every minute 04:00-20:00 ET, 2025-11-13..2026-11-13),
+the one-year `1h` `regular` read through `create_app` 20 times with the shipped
+ceilings, `/api/v1/health` polled every 0.1 s meanwhile.
+
+| Measure | Result | Bound |
+|---|---|---|
+| Bars returned | 1,758 (the estimator's count for the year) | — |
+| Read p95 | 0.779 s (median 0.688 s, max 0.784 s) | 2 s |
+| `/health` p95 during the reads | 0.011 s over 122 polls | 0.5 s |

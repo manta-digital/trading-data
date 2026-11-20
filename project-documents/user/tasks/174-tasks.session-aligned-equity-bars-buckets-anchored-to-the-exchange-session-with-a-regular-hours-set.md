@@ -506,19 +506,20 @@ No commit here: sections 10 and 11 commit together at the section 11 marker.
 
 ## 13. Load test
 
-- [ ] **13.1 One-year regular 1h read** (`test/load/test_174_session_bars_nfr.py`, template
+- [x] **13.1 One-year regular 1h read** (`test/load/test_174_session_bars_nfr.py`, template
   `test/load/test_309_time_bars_nfr.py`)
-  - [ ] Entry point: the HTTP route through `httpx.ASGITransport` against `create_app` on a
+  - [x] Entry point: the HTTP route through `httpx.ASGITransport` against `create_app` on a
     test-cluster database, with the shipped minute ceiling, as the template does. Seed a year
     of SPY minutes; run the one-year `1h` `regular` read repeatedly while polling
     `/api/v1/health`.
-  - [ ] Pass: the read is admitted, its p95 is under 2 s (20 s statement timeout as the hard
+  - [x] Pass: the read is admitted, its p95 is under 2 s (20 s statement timeout as the hard
     limit), and `/health` p95 is under 0.5 s during it. Record the numbers in the 174
     measurement note.
-  - [ ] Gate: `MT_RUN_LOAD_TESTS=1`, and the docstring gives the manual command, as the
+  - [x] Gate: `MT_RUN_LOAD_TESTS=1`, and the docstring gives the manual command, as the
     template does. CI runs no test job and GitHub-hosted runners cannot reach the test
     cluster. No CI wiring task here: the gate is deferred to issue #32 (and slice 907), and
     this test is recorded on #32.
+  Note: the 2026-11-20 run is recorded on #32 (the PM comments there); the gate stays manual until #32 wires CI.
 
 **Commit**: `test: add the session bars load test`
 
