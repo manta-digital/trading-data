@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-20
+
 ### Added
 - **Session-aligned equity bars** (issue #38). `GET /api/v1/bars/{symbol}?session=regular` returns intraday bars anchored at the 09:30 ET open, regular hours only: `1h` is 7 bars a day, the last 15:30-16:00. `session=extended` adds pre-market (04:00-09:30) and post-market (16:00-20:00) phases, each bucketed from its own start, so no bar crosses the open or the close (`1h`: 6 + 7 + 4). Early closes come from the calendar (2025-11-28: 4 regular `1h` bars). In session mode `start`/`end` are session dates, each bar carries `session_date` and `phase`, `prints=all` works at every intraday size, and `1d` and longer are a `422` (`session_granularity`). A range past the calendar's known holidays is a `422` (`calendar_horizon`, with `holidays_seeded_through`), and one reading more than 195,000 session minutes is a `422` (`minute_ceiling`; `MT_API_MAX_SESSION_MINUTES`, measured on production). The default `session=utc` is unchanged apart from `applied.session`.
 - **The equity close-stamp bar is documented** (issue #78). The single-price bar some symbols carry at 20:00 ET (17:00 on early closes) is the official closing price; it is in no session bar. The closing auction's volume is in the 16:00 ET minute, so regular-session volume summed from session bars excludes it. See `docs/api/reference.md`.
