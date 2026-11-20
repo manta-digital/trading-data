@@ -11,7 +11,7 @@ from starlette import status as http_status
 
 from manta_trading.api_server.admission import RefusalReason
 from manta_trading.api_server.models.futures import TickBlock
-from manta_trading.constants import Granularity, PrintMode
+from manta_trading.constants import Granularity, PrintMode, SessionMode
 from manta_trading.data.tick.line_state import TickLineState
 
 if TYPE_CHECKING:
@@ -75,6 +75,8 @@ class AppliedEquityBarParams(BaseModel):
     limit: int | None
     adjusted: bool
     prints: PrintMode
+    session: SessionMode
+    """``utc`` (the default), ``regular`` or ``extended`` (slice 174)."""
     format: str
 
 

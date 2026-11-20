@@ -352,7 +352,8 @@ about. For that, use `/api/v1/status`.
 
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date, limit:integer,
-             adjusted:boolean, prints:PrintMode, format:json|msgpack
+             adjusted:boolean, prints:PrintMode, session:SessionMode,
+             format:json|msgpack
      errors: 404, 422, 504 -->
 
 OHLCV bars for one instrument over an inclusive date window, or the `limit`
@@ -368,6 +369,7 @@ most recent bars.
 | `limit` | integer | no | — | The N most recent bars at or before `end`, 1 to the row ceiling (issue #13). |
 | `adjusted` | boolean | no | `true` | Split/dividend-adjusted prices. |
 | `prints` | `PrintMode` | no | `eligible` | `eligible`: tape-eligible bars, every grain. `all`: raw bars, `1m` only (below). |
+| `session` | `SessionMode` | no | `utc` | `utc`: UTC-aligned buckets. `regular` / `extended`: session-aligned bars, intraday grains only; `start`/`end` are then session dates. |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
 
 Granularity tokens are

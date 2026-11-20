@@ -13,7 +13,11 @@ import pytest
 from psycopg import sql
 
 from manta_trading.api_server.app import create_app, make_configure_connection
-from manta_trading.constants import API_SERVING_SESSION, DbSessionSettings
+from manta_trading.constants import (
+    API_SERVING_SESSION,
+    MAX_SESSION_MINUTES_PER_REQUEST,
+    DbSessionSettings,
+)
 from manta_trading.version import package_version
 
 _APP_MODULE = "manta_trading.api_server.app"
@@ -193,6 +197,7 @@ def test_fastapi_validation_body_stays_native() -> None:
     app.state.minute_db = MagicMock()
     app.state.daily_db = MagicMock()
     app.state.max_bars_per_request = 75_000
+    app.state.max_session_minutes = MAX_SESSION_MINUTES_PER_REQUEST
     response = TestClient(app).get(
         "/api/v1/bars/SPY?granularity=bad&start=2024-01-01&end=2024-01-03"
     )

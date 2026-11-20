@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import gzip
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 import msgpack
 import orjson
@@ -30,7 +30,7 @@ JSON_MEDIA_TYPE = "application/json"
 MSGPACK_MEDIA_TYPE = "application/x-msgpack"
 
 
-def timeseries_200(model: type[BaseModel]) -> dict[int | str, dict[str, Any]]:
+def timeseries_200(*models: type[BaseModel]) -> dict[int | str, dict[str, Any]]:
     """Declare the ``200`` body type for a route that returns a raw ``Response``.
 
     ``response_class=Response`` is what lets these routes answer with msgpack,
@@ -41,12 +41,28 @@ def timeseries_200(model: type[BaseModel]) -> dict[int | str, dict[str, Any]]:
     re-serializes a raw ``Response``.
 
     Both media types are listed because ``?format=`` chooses between them at
-    request time, so a generated client must expect either.
+    request time, so a generated client must expect either. A route with more
+    than one body (``/api/v1/bars``: default and session, slice 174) lists them
+    as ``anyOf``; the ``Union`` registers every model as a component.
     """
-    schema = {"$ref": f"#/components/schemas/{model.__name__}"}
+    refs = [{"$ref": f"#/components/schemas/{m.__name__}"} for m in models]
+    if len(models) > 1:
+        # FastAPI renders the Union (and registers every member) for JSON;
+        # it fills only that media type, so msgpack gets the anyOf explicitly.
+        union: Any = Union[models]  # noqa: UP007
+        return {
+            200: {
+                "model": union,
+                "content": {
+                    JSON_MEDIA_TYPE: {},
+                    MSGPACK_MEDIA_TYPE: {"schema": {"anyOf": refs}},
+                },
+            }
+        }
+    schema = {"$ref": f"#/components/schemas/{models[0].__name__}"}
     return {
         200: {
-            "model": model,
+            "model": models[0],
             "content": {
                 JSON_MEDIA_TYPE: {"schema": schema},
                 MSGPACK_MEDIA_TYPE: {"schema": schema},

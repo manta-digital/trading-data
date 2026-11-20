@@ -17,6 +17,7 @@ from manta_trading.api_server.deps import (
     get_daily_db,
     get_db_pool,
     get_max_bars,
+    get_max_session_minutes,
     get_minute_db,
     get_universe_edges,
 )
@@ -32,8 +33,12 @@ from manta_trading.api_server.models.responses import (
     AppliedEquityBarParams,
     BarsResponse,
 )
+from manta_trading.api_server.models.session_responses import SessionBarsResponse
 from manta_trading.api_server.queries import symbol_exists
 from manta_trading.api_server.routes.bars_admission import check_request
+from manta_trading.api_server.routes.bars_session_admission import (
+    admit_session_request,
+)
 from manta_trading.api_server.routes.windows import (
     window_end_utc,
     window_start_utc,
@@ -71,6 +76,19 @@ LimitParam = Annotated[
     ),
 ]
 
+SessionParam = Annotated[
+    SessionMode,
+    Query(
+        description=(
+            "utc (the default): UTC-aligned buckets; start/end are UTC dates. "
+            "regular: buckets from the 09:30 open, regular hours only. extended: "
+            "pre, regular and post phases, each bucketed from its own start. In "
+            "session mode start/end are session dates and each bar carries "
+            "session_date and phase; intraday granularities only."
+        )
+    ),
+]
+
 Fetch = Callable[[date, date], pd.DataFrame]
 
 
@@ -79,12 +97,18 @@ def _fetcher(
     daily_db: TimescaleDailyDataDB,
     symbol: str,
     granularity: Granularity,
-    options: tuple[bool, PrintMode],
+    options: tuple[bool, PrintMode, SessionMode],
 ) -> Fetch:
-    """A synchronous read of ``symbol`` over an inclusive date window."""
-    adjusted, prints = options
+    """A synchronous read of ``symbol`` over an inclusive date window: UTC
+    dates, or session dates in session mode (slice 174)."""
+    adjusted, prints, session = options
 
     def fetch(start: date, end: date) -> pd.DataFrame:
+        if session is not SessionMode.UTC:
+            return minute_db.get_session_bars(
+                symbol, granularity, session, start, end,
+                adjusted=adjusted, prints=prints,
+            )  # fmt: skip
         if granularity not in MINUTE_GRAINS:
             return daily_db.get_daily_data(
                 symbol, start, end, granularity, adjusted=adjusted
@@ -143,7 +167,7 @@ def _no_bars() -> pd.DataFrame:
 @router.get(
     "/api/v1/bars/{symbol}",
     response_class=Response,
-    responses=timeseries_200(BarsResponse)
+    responses=timeseries_200(BarsResponse, SessionBarsResponse)
     | GATEWAY_TIMEOUT_RESPONSE
     | NOT_FOUND_RESPONSE,
 )
@@ -155,6 +179,7 @@ async def get_bars(
     daily_db: Annotated[TimescaleDailyDataDB, Depends(get_daily_db)],
     pool: Annotated[ConnectionPool[psycopg.Connection[Any]], Depends(get_db_pool)],
     max_bars: Annotated[int, Depends(get_max_bars)],
+    max_minutes: Annotated[int, Depends(get_max_session_minutes)],
     start: date | None = None,
     end: date | None = None,
     limit: LimitParam = None,
@@ -168,6 +193,7 @@ async def get_bars(
             )
         ),
     ] = DEFAULT_PRINT_MODE,
+    session: SessionParam = SessionMode.UTC,
     fmt: Annotated[ResponseFormat, Query(alias="format")] = "json",
 ) -> Response:
     """Return OHLCV bars for ``symbol`` over ``start``..``end``, or the
@@ -180,15 +206,21 @@ async def get_bars(
     Requests are admitted before any database work (186 D4): a reversed range,
     an estimate over the ceiling, ``limit`` over it or beside ``start`` is a
     ``422``, not a slow ``500``. ``prints=all`` (raw prints) is served at ``1m``
-    only (slice 173).
+    only (slice 173), except in session mode, where session bars are built
+    from 1m bars at every intraday size (slice 174).
     """
     span = (start, end, limit)
-    check_request(granularity, (prints, SessionMode.UTC), span, max_bars)
-    fetch = _fetcher(minute_db, daily_db, symbol, granularity, (adjusted, prints))
+    check_request(granularity, (prints, session), span, max_bars)
+    if session is not SessionMode.UTC:
+        await _admit_session(pool, symbol, (granularity, session), span,
+                             (max_bars, max_minutes))  # fmt: skip
+    options = (adjusted, prints, session)
+    fetch = _fetcher(minute_db, daily_db, symbol, granularity, options)
     read = _read(fetch, (request, symbol), granularity, span)
 
     verdict: FreshnessVerdict | None = None
-    if CAGG_BASE_GRANULARITY[granularity] != granularity:
+    cagg_served = CAGG_BASE_GRANULARITY[granularity] != granularity
+    if session is SessionMode.UTC and cagg_served:
         # Plain gather (no return_exceptions): the probe cannot raise for a
         # granularity FastAPI already validated, and a genuine bug here should
         # fail the request via the global 500 handler (D9). The read and the
@@ -210,9 +242,11 @@ async def get_bars(
         limit=limit,
         adjusted=adjusted,
         prints=prints,
+        session=session,
         format=fmt,
     )
-    response = BarsResponse.from_dataframe(
+    model = BarsResponse if session is SessionMode.UTC else SessionBarsResponse
+    response = model.from_dataframe(
         symbol,
         df,
         applied=applied,
@@ -234,6 +268,22 @@ def _probe_freshness(
     """
     with pool.connection() as conn:
         return assert_cagg_fresh(conn, GRANULARITY_SOURCE[granularity])
+
+
+async def _admit_session(
+    pool: ConnectionPool[psycopg.Connection[Any]],
+    symbol: str,
+    request: tuple[Granularity, SessionMode],
+    span: tuple[date | None, date | None, int | None],
+    ceilings: tuple[int, int],
+) -> None:
+    """The session checks that need the database (174 D6), in the executor."""
+
+    def admit() -> None:
+        with pool.connection() as conn:
+            admit_session_request(conn, symbol, request, span, ceilings)
+
+    await asyncio.get_running_loop().run_in_executor(None, admit)
 
 
 async def _raise_if_unknown(

@@ -21,7 +21,11 @@ from tick_support.api import tick_not_configured
 
 from manta_trading.api_server.app import create_app
 from manta_trading.api_server.deps import get_db, get_db_pool
-from manta_trading.constants import API_MAX_BARS_PER_REQUEST, Granularity
+from manta_trading.constants import (
+    API_MAX_BARS_PER_REQUEST,
+    MAX_SESSION_MINUTES_PER_REQUEST,
+    Granularity,
+)
 from manta_trading.market.maintenance.cagg_freshness import reset_freshness_cache
 from manta_trading.market.timescale_daily_db import TimescaleDailyDataDB
 from manta_trading.market.timescale_minute_db import TimescaleMinuteDataDB
@@ -65,6 +69,7 @@ def test_app() -> FastAPI:
     app.state.minute_db = MagicMock(spec=TimescaleMinuteDataDB)
     app.state.daily_db = MagicMock(spec=TimescaleDailyDataDB)
     app.state.max_bars_per_request = API_MAX_BARS_PER_REQUEST
+    app.state.max_session_minutes = MAX_SESSION_MINUTES_PER_REQUEST
     app.state.statement_timeout = _CONFIGURED_TIMEOUT
     app.dependency_overrides[get_db_pool] = _stub_pool
     app.dependency_overrides[get_db] = _stub_db

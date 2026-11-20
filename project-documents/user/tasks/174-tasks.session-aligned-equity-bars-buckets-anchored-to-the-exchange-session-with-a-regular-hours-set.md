@@ -478,26 +478,29 @@ No commit here: sections 10 and 11 commit together at the section 11 marker.
 
 ## 12. Response models and the route
 
-- [ ] **12.1 Models** (`api_server/models/responses.py`)
-  - [ ] `SessionBarRecord` (`BarRecord` plus `session_date`, `phase: SessionPhase`) and a
+- [x] **12.1 Models** (`api_server/models/responses.py`)
+  - [x] `SessionBarRecord` (`BarRecord` plus `session_date`, `phase: SessionPhase`) and a
     session response model whose bars are `SessionBarRecord`, built `from_dataframe` like
     `BarsResponse`. `BarsResponse`/`BarRecord` unchanged (design D9: session fields only on
     session responses).
-  - [ ] `AppliedEquityBarParams` gains `session: SessionMode`.
-- [ ] **12.2 Route** (`api_server/routes/bars.py`)
-  - [ ] `session: SessionMode = SessionMode.UTC` query parameter; its description says that in
+  - [x] `AppliedEquityBarParams` gains `session: SessionMode`.
+  Note: deviation. Session models are in `models/session_responses.py`, not `responses.py`: `responses.py` is already 369 lines at HEAD (371 now), over the ~300-line guideline. `BarsResponse`/`BarRecord` unchanged.
+- [x] **12.2 Route** (`api_server/routes/bars.py`)
+  - [x] `session: SessionMode = SessionMode.UTC` query parameter; its description says that in
     session mode `start`/`end` are session dates, and with `utc` UTC dates.
-  - [ ] `_fetcher` calls `get_session_bars` when `session` is not `utc`; the route stays a thin
+  - [x] `_fetcher` calls `get_session_bars` when `session` is not `utc`; the route stays a thin
     wrapper. No freshness probe in session mode (`is_stale` false, as for `1m`). `limit`
     reuses the same `fetch` closure.
-  - [ ] `responses=` declares both 200 bodies, so `openapi.json` shows both.
-- [ ] **12.3 Tests** (`test/unit/api_server/test_bars_session.py`, integration in
+  - [x] `responses=` declares both 200 bodies, so `openapi.json` shows both.
+  Note: `routes/bars.py` grew from 255 to 305 lines, over the ~300-line guideline. Flagged, not split.
+- [x] **12.3 Tests** (`test/unit/api_server/test_bars_session.py`, integration in
   `test/integration/api_server/`)
-  - [ ] Criterion 8: with no `session`, the body equals today's plus `applied.session = "utc"`,
+  - [x] Criterion 8: with no `session`, the body equals today's plus `applied.session = "utc"`,
     with no `session_date`/`phase` keys; the existing bars tests pass unchanged apart from
     `applied`. The test that pins `applied` keys to the route's parameters passes.
-  - [ ] Session responses carry `session_date` and `phase`; criterion 9's three refusals
+  - [x] Session responses carry `session_date` and `phase`; criterion 9's three refusals
     through the route; `limit` with `regular` returns the latest N session bars.
+  Note: deviation. Route tests are integration tests in `test/integration/api_server/test_bars_session.py`, not the unit file `test/unit/api_server/test_bars_session.py` named in the heading. Reason: route behaviour needs session rows, so the tests run through the real app.
 
 **Commit**: `feat: serve session-aligned bars on /api/v1/bars`
 

@@ -27,11 +27,13 @@ from manta_trading.constants import (
     API_SERVING_SESSION,
     BARS_PER_TRADING_DAY,
     GRANULARITY_SOURCE,
+    MAX_SESSION_MINUTES_PER_REQUEST,
     PRINTS_ALL_1M_ONLY_MESSAGE,
     TRADING_DAYS_PER_CALENDAR_DAY,
     CycleGranularity,
     Granularity,
     PrintMode,
+    SessionMode,
 )
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
@@ -119,6 +121,7 @@ def test_app() -> FastAPI:
     app.state.daily_db = MagicMock(spec=TimescaleDailyDataDB)
     app.state.universe_edges = UniverseEdgeCache()
     app.state.max_bars_per_request = API_MAX_BARS_PER_REQUEST
+    app.state.max_session_minutes = MAX_SESSION_MINUTES_PER_REQUEST
     app.state.statement_timeout = API_SERVING_SESSION.statement_timeout
     app.dependency_overrides[get_db_pool] = _stub_pool
     return app
@@ -132,6 +135,7 @@ def _applied(**overrides: Any) -> AppliedEquityBarParams:
         "limit": None,
         "adjusted": True,
         "prints": PrintMode.ALL,
+        "session": SessionMode.UTC,
         "format": "json",
     }
     return AppliedEquityBarParams(**(values | overrides))
@@ -725,6 +729,7 @@ def test_applied_echoes_every_parameter_with_its_defaults(test_app: FastAPI) -> 
         "limit": None,
         "adjusted": True,
         "prints": "eligible",
+        "session": "utc",
         "format": "json",
     }
 

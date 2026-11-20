@@ -330,6 +330,9 @@
           "prints": {
             "$ref": "#/components/schemas/PrintMode"
           },
+          "session": {
+            "$ref": "#/components/schemas/SessionMode"
+          },
           "start": {
             "anyOf": [
               {
@@ -350,6 +353,7 @@
           "limit",
           "adjusted",
           "prints",
+          "session",
           "format"
         ],
         "title": "AppliedEquityBarParams",
@@ -3898,6 +3902,125 @@
         "title": "SeriesRecord",
         "type": "object"
       },
+      "SessionBarRecord": {
+        "description": "A session-aligned bar. ``timestamp`` is the bucket's start; the last bar\nof a phase can be shorter than the granularity.",
+        "properties": {
+          "close": {
+            "title": "Close",
+            "type": "number"
+          },
+          "high": {
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "title": "Low",
+            "type": "number"
+          },
+          "open": {
+            "title": "Open",
+            "type": "number"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/SessionPhase"
+          },
+          "session_date": {
+            "format": "date",
+            "title": "Session Date",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "volume": {
+            "title": "Volume",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "timestamp",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "session_date",
+          "phase"
+        ],
+        "title": "SessionBarRecord",
+        "type": "object"
+      },
+      "SessionBarsResponse": {
+        "description": "Response body for a session request to ``GET /api/v1/bars/{symbol}``.",
+        "properties": {
+          "adjusted": {
+            "title": "Adjusted",
+            "type": "boolean"
+          },
+          "applied": {
+            "$ref": "#/components/schemas/AppliedEquityBarParams"
+          },
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/SessionBarRecord"
+            },
+            "title": "Bars",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "granularity": {
+            "$ref": "#/components/schemas/Granularity"
+          },
+          "is_stale": {
+            "title": "Is Stale",
+            "type": "boolean"
+          },
+          "prints": {
+            "$ref": "#/components/schemas/PrintMode"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol",
+          "granularity",
+          "adjusted",
+          "prints",
+          "is_stale",
+          "applied",
+          "count",
+          "bars"
+        ],
+        "title": "SessionBarsResponse",
+        "type": "object"
+      },
+      "SessionMode": {
+        "description": "How intraday bars are bucketed (slice 174).\n\n``utc``: UTC-aligned buckets from the rollups (the default). ``regular``:\nbuckets anchored at the regular open, regular hours only. ``extended``:\npre, regular and post phases, each bucketed from its own start.",
+        "enum": [
+          "utc",
+          "regular",
+          "extended"
+        ],
+        "title": "SessionMode",
+        "type": "string"
+      },
+      "SessionPhase": {
+        "description": "A part of an exchange session; a session bar never crosses one (174 D2).",
+        "enum": [
+          "pre",
+          "regular",
+          "post"
+        ],
+        "title": "SessionPhase",
+        "type": "string"
+      },
       "SourceRecord": {
         "description": "The newest row in one source table (922 ``SourceFreshness``).",
         "properties": {
@@ -4648,7 +4771,7 @@
   "paths": {
     "/api/v1/bars/{symbol}": {
       "get": {
-        "description": "Return OHLCV bars for ``symbol`` over ``start``..``end``, or the\n``limit`` most recent at or before ``end``.\n\nFor a cagg-served granularity the response carries ``is_stale``, probed\nagainst the exact view the bars came from (slice 185 D7). ``M1``/``D1`` read\nraw hypertables, so no probe is issued and ``is_stale`` is always ``False``.\n\nRequests are admitted before any database work (186 D4): a reversed range,\nan estimate over the ceiling, ``limit`` over it or beside ``start`` is a\n``422``, not a slow ``500``. ``prints=all`` (raw prints) is served at ``1m``\nonly (slice 173).",
+        "description": "Return OHLCV bars for ``symbol`` over ``start``..``end``, or the\n``limit`` most recent at or before ``end``.\n\nFor a cagg-served granularity the response carries ``is_stale``, probed\nagainst the exact view the bars came from (slice 185 D7). ``M1``/``D1`` read\nraw hypertables, so no probe is issued and ``is_stale`` is always ``False``.\n\nRequests are admitted before any database work (186 D4): a reversed range,\nan estimate over the ceiling, ``limit`` over it or beside ``start`` is a\n``422``, not a slow ``500``. ``prints=all`` (raw prints) is served at ``1m``\nonly (slice 173), except in session mode, where session bars are built\nfrom 1m bars at every intraday size (slice 174).",
         "operationId": "get_bars_api_v1_bars__symbol__get",
         "parameters": [
           {
@@ -4743,6 +4866,17 @@
             }
           },
           {
+            "description": "utc (the default): UTC-aligned buckets; start/end are UTC dates. regular: buckets from the 09:30 open, regular hours only. extended: pre, regular and post phases, each bucketed from its own start. In session mode start/end are session dates and each bar carries session_date and phase; intraday granularities only.",
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SessionMode",
+              "default": "utc",
+              "description": "utc (the default): UTC-aligned buckets; start/end are UTC dates. regular: buckets from the 09:30 open, regular hours only. extended: pre, regular and post phases, each bucketed from its own start. In session mode start/end are session dates and each bar carries session_date and phase; intraday granularities only."
+            }
+          },
+          {
             "in": "query",
             "name": "format",
             "required": false,
@@ -4762,12 +4896,27 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BarsResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/BarsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionBarsResponse"
+                    }
+                  ],
+                  "title": "Response 200 Get Bars Api V1 Bars  Symbol  Get"
                 }
               },
               "application/x-msgpack": {
                 "schema": {
-                  "$ref": "#/components/schemas/BarsResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/BarsResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionBarsResponse"
+                    }
+                  ]
                 }
               }
             },

@@ -107,7 +107,8 @@ you did not send still shows its value.
 
 <!-- endpoint: /api/v1/bars/{symbol}
      params: granularity:Granularity, start:date, end:date, limit:integer,
-             adjusted:boolean, prints:PrintMode, format:json|msgpack
+             adjusted:boolean, prints:PrintMode, session:SessionMode,
+             format:json|msgpack
      errors: 404, 422, 504 -->
 
 `start` and `end` are inclusive dates. For "the latest N bars" pass `limit=N`
