@@ -1402,6 +1402,20 @@ and coarser effectively unbounded for normal use. Operator-settable via
 commitment.
 """
 
+MAX_SESSION_MINUTES_PER_REQUEST: Final[int] = 195_000
+"""Default ceiling on the minutes a session bars request reads (slice 174 D6).
+
+A ``session=regular|extended`` request is built at read time from 1m bars, so its
+cost follows the phase minutes it covers, not the bars it returns. Measured on
+production 2026-11-20 (``user/notes/174-session-minute-measurement.md``): SPY,
+``1h`` regular, adjusted, 20 runs per window ending 2026-11-13, p95 0.53 s at 3
+months (25,350 minutes), 1.04 s at 12 months (97,740), 2.65 s at 24 months
+(195,090), 5.28 s at 36 months (293,010). The default is the largest measured
+count with p95 within 5 s (a quarter of the 20 s statement timeout), rounded
+down. Operator-settable via ``MT_API_MAX_SESSION_MINUTES``. The row ceiling
+(:data:`API_MAX_BARS_PER_REQUEST`) applies as well.
+"""
+
 API_MAX_TICK_BAR_TRADES: Final[int] = 2_000_000
 """Default ceiling on the stored trades one tick-bar request may scan (308 D5).
 

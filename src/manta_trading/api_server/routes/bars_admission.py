@@ -18,7 +18,13 @@ from manta_trading.api_server.admission import (
     range_reversed,
 )
 from manta_trading.api_server.latest_bars import bars_per_calendar_day
-from manta_trading.constants import PRINTS_ALL_1M_ONLY_MESSAGE, Granularity, PrintMode
+from manta_trading.constants import (
+    GRANULARITY_BAR_MINUTES,
+    PRINTS_ALL_1M_ONLY_MESSAGE,
+    Granularity,
+    PrintMode,
+    SessionMode,
+)
 
 
 def _estimate_bars(granularity: Granularity, start: date, end: date) -> float:
@@ -77,15 +83,38 @@ def _admit_range(
         )
 
 
+def _check_session(granularity: Granularity, session: SessionMode) -> None:
+    """Session bars are intraday only (174 D6)."""
+    if session is not SessionMode.UTC and granularity not in GRANULARITY_BAR_MINUTES:
+        raise Refusal(
+            http_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"session={session.value} applies to intraday granularities "
+            f"({', '.join(g.value for g in GRANULARITY_BAR_MINUTES)}); "
+            f"{granularity.value} bars are one per session or longer",
+            reason=RefusalReason.SESSION_GRANULARITY,
+            granularity=granularity.value,
+            session=session.value,
+        )
+
+
 def check_request(
     granularity: Granularity,
-    prints: PrintMode,
+    options: tuple[PrintMode, SessionMode],
     span: tuple[date | None, date | None, int | None],
     ceiling: int,
 ) -> None:
-    """Every refusal decided from the request alone, before any DB work."""
+    """Every refusal decided from the request alone, before any DB work.
+
+    In session mode ``prints=all`` is served at every intraday size (session
+    bars are built from 1m bars), and the window is admitted on the session
+    rows instead (``bars_session_admission``), so the 186 estimate applies to
+    ``utc`` only.
+    """
+    prints, session = options
     start, end, limit = span
-    if prints is PrintMode.ALL and granularity != Granularity.M1:
+    _check_session(granularity, session)
+    utc = session is SessionMode.UTC
+    if prints is PrintMode.ALL and utc and granularity != Granularity.M1:
         raise HTTPException(
             status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=PRINTS_ALL_1M_ONLY_MESSAGE,
@@ -96,7 +125,13 @@ def check_request(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="start and end are required unless limit is given",
             )
-        _admit_range(granularity, start, end, ceiling)
+        if utc:
+            _admit_range(granularity, start, end, ceiling)
+        elif start > end:
+            raise range_reversed(
+                f"start ({start.isoformat()}) is after end ({end.isoformat()}); "
+                "the requested range is empty"
+            )
         return
     if start is not None:
         raise HTTPException(

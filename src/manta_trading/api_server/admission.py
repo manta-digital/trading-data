@@ -65,6 +65,9 @@ class RefusalReason(StrEnum):
     TRADE_CEILING = "trade_ceiling"
     SESSION_CEILING = "session_ceiling"
     RANGE_REVERSED = "range_reversed"
+    CALENDAR_HORIZON = "calendar_horizon"
+    MINUTE_CEILING = "minute_ceiling"
+    SESSION_GRANULARITY = "session_granularity"
 
 
 class Refusal(HTTPException):

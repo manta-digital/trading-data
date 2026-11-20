@@ -102,6 +102,7 @@ async def lifespan(
     # Changing an override requires a restart — the same contract as
     # MT_TIMESCALE_DB_URL — so no request pays for re-reading the environment.
     app.state.max_bars_per_request = settings.api_max_bars_per_request
+    app.state.max_session_minutes = settings.api_max_session_minutes
     app.state.max_tick_bar_trades = settings.api_max_tick_bar_trades
     app.state.max_time_bar_trades = settings.api_max_time_bar_trades
     app.state.statement_timeout = settings.api_statement_timeout

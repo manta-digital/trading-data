@@ -49,6 +49,7 @@ from manta_trading.constants import (
     GRANULARITY_SOURCE,
     Granularity,
     PrintMode,
+    SessionMode,
 )
 from manta_trading.market.maintenance.cagg_freshness import (
     FreshnessVerdict,
@@ -182,7 +183,7 @@ async def get_bars(
     only (slice 173).
     """
     span = (start, end, limit)
-    check_request(granularity, prints, span, max_bars)
+    check_request(granularity, (prints, SessionMode.UTC), span, max_bars)
     fetch = _fetcher(minute_db, daily_db, symbol, granularity, (adjusted, prints))
     read = _read(fetch, (request, symbol), granularity, span)
 

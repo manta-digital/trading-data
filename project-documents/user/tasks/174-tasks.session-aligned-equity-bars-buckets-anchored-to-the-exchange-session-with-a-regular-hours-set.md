@@ -429,47 +429,49 @@ task's files; section 8's files wait for the section 9 marker)
 
 Done before anything reads the ceiling, so no commit carries an unmeasured default.
 
-- [ ] **10.1 Measure and set the default** (design D6, admission)
-  - [ ] A one-off script outside the repo, run with `uv run python`, URLs from `Settings`, one
+- [x] **10.1 Measure and set the default** (design D6, admission)
+  - [x] A one-off script outside the repo, run with `uv run python`, URLs from `Settings`, one
     read-only transaction on production with the serving statement timeout. It writes nothing.
-  - [ ] Symbol: the one with the most regular-hours minute rows over the last year (from the
+  - [x] Symbol: the one with the most regular-hours minute rows over the last year (from the
     coverage cagg). Time `get_session_bars` regular 1h over windows of 3, 6, 12, 24 and 36
     months ending at the latest held session, 20 runs each; record each window's minute
     estimate (`estimate_minutes`) and its p95. A run cancelled by the statement timeout
     counts as over 5 s.
-  - [ ] Default rule: the largest measured minute count whose p95 is within 5 s (a quarter of
+  - [x] Default rule: the largest measured minute count whose p95 is within 5 s (a quarter of
     the 20 s timeout), rounded down to a round number. It must admit the 12-month window,
     whose p95 must be under 2 s (the load-test bound for the same read in 13.1). If either
     fails, write `BLOCKED:` with the timings, stop tasks 11, 12.2-12.3 and 13 and the
     measured numbers in 14.1, and continue everything else.
-  - [ ] Add `MAX_SESSION_MINUTES_PER_REQUEST` to `constants.py` beside
+  - [x] Add `MAX_SESSION_MINUTES_PER_REQUEST` to `constants.py` beside
     `API_MAX_BARS_PER_REQUEST`, its docstring recording the date, symbol, windows and timings
     and naming `MT_API_MAX_SESSION_MINUTES`; add `api_max_session_minutes` to `Settings`
     (`config/__init__.py`, `gt=0`) and a dependency beside `get_max_bars`.
-  - [ ] Write `user/notes/174-session-minute-measurement.md` (front matter as the 309 note):
+  - [x] Write `user/notes/174-session-minute-measurement.md` (front matter as the 309 note):
     procedure, table, the default chosen.
-  - [ ] If production is unreachable, write `BLOCKED:` here, with the same stop list as above.
+  - [ ] If production is unreachable, write `BLOCKED:` here, with the same stop list as above. (not needed: production was reachable)
 
 No commit here: sections 10 and 11 commit together at the section 11 marker.
 
 ## 11. Session admission
 
-- [ ] **11.1 Refusals and estimates**
-  - [ ] `RefusalReason` gains `CALENDAR_HORIZON`, `MINUTE_CEILING`, `SESSION_GRANULARITY`.
-  - [ ] Static checks in `bars_admission.check_request` (no DB): `session` other than `utc`
+- [x] **11.1 Refusals and estimates**
+  - [x] `RefusalReason` gains `CALENDAR_HORIZON`, `MINUTE_CEILING`, `SESSION_GRANULARITY`.
+  - [x] Static checks in `bars_admission.check_request` (no DB): `session` other than `utc`
     with `1d`, `1w`, `1mo`, `1q` → 422 `session_granularity`; `prints=all` allowed at every
     intraday size when `session` is not `utc`, unchanged (1m only) for `utc`.
-  - [ ] Session checks in a new `api_server/routes/bars_session_admission.py`, run in the
+  - [x] Session checks in a new `api_server/routes/bars_session_admission.py`, run in the
     executor after the static checks: look up the symbol's calendar (unknown symbol → the
     existing 404); `end` past `holidays_seeded_through` → 422 `calendar_horizon` with the
     bound; read the range's session bounds once and refuse over the row ceiling
     (`estimate_bars`, `row_ceiling` as today) or over the minute ceiling (`estimate_minutes`,
     422 `minute_ceiling` with `limit` and `estimate`). The 186 estimator stays for `utc`.
-  - [ ] With `limit`: unchanged (design D6), only the existing `limit` ≤ row ceiling check. A
+    Note: `admit_session_request` has no caller yet. `bars.py` still passes `SessionMode.UTC`
+    to `check_request`; section 12 adds the `session` parameter and the executor call.
+  - [x] With `limit`: unchanged (design D6), only the existing `limit` ≤ row ceiling check. A
     minute bound for session `limit` reads is deferred to issue #82.
-- [ ] **11.2 Tests** (`test/unit/api_server/test_bars_session_admission.py`, plus an
+- [x] **11.2 Tests** (`test/unit/api_server/test_bars_session_admission.py`, plus an
   integration test for the DB-backed checks)
-  - [ ] Each refusal's status, `reason` and fields; `prints=all` at 1h with `regular` admitted
+  - [x] Each refusal's status, `reason` and fields; `prints=all` at 1h with `regular` admitted
     and at 1h with `utc` refused; a range ending 2028-12-31 admitted and 2029-01-02 refused.
 
 **Commit**: `feat: admit session bar requests by minute ceiling and horizon`

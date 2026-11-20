@@ -52,6 +52,15 @@ def get_max_bars(request: Request) -> int:
     return request.app.state.max_bars_per_request  # type: ignore[no-any-return]
 
 
+def get_max_session_minutes(request: Request) -> int:
+    """Return the ceiling on minutes one session bars request reads (174 D6).
+
+    Resolved from ``MT_API_MAX_SESSION_MINUTES`` once in the lifespan hook, as
+    :func:`get_max_bars` is.
+    """
+    return request.app.state.max_session_minutes  # type: ignore[no-any-return]
+
+
 def get_max_tick_bar_trades(request: Request) -> int:
     """Return the configured ceiling on trades one tick-bar request scans (308 D5).
 
