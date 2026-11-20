@@ -196,6 +196,7 @@ Status: decided
   - a date that becomes a session (2021-12-31) gains a gap row if bars are missing.
 
   No hand-written gap SQL. The dry check lists the gap rows over the changed dates before and after.
+- **Amended in implementation (PM, 2026-11-20): each date is reconciled over its own ET day only.** On production about 40,000 gap rows touch the changed dates, mostly `RETRY_EXHAUSTED`/`PROVIDER_HOLE` spanning up to seven years, and the writer rewrites every row in its window with one status, so a widened window would reset them to `UNKNOWN` and re-fetch years of history. A closed date loses only the rows contained in its day, terminal ones included (production holds 2,072 minute `PROVIDER_HOLE` rows on 2025-01-09 alone: a judgement about a day that was never a session); a multi-day row that spans it keeps its status (that day has no data to fetch). Each symbol's `last_attempt_outcome` and `last_attempt_ts` are left as found (the daily pass reads the timestamp as "attempted this pass"). An opened date gets a gap row only for a symbol with no bar on it and no gap row over its session. A symbol never attempted (NULL outcome) is skipped and counted.
 
 ### D9 — Session fields only on session responses
 Status: decided

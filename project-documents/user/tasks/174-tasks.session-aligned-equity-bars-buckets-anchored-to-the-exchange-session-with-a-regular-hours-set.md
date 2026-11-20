@@ -220,56 +220,95 @@ No commit here: section 3 writes columns that section 4's migration adds.
 
 ## 5. Gap reconciliation over the changed dates
 
-- [ ] **5.1 `reconcile_calendar_gaps`**
-  - [ ] New module `src/manta_trading/data/gaps/calendar_reconcile.py`:
-    `reconcile_calendar_gaps(conn, dates) -> ReconcileReport`, called with the `opened` and
-    `closed` dates of `EXPECTED_SESSION_CHANGES` (not the live plan, which is empty once the
-    migration is applied). For every symbol on the NYSE or NASDAQ calendar with an
-    `acquisition_state` row, for `minute` and `daily`, and for every date given, recompute
-    gaps through `update_data_gaps`; a second call changes nothing. No
-    hand-written gap SQL (design D8: reconcile through the existing gap writer).
-  - [ ] Window: the changed date's ET day, widened to the full span of every gap row that
-    intersects it (the writer deletes intersecting rows and recomputes only inside the window,
-    so a narrower window would lose the rest of a multi-day row). Clamp to the span the daemon
-    seeds for that symbol; skip a date outside it (a symbol listed after 2021-12-31 gets no gap).
-  - [ ] Minute passes `precomputed_ranges` from `compute_missing_minute_sessions` (as
-    `daemon/minute.py` does; without them the writer inserts one gap over the whole window);
-    daily lets the writer call `compute_missing_ranges`. Take the advisory lock as the daemons
-    do (they may run at the same time). Pass the row's current `acquisition_state.last_attempt_outcome` so reconciliation does not
-    change it, and `FetchStatus.UNKNOWN` for unfilled rows.
-  - [ ] The report lists gap rows over the changed dates before and after, per symbol and
-    granularity.
-- [ ] **5.2 Tests** (`test/integration/test_calendar_gap_reconcile.py`, throwaway DB)
-  - [ ] A gap row covering 2025-01-08..2025-01-10 is replaced by rows for 01-08 and 01-10 only;
-    a gap row for 2025-01-09 alone is removed.
-  - [ ] A symbol with no bars on 2021-12-31 gains a gap row for it in both granularities; a
-    symbol with bars does not; a symbol whose history starts in 2023 does not.
-  - [ ] `last_attempt_outcome` and gap rows on unchanged dates are untouched. After
-    reconciliation, gap rows over the changed dates match a fresh recompute (criterion 10,
-    gap part).
+- [x] **5.1 `reconcile_calendar_gaps`**
+  - [x] New module `src/manta_trading/data/gaps/calendar_reconcile.py`:
+    `reconcile_calendar_gaps(conn, dates) -> ReconcileReport`, called with
+    `EXPECTED_SESSION_CHANGES.reconciled_dates()` (`opened` | `closed`; not the live plan,
+    which is empty once the migration is applied). Every write goes through `update_data_gaps`;
+    no hand-written gap SQL (design D8).
+  - [x] Window: each date's own America/New_York day (`day_window`), never widened to the rows
+    that intersect it (PM decision 2026-11-20; D8 amended).
+  - [x] Closed date: for each symbol with an `acquisition_state` row and a gap row contained in
+    the day, `update_data_gaps` runs with no unfilled status and `force_reset_terminal`, which
+    deletes the contained rows, terminal (`PROVIDER_HOLE`, `RETRY_EXHAUSTED`) ones included. The
+    reset is scoped to the day (D8 amended): a multi-day row that spans the day keeps its status
+    and attempts.
+  - [x] Opened date (2021-12-31): for each symbol with an `acquisition_state` row, no bar on the
+    session (minute: a minute bar from open to close; daily: the daily bar at the date) and no
+    gap row over the session, the writer seeds `UNKNOWN` rows. Minute passes `precomputed_ranges`
+    built directly as the session (open to close) clamped by `clamp_to_lifecycle`, not through
+    `compute_missing_minute_sessions`: the bar check is exact, and the coverage cagg's freshness
+    guard does not apply here. Daily lets the writer call `compute_missing_ranges`, which is
+    lifecycle-clamped.
+  - [x] Candidates are the `eodhd` acquisition rows (`ProviderType.EODHD`) of each granularity.
+    Each write (symbol, granularity, day) runs in its own transaction under `advisory_lock` with
+    `DAEMON_LOCK_TIMEOUT`, as the daemons take it. The row's current `last_attempt_outcome` is
+    passed. A NULL outcome (never attempted; about 1,300 `acquisition_state` rows on production)
+    is skipped and counted in the report, not written.
+  - [x] Outcome and `last_attempt_ts` of every symbol written are left as found: the writer stamps
+    `last_attempt_ts` with now, so the reconciler restores the prior value in the same transaction
+    (the daily pass reads it as "attempted this pass"; the minute pass orders by it).
+  - [x] Report (`ReconcileReport`): gap-row totals before and after per (date, granularity), each
+    symbol whose count changed (`GapCount`: before, after), and the skipped counts.
+  PM 2026-11-20: day-window only (see D8 amendment). Also found: daily compute_missing_ranges compares session_open_utc to 00:00Z daily stamps, so it reports every daily session missing — filed as #83; the opened-date daily seed only runs for symbols verified to lack the bar.
+- [x] **5.2 Tests** (`test/integration/test_calendar_gap_reconcile.py`, throwaway DB; 1 test, passes)
+  - [x] Closed day 2025-01-09: for symbol HOLE, a single-session minute row and a single-day daily
+    row (both `UNKNOWN`, contained in the day) are removed; for JUDGED, a single-session
+    `PROVIDER_HOLE` minute row contained in the day is removed; a multi-day `PROVIDER_HOLE` minute
+    row over 2025-01-08..10 and a row on an unrelated date (2024-06-03) keep their status and
+    attempts.
+  - [x] Opened day 2021-12-31: MISS (no bars that day) gains a minute and a daily row; HAS (bars)
+    gains none; LATE (listed 2023-03-01) gains none; NEVER (NULL outcome) gains none and is counted
+    as skipped.
+  - [x] `last_attempt_outcome` and `last_attempt_ts` are unchanged for every symbol and granularity;
+    a second call changes nothing (`ReconcileReport.is_noop()`).
+  - [x] Criterion 10, gap part: the gap rows contained in each changed day equal what a fresh seed
+    gives (no contained row left on 2025-01-09; the 2021-12-31 rows for MISS only). Multi-day
+    terminal rows that span a changed day stay, as D8 keeps them, and are outside this comparison.
 
 No commit here: sections 5 and 6 commit together at the section 6 marker.
 
 ## 6. The cutover script
 
-- [ ] **6.1 `scripts/cutover_174_calendar.py`**
-  - [ ] Read `scripts/cutover_301_calendar_history.py` first and follow it: one command, a
+- [x] **6.1 `scripts/cutover_174_calendar.py`**
+  - [x] Read `scripts/cutover_301_calendar_history.py` first and follow it: one command, a
     log and a report, check-then-act, no prompts.
-  - [ ] While the 174 migration is pending: run `plan_nyse_session_changes` and print it with
-    the gap rows over its dates (dry check); stop with an error if it differs from
-    `EXPECTED_SESSION_CHANGES`; apply pending minute migrations; re-plan and require it empty.
-  - [ ] Once it is applied (by this run, an earlier run, or `mt data migrate apply`): require
-    an empty plan, then run `reconcile_calendar_gaps` over the pinned dates. Reconciliation is
-    keyed on the pinned dates, so a migration applied through the generic path is reconciled
-    the next time the cutover runs.
-  - [ ] Write the report (plan or "migration already applied", migration id, gap rows
-    before/after) to `user/notes/` with a timestamped name, as earlier cutovers do. A re-run
-    reports no gap row changes.
-- [ ] **6.2 Test** (`test/integration/test_cutover_174_calendar.py`, throwaway DB at the
-  previous migration id, cutover behavior only): the first run applies and reconciles; a
-  second run reports no gap row changes; after `mt data migrate apply` alone, the cutover
-  still reconciles; a pending migration with a plan that differs from the pinned set stops
-  before any write.
+  - [x] Preflight: the ref exists here and on origin; the checkout is the dev root (`deploy/`
+    and `.env` present); the checkout's `MT_TIMESCALE_DB_URL` names the same database as
+    production's env file (`verify_same_database`).
+  - [x] Dry check, before any timer or install, while 068 is pending: print the plan for both
+    calendars and log the gap rows over each reconciled date; raise unless the plan equals
+    `EXPECTED_SESSION_CHANGES`. Once 068 is applied it prints "already applied" and goes on.
+  - [x] Hold the acquisition timers (`hold_timers`), each after its pass ends.
+  - [x] Install the ref (`install`, which runs `deploy/install-production.sh --ref`): the
+    installed checkout must be at the ref's commit, and `mt` must report the ref's version.
+  - [x] Migrate, when 068 is pending: `migrate("minute", "068_nyse_session_bounds")`, which first
+    checks that the maintenance URL targets production. Then the re-plan must be empty.
+  - [x] Reconcile: `reconcile_calendar_gaps` over the pinned dates (5.1). A migration applied by
+    another route is not applied again; the reconcile still runs.
+  - [x] Report: `project-documents/user/notes/cutover-174-calendar-<stamp>.md` (plan or "already
+    applied", migration id, gap rows before and after, changed symbols), with the narration in
+    `cutover-<ref>-<stamp>.log` beside it. A re-run reports no gap row changes.
+  - [x] Restart `mt-serve.service` if it is active, and wait until it answers `/health`.
+  - [x] Verify: 2021-12-31 is a NYSE session and 2025-01-09 is not (`mt-run data calendars
+    sessions`); `mt-run data health` and `mt-run data overview` exit 0.
+  - [x] Release the timers that were held. After a failed migrate they stay stopped on purpose,
+    and the log says so. Exit 0 only when every check passed; a failure exits 1 with its cause
+    logged.
+  Note: the dry check was also run read-only against production on 2026-11-20: plan equals
+  `EXPECTED_SESSION_CHANGES` for both calendars (opened 2021-12-31, closed 20, retimed 5,
+  appended 0).
+- [x] **6.2 Test** (`test/integration/test_cutover_174_calendar.py`, throwaway DB at migration
+  067 with production-shaped sessions from the old rule data; database steps only, host steps
+  are not run): 3 tests, pass.
+  - [x] First run: the dry check prints the plan, 068 applies, 2021-12-31 gains a minute and a
+    daily row for the symbol with no bars that day, and that symbol's 2025-01-09 minute gap row
+    is removed. The next dry check reports "already applied", and a second run changes no gap row.
+  - [x] Migration applied alone through the migration runner first: the cutover does not apply it
+    again, still reconciles, and reports "already applied before this run".
+  - [x] A plan that differs from the pinned set (a 2024-03-04 NYSE session row deleted) makes the
+    dry check raise `CutoverError` before any write: 068 is not applied and the gap rows are
+    unchanged.
 
 **Commit**: `feat: reconcile NYSE gap rows through a calendar cutover (#26)`
 
