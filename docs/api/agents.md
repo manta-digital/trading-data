@@ -129,6 +129,35 @@ was `prints=all`, and `5m`+ bars carried raw highs and lows. `prints=all`
 (raw, stored bars) is served at `1m` only; at any other grain it is a `422`.
 The response's `prints` says which you got.
 
+**Bars that start at the open: `session`.** By default intraday buckets are
+UTC-aligned, so an equity `1h` bar straddles 09:30 ET. Pass `session=regular`
+for bars anchored at the open, regular hours only, or `session=extended` for
+pre (04:00-09:30), regular (09:30-16:00) and post (16:00-20:00 ET) phases, each
+bucketed from its own start. No bar crosses a phase, so the last bar of a phase
+can be short: regular `1h` is 7 bars, the last 15:30-16:00; extended `1h` is 6 +
+7 + 4. `timestamp` is the bucket start. In session mode `start`/`end` are
+session dates, each bar carries `session_date` and `phase`, and only `1m`-`4h`
+are allowed (`1d`+ is a `422`, `reason: session_granularity`). Early closes
+(13:00, late session to 17:00) come from the calendar. A range ending past the
+calendar's known holidays is a `422` with `reason: calendar_horizon` and
+`holidays_seeded_through`; one reading too many session minutes is a `422` with
+`reason: minute_ceiling`, `limit` and `estimate` (narrow the window).
+
+**Closing volume.** The closing auction prints at 16:00:00 ET, so it is in the
+16:00 minute, the first post-market bar: regular-session volume summed from
+session bars does not include it. Some symbols (NYSE Arca and Cboe BZX ETFs
+such as SPY; NYSE stocks on early closes) also carry a single-price bar stamped
+at the extended close (20:00 ET, 17:00 on early closes) at the official closing
+price; what its volume counts is not established. It is in no session bar, and
+`prints=eligible` serves it only when it is not marked off-tape. Count closing
+volume from the 16:00 minute; read the stamp separately where it exists (it may
+overlap), and never use the 15:30 bar.
+
+**Adjustment dates.** Adjusted intraday bars take the factor of their New York
+date, so post-market minutes after 19:00 ET (past midnight UTC in winter) are
+adjusted with their own session. Changed in slice 174: they used to take the
+next UTC day's factor on the evening before an ex-date.
+
 ### "Does this symbol exist? What range do you have?"
 
 `GET /api/v1/symbols/{symbol}` → instrument metadata plus an `available` map of

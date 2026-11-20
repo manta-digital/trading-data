@@ -1795,6 +1795,57 @@ rendered once, in `market/schema/eligible_sql.py`, from `OffTape`.
 `NULL` mark, or when its marked share lies outside
 `[OFF_TAPE_SHARE_FLOOR, OFF_TAPE_SHARE_CEILING]` (measured 2026-10-16).
 
+## Session-aligned equity bars and the calendar (slice 174)
+
+### Equity rollups and session reads
+
+The four eligible minute rollups (`minute_{5min,15min,hourly,4hour}_ohlcv`) stay
+UTC-bucketed and keep serving `session=utc`. `session=regular|extended` reads
+bypass them: `TimescaleMinuteDataDB.get_session_bars` builds bars at read time
+from eligible 1m bars over the phases in `trading_sessions` (pre
+`[extended_open, open)`, regular `[open, close)`, post `[close, extended_close)`),
+each bucketed from its own start with `date_bin`, so no bar crosses a phase.
+The phase rule lives once, in `market/session_phases.py`; the statement
+(`market/session_bars_sql.py`) takes the phase intervals as arrays and
+aggregates minutes through the same eligible expressions as the rollups
+(`eligible_ohlcv_select`). No new caggs.
+
+### `prints=all`
+
+`prints=all` (raw bars) is served at `1m` only for `session=utc`, because the
+rollups hold eligible values. In session mode it is served at every intraday
+size: session bars are built from 1m bars either way.
+
+### `adjusted()` date rule
+
+`adjusted(df, symbol, conn, *, dates_in)` takes each bar's factor from its date
+in `dates_in`, a required keyword. Intraday reads pass the symbol's calendar
+timezone (`data/base/symbol_calendar.py`), so a bar's factor date is its
+exchange-local date: winter post-market minutes after 19:00 ET (the next UTC
+day) take their own session's factor. Daily reads pass UTC, since daily bars and
+their rollups are stamped 00:00 UTC on the session date. A symbol with no
+instrument row raises `UnknownSymbolError` (the API's 404); an instrument with
+no calendar raises `ValueError`.
+
+### Calendar contract
+
+- `trading_sessions` gains `extended_open_utc` and `extended_close_utc`
+  (nullable `timestamptz`), written by `populate_trading_sessions` when the
+  calendar row carries `has_extended_hours` and by `extend_calendar_sessions`
+  once the columns exist. Every NYSE/NASDAQ row has both after migration 068; a
+  calendar without extended hours (the CME calendars) has `NULL`.
+- `trading_holidays` gains `extended_close_time`: an early close's late session
+  ends then (17:00 ET for NYSE/NASDAQ) and it overrides the calendar's extended
+  close.
+- NYSE/NASDAQ holidays are explicit dated rows for 2020-2028
+  (`market/schema/nyse_calendar_history.py`, sourced from NYSE's published
+  schedule), not a rule; `holidays_seeded_through` is 2028-12-31. Against the
+  old rule, 2021-12-31 opens, 2025-01-09 closes, and 2020-07-02 and 2026-07-02
+  are full days. `generate_holidays` remains only for migrations 007/008.
+- Gap rows over dates whose session status changed are reconciled through
+  `update_data_gaps` by `scripts/cutover_174_calendar.py`, each date over its own
+  ET day (`data/gaps/calendar_reconcile.py`).
+
 ## References
 
 - [data-correctness-architecture.md](../reference/data-correctness-architecture.md) — invariants this initiative closes

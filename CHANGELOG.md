@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Session-aligned equity bars** (issue #38). `GET /api/v1/bars/{symbol}?session=regular` returns intraday bars anchored at the 09:30 ET open, regular hours only: `1h` is 7 bars a day, the last 15:30-16:00. `session=extended` adds pre-market (04:00-09:30) and post-market (16:00-20:00) phases, each bucketed from its own start, so no bar crosses the open or the close (`1h`: 6 + 7 + 4). Early closes come from the calendar (2025-11-28: 4 regular `1h` bars). In session mode `start`/`end` are session dates, each bar carries `session_date` and `phase`, `prints=all` works at every intraday size, and `1d` and longer are a `422` (`session_granularity`). A range past the calendar's known holidays is a `422` (`calendar_horizon`, with `holidays_seeded_through`), and one reading more than 195,000 session minutes is a `422` (`minute_ceiling`; `MT_API_MAX_SESSION_MINUTES`, measured on production). The default `session=utc` is unchanged apart from `applied.session`.
+- **The equity close-stamp bar is documented** (issue #78). The single-price bar some symbols carry at 20:00 ET (17:00 on early closes) is the official closing price; it is in no session bar. The closing auction's volume is in the 16:00 ET minute, so regular-session volume summed from session bars excludes it. See `docs/api/reference.md`.
+
+### Changed
+- **Adjusted intraday prices use the exchange date** (issue #28, client-visible). A winter post-market minute after 19:00 ET on the evening before an ex-date (00:00-01:00 UTC the next day), and the `utc` `1h`/`4h` buckets that hold it, now take that evening's split/dividend factor instead of the ex-date's. Daily bars are unchanged.
+- **Adjusted bars of a symbol with no instrument are a `404`.** Production holds minute bars under 468 symbols with no instrument row (mostly delisted units and warrants); their adjusted reads can no longer be dated by a calendar and answer the unknown-symbol `404`. `adjusted=false` still serves them.
+
+### Fixed
+- **NYSE/NASDAQ holidays are correct through 2028** (issue #26). Holidays and early closes for 2020-2028 are explicit rows from NYSE's published schedule: 2021-12-31 is a trading day, 2025-01-09 (National Day of Mourning) is closed, 2020-07-02 and 2026-07-02 are full days rather than 13:00 early closes, and the 2027-2028 holidays exist (before, every 2027 holiday was a trading day). Sessions also carry their extended-hours bounds. Migration 068 is applied by `scripts/cutover_174_calendar.py`, which reconciles the gap rows on the changed dates.
+
 ## [0.27.6] - 2026-11-19
 
 ### Fixed

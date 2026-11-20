@@ -2,7 +2,7 @@
 docType: notes
 project: trading-data
 dateCreated: 20261119
-dateUpdated: 20261119
+dateUpdated: 20261120
 status: complete
 ---
 
@@ -82,10 +82,10 @@ Rollup buckets (`session=utc`, #78 work item 4):
 
 - The bar is a single print at the official closing price (454 of 483 equal the daily
   close; only 4 equal the preceding minute's close).
-- It appears on regular days only for exchange-traded products whose listing venue runs its
-  own closing auction outside NASDAQ: every NYSE Arca and Cboe BZX ETF sampled, every day.
-  It never appears for NASDAQ-listed symbols, and not for NYSE-listed stocks on regular
-  days. On early closes, NYSE-listed stocks carry it too, at 17:00 ET.
+- On regular days it appeared for every NYSE Arca and Cboe BZX ETF sampled, every day, and
+  for no NYSE-listed stock. Eleven of the twelve symbols the provider lists as NASDAQ never
+  carried it; the twelfth, the ETF FOTO, carried it every day (its actual listing venue
+  was not confirmed). On early closes, NYSE-listed stocks carry it too, at 17:00 ET.
 - For NASDAQ- and NYSE-listed stocks the closing auction's volume is in the **16:00 ET
   minute** (100-260 times the median regular minute), the first minute of the post-market
   phase. For NYSE stocks that minute's close is the official close (BLDR 61 of 64); for

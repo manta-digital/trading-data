@@ -525,21 +525,21 @@ No commit here: sections 10 and 11 commit together at the section 11 marker.
 
 ## 14. Docs, OpenAPI, architecture and changelog
 
-- [ ] **14.1 API references and OpenAPI**
-  - [ ] `docs/api/reference.md` and `docs/api/agents.md`: `session` and its values; session
+- [x] **14.1 API references and OpenAPI**
+  - [x] `docs/api/reference.md` and `docs/api/agents.md`: `session` and its values; session
     dates in session mode; `session_date`, `phase`; the short last bar of a phase (its
     `timestamp` is its start); the three new 422 reasons; the close-stamp bar from the section
     1 note and what it means for regular-session volume; the D5 adjustment rule.
-  - [ ] Regenerate `docs/api/openapi.json` as earlier slices did; `scripts/check_api_docs.py`
+  - [x] Regenerate `docs/api/openapi.json` as earlier slices did; `scripts/check_api_docs.py`
     and `test/integration/test_api_docs_examples.py` pass.
-- [ ] **14.2 Architecture amendments** (design Included item 6)
-  - [ ] `140-arch.data-quality-operations.md`: equity caggs section (session reads bypass the
+- [x] **14.2 Architecture amendments** (design Included item 6)
+  - [x] `140-arch.data-quality-operations.md`: equity caggs section (session reads bypass the
     caggs); the `adjusted()` date rule (exchange-local date); the `prints=all` rule (every
     intraday size in session mode); the calendar contract (new `trading_sessions` and
     `trading_holidays` columns, explicit NYSE/NASDAQ rows).
-  - [ ] `180-arch.data-serving.md`: the bars contract (`session`, `session_date`, `phase`, the
+  - [x] `180-arch.data-serving.md`: the bars contract (`session`, `session_date`, `phase`, the
     new refusals, the session ceiling).
-- [ ] **14.3 CHANGELOG** (Unreleased): the feature, the #26 calendar fix, and the D5
+- [x] **14.3 CHANGELOG** (Unreleased): the feature, the #26 calendar fix, and the D5
   correction called out as a client-visible change to winter post-market adjusted values.
 
 **Commit**: `docs: document session-aligned equity bars and amend 140 and 180`

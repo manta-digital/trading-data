@@ -52,6 +52,7 @@ GET /api/v1/bars/{symbol}
     &start=2024-06-01      # Required. ISO date (YYYY-MM-DD). Time component not accepted.
     &end=2024-06-15        # Required. ISO date (YYYY-MM-DD). Time component not accepted.
     &adjusted=true         # Optional, default true.
+    &session=utc           # Optional. utc (default), regular or extended (slice 174).
     &format=json           # Optional. json (default) or msgpack.
 ```
 
@@ -93,6 +94,23 @@ An earlier revision of this document gave ~40-60% here and at Serialization
 below. That figure was never measured and holds for none of the three routes
 that offer the parameter, including the minute-data-over-weeks shape it was
 stated about. Corrected 2026-09-16 from the slice 190 measurements.
+
+**Session-aligned bars (slice 174).** `session=regular|extended` routes intraday
+granularities to `TimescaleMinuteDataDB.get_session_bars`; `start`/`end` are
+then session dates. The response is `SessionBarsResponse`: each bar adds
+`session_date` and `phase` (`pre`, `regular`, `post`), and `timestamp` is the
+bucket start (a phase's last bar can be short). A default request keeps
+`BarsResponse` unchanged apart from `applied.session`; the OpenAPI schema
+declares both bodies. No freshness probe in session mode (`is_stale` false).
+Admission adds three `422` reasons: `session_granularity` (session mode with
+`1d` or longer), `calendar_horizon` (an `end` past the calendar's
+`holidays_seeded_through`, with that date) and `minute_ceiling` (phase minutes
+over `MAX_SESSION_MINUTES_PER_REQUEST`, 195,000 by default,
+`MT_API_MAX_SESSION_MINUTES`, measured on production 2026-11-20). Session rows
+are estimated as `ceil(phase_minutes / width)` per phase against the row
+ceiling; `limit` reads are checked against the row ceiling only (a minute bound
+for them is issue #82). A session read over a row with no extended bound is a
+logged 500.
 
 ### Symbols
 

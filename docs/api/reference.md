@@ -227,11 +227,13 @@ the `error` prose is unchanged:
 
 | Field | Type | Present on | Meaning |
 |---|---|---|---|
-| `reason` | `row_ceiling` \| `trade_ceiling` \| `session_ceiling` \| `range_reversed` | those four refusals | What was refused. Absent on every other error. |
-| `limit` | integer | the three ceilings | The enforced ceiling: rows, trades, or sessions (futures product reads). |
+| `reason` | `row_ceiling` \| `trade_ceiling` \| `session_ceiling` \| `range_reversed` \| `calendar_horizon` \| `minute_ceiling` \| `session_granularity` | those seven refusals | What was refused. Absent on every other error. |
+| `limit` | integer | the four ceilings | The enforced ceiling: rows, trades, sessions (futures product reads), or minutes (equity session bars, `minute_ceiling`). |
 | `estimate` | integer | equity bars, Kalshi lists and series, futures trade and session ceilings | The rows, trades or sessions the request would have read. The futures row ceiling stops reading at the limit, so it has none. |
 | `granularity` | string | equity bars | The granularity the estimate is for. |
-| `max_span_days` | integer | equity bars | The longest inclusive window this granularity admits. |
+| `max_span_days` | integer | equity bars, `session=utc` | The longest inclusive window this granularity admits. |
+| `holidays_seeded_through` | date | `calendar_horizon` | The last date the symbol's calendar knows closures for; a session request may not end after it. |
+| `session` | string | `session_granularity` | The `session` value refused with a daily or longer granularity. |
 
 ```json
 {"error":"requested range spans about 3,167,495 1m bars, over the 75,000 bar limit; at 1m request at most 113 days per call, or use a coarser granularity","reason":"row_ceiling","limit":75000,"estimate":3167495,"granularity":"1m","max_span_days":113}
@@ -364,12 +366,12 @@ most recent bars.
 | Name | Type | Required | Default | Meaning |
 |---|---|---|---|---|
 | `granularity` | `Granularity` | yes | — | Bar size; see the token set below. |
-| `start` | date | unless `limit` | — | Inclusive first day, UTC. Not allowed with `limit`. |
-| `end` | date | unless `limit` | latest held, with `limit` | Inclusive last day, UTC (§2.2). With `limit`, the day to count back from. |
+| `start` | date | unless `limit` | — | Inclusive first day: a UTC date, or a session date when `session` is `regular` or `extended`. Not allowed with `limit`. |
+| `end` | date | unless `limit` | latest held, with `limit` | Inclusive last day: UTC (§2.2), or a session date in session mode. With `limit`, the day to count back from. |
 | `limit` | integer | no | — | The N most recent bars at or before `end`, 1 to the row ceiling (issue #13). |
 | `adjusted` | boolean | no | `true` | Split/dividend-adjusted prices. |
 | `prints` | `PrintMode` | no | `eligible` | `eligible`: tape-eligible bars, every grain. `all`: raw bars, `1m` only (below). |
-| `session` | `SessionMode` | no | `utc` | `utc`: UTC-aligned buckets. `regular` / `extended`: session-aligned bars, intraday grains only; `start`/`end` are then session dates. |
+| `session` | `SessionMode` | no | `utc` | `utc`: UTC-aligned buckets. `regular` / `extended`: session-aligned bars, intraday grains only; `start`/`end` are then session dates (below). |
 | `format` | `json` \| `msgpack` | no | `json` | Response encoding (§7). |
 
 Granularity tokens are
@@ -416,6 +418,99 @@ high, low and close are such prints; stored prices are never changed.
   side. A print close to the market (on SPY, within about 0.3%) stays
   unmarked, so `eligible` removes the spikes, not every off-tape trade.
 
+**Session-aligned bars (`session`, slice 174).** By default (`session=utc`)
+intraday buckets are aligned to UTC, so a `1h` bar starts on the UTC hour and
+an equity `1h` bar straddles the 09:30 ET open. `session=regular` and
+`session=extended` build bars from the 1-minute bars inside the exchange
+session instead:
+
+Session modes are `utc` `regular` `extended`.
+<!-- from: manta_trading.constants.SessionMode -->
+
+- A session has three half-open phases, from `trading_sessions`: pre
+  `[04:00, 09:30)`, regular `[09:30, 16:00)` and post `[16:00, 20:00)` ET; on an
+  early close, regular ends at 13:00 and post at 17:00. `regular` serves the
+  regular phase; `extended` serves all three.
+- Each phase is bucketed from its own start and **no bar crosses a phase**.
+  Regular `1h` is 7 bars from 09:30, the last one 15:30-16:00 (half an hour);
+  extended `1h` is 6 pre + 7 regular + 4 post. The last bar of a phase can be
+  shorter than the granularity, and `timestamp` is always the bucket's start.
+  An early close (2025-11-28) gives 4 regular `1h` bars, the last at 12:30.
+- `start` and `end` are **session dates**: `end=2026-01-14` includes that
+  session's post-market minutes after midnight UTC. Each bar carries
+  `session_date` and `phase`; a `session=utc` response does not.
+- Intraday granularities only (`1m` to `4h`). `prints=all` is served at every
+  intraday size in session mode, because session bars are built from 1-minute
+  bars. Bars are built at read time, so `is_stale` is always `false`.
+- Admission: a request is refused when it ends past the calendar's
+  `holidays_seeded_through` (`calendar_horizon`, so "beyond the calendar" is
+  never confused with "market closed"), when its session bars
+  (`ceil(phase_minutes / width)` per phase) exceed the row ceiling
+  (`row_ceiling`), or when its phase minutes exceed the session minute ceiling
+  (`minute_ceiling`; default 195,000, `MT_API_MAX_SESSION_MINUTES`, about two
+  years of `regular` or ten months of `extended`). `limit` works as for `utc`
+  and is checked against the row ceiling only.
+
+**The close-stamp bar and closing volume** (`user/notes/174-close-stamp-bar.md`,
+issue #78). Some symbols carry one extra `1m` bar stamped exactly at the
+extended close (20:00 ET, or 17:00 on an early close). It is a single print at
+the official closing price, seen on regular days for every NYSE Arca and Cboe
+BZX ETF sampled (SPY, VOO and others) and on early closes for NYSE stocks too;
+of twelve symbols the provider lists as NASDAQ, eleven never carried it (FOTO did). What its volume counts (1-3% of
+daily volume) is not established. It lies in no phase, so **no session bar
+contains it**. With `session=utc`, `prints=all` `1m` always serves it;
+`prints=eligible` (the default) serves it, and the UTC `1h`/`4h` buckets carry
+it, only on days the off-tape detector leaves it unmarked (414 of 483 sampled;
+SOXL 23 of 68). The closing auction itself executes at 16:00:00 ET, so its
+volume is in the **16:00 minute, the first post-market bar** (100-260 times a
+typical minute for stocks). Regular-session volume summed from session bars
+therefore excludes the closing auction, and the last regular bar's close is
+the 15:59 minute's, not the official close. To count closing volume, read the
+16:00 minute; for a product that carries the stamp, read the stamp separately
+(whether its volume overlaps the 16:00 minute is not established), and never
+use the 15:30 bar.
+
+**Adjustment dates (slice 174).** With `adjusted=true`, each intraday bar takes
+the split/dividend factor of its date in the symbol's calendar timezone
+(America/New_York), not its UTC date. A session bar's date is its
+`session_date`. **Client-visible change on the default path:** a winter
+post-market minute after 19:00 ET on the evening before an ex-date (00:00-01:00
+UTC the next day), and the `utc` `1h`/`4h` buckets holding it, now take that
+evening's factor instead of the ex-date's. Daily bars are unchanged.
+
+Regular `1h` bars for one session:
+
+```sh
+curl 'http://127.0.0.1:8137/api/v1/bars/SPY?granularity=1h&start=2026-01-14&end=2026-01-14&session=regular&adjusted=false'
+```
+
+```json
+{
+  "symbol": "SPY",
+  "granularity": "1h",
+  "adjusted": false,
+  "prints": "eligible",
+  "is_stale": false,
+  "applied": {"granularity":"1h","start":"2026-01-14","end":"2026-01-14","limit":null,"adjusted":false,"prints":"eligible","session":"regular","format":"json"},
+  "count": 7,
+  "bars": [
+    {"timestamp":"2026-01-14T14:30:00Z","open":100.0,"high":101.0,"low":99.0,"close":100.5,"volume":600,"session_date":"2026-01-14","phase":"regular"},
+    {"timestamp":"2026-01-14T20:30:00Z","open":100.0,"high":101.0,"low":99.0,"close":100.5,"volume":300,"session_date":"2026-01-14","phase":"regular"}
+  ]
+}
+```
+
+*Captured 2026-11-20 against a test database seeded with every minute of the
+2026-01-14 session at constant prices (`test/integration/api_server/test_bars_session.py`).
+Truncated: 7 bars returned, the first and the last shown; the last covers
+15:30-16:00 ET, so it holds 30 minutes' volume.*
+
+A session request past the calendar's horizon:
+
+```json
+{"error":"NYSE sessions are known through 2028-12-31; end 2029-01-02 is past them","reason":"calendar_horizon","holidays_seeded_through":"2028-12-31"}
+```
+
 **Response**
 
 | Field | Type | Null? | Unit / time base | Meaning |
@@ -425,7 +520,7 @@ high, low and close are such prints; stored prices are never changed.
 | `adjusted` | boolean | no | — | Whether prices are adjusted. |
 | `prints` | string | no | — | The `prints` mode served, echoed back. |
 | `is_stale` | boolean | no | — | The serving aggregate is behind its source (§2.6). |
-| `applied` | object | no | — | Every query parameter used, defaults included: `granularity`, `start`, `end`, `adjusted`, `prints`, `format`. A parameter added to this route later appears here too, so a client can detect it (issue #77). |
+| `applied` | object | no | — | Every query parameter used, defaults included: `granularity`, `start`, `end`, `limit`, `adjusted`, `prints`, `session`, `format`. A parameter added to this route later appears here too, so a client can detect it (issue #77). |
 | `count` | integer | no | rows | Number of bars returned. |
 | `bars[].timestamp` | string | no | UTC, RFC 3339 | Bar open instant. |
 | `bars[].open` | float | no | price | First trade price in the bar. |
@@ -433,6 +528,8 @@ high, low and close are such prints; stored prices are never changed.
 | `bars[].low` | float | no | price | Lowest trade price. |
 | `bars[].close` | float | no | price | Last trade price. |
 | `bars[].volume` | integer | no | shares | Shares traded in the bar. |
+| `bars[].session_date` | date | no | exchange date | Session mode only: the session the bar belongs to. Absent when `session=utc`. |
+| `bars[].phase` | string | no | — | Session mode only: `pre`, `regular` or `post`. Absent when `session=utc`. |
 
 Equity OHLCV prices are JSON floats, not decimal strings — unlike the Kalshi
 routes (§2.3).
@@ -495,8 +592,8 @@ not carry it either.*
 
 | Status | Condition |
 |---|---|
-| `404` | The symbol is not in `instruments`. |
-| `422` | Reversed range, unparseable date, unknown granularity or `prints` value, `prints=all` above `1m`, or the estimate exceeds the row ceiling (§2.5). |
+| `404` | The symbol is not in `instruments` (also for an adjusted read of bars stored under a symbol with no instrument). |
+| `422` | Reversed range, unparseable date, unknown granularity, `prints` or `session` value, `prints=all` above `1m` with `session=utc`, the estimate over the row ceiling (§2.5); in session mode also a daily or longer granularity (`session_granularity`), an `end` past the calendar's horizon (`calendar_horizon`), or phase minutes over the session minute ceiling (`minute_ceiling`). |
 | `504` | The database cancelled the query at the statement timeout. |
 
 ### 3.3 `GET /api/v1/symbols`
