@@ -547,12 +547,25 @@ No commit here: sections 10 and 11 commit together at the section 11 marker.
 ## 15. Full validation
 
 - [ ] **15.1 Checks**
-  - [ ] Unit, integration and load tiers run separately; no failure beyond the known
+  - [x] Unit, integration and load tiers run separately; no failure beyond the known
     pre-existing ones (each re-run in isolation).
-  - [ ] `ruff check`, `ruff format --check` and mypy on touched files add no errors over main.
+    Result: unit 5,900 pass, 5 skipped. Integration (full run) 8 failed: six known;
+    `test_rebuild_orchestrator::test_rebuild_indx_rows_have_indx_venue` also fails on main
+    (stale since #46); `test_migration_064_eligible_rollup_swap::test_readers_count_the_same_before_and_after`
+    was this slice's, now fixed (file 6/6 pass in isolation; full tier not re-run). Load:
+    `test_174` passes; `test_187` latency and `test_921` x3 are known; `test_188`
+    admission-ceiling trades and candles fail at 74,999 vs 75,000 (trades fails identically
+    on main); `test_231` failed once in the full run and passed alone.
+  - [x] `ruff check`, `ruff format --check` and mypy on touched files add no errors over main.
+    Result: `ruff check`: no touched file has more errors than on main (per-file comparison).
+    `ruff format`: new files formatted; files already unformatted on main left alone. mypy over
+    the 52 touched `.py` files: the same 5 errors as main (`test_migration_066` x3,
+    `test_timescale_minute_db` x2); two new errors in `test_session_phases.py` were fixed.
   - [ ] Walk the design's success criteria 1-11 and confirm each maps to a passing test or a
     written note; list any that does not under this task (criterion 11 when the 1.1 finding
     is "not established").
+
+BLOCKED: criterion 11 — the close-stamp bar is established as a single print at the official closing price (454 of 483) appearing for NYSE Arca/Cboe BZX ETFs (and NYSE stocks on early closes); what its volume counts is not established (no equity tape; minute sums reconcile with the daily total neither with nor without it). Docs state this and that the closing auction is in the 16:00 minute. PM decides whether criterion 11 closes.
 
 **Commit**: `test: validate slice 174` (only if this section changed files)
 

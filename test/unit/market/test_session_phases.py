@@ -141,7 +141,11 @@ def test_same_et_time_either_side_of_dst_is_an_hour_apart_in_utc() -> None:
 def test_one_missing_extended_side_raises(side: str) -> None:
     from dataclasses import replace
 
-    bounds = replace(FULL, **{side: None})
+    bounds = (
+        replace(FULL, extended_open=None)
+        if side == "extended_open"
+        else replace(FULL, extended_close=None)
+    )
     with pytest.raises(ValueError, match="2026-01-14"):
         phases_for(bounds, EXT)
     assert estimate_minutes([bounds], REG) == 390

@@ -6,8 +6,8 @@ parent: user/architecture/140-slices.data-quality-operations.md
 dependencies: [144, 171, 173, 182, 186, 221, 301]
 interfaces: [190]
 dateCreated: 20261119
-dateUpdated: 20261119
-status: not_started
+dateUpdated: 20261120
+status: in_progress
 ---
 
 # Slice Design: Session-Aligned Equity Bars
@@ -294,20 +294,24 @@ The cutover script runs the dry check first. It lists every date whose status ch
 
 ### Verification Walkthrough
 
-Production, after release and the cutover (the migration touches calendar tables and gap rows only).
+Production, after the release and `uv run python scripts/cutover_174_calendar.py vX.Y.Z` (the migration touches calendar tables and gap rows only; the cutover applies it, so `mt data migrate apply` is not run first). `B=http://127.0.0.1:8100/api/v1/bars/SPY`. Production's minute pass fires on Saturdays, so pick a session that has landed (the week of a session is held from the following Saturday's firing; 2026-11-18 from 2026-11-21).
+
+Verified before release: steps 1-8 against a test database seeded with every minute of a session (`test/integration/api_server/test_bars_session.py`, `test/integration/test_session_bars.py`), step 9 against a production-shaped database (`test/integration/test_migration_nyse_session_bounds.py`), and the cutover's dry check against production itself (read-only, 2026-11-20: plan equal to `EXPECTED_SESSION_CHANGES`).
 
 1. **Regular hours, one session:**
-   `curl -s 'http://127.0.0.1:8100/api/v1/bars/SPY?granularity=1h&session=regular&start=2026-11-18&end=2026-11-18' | jq '.count, [.bars[] | .timestamp]'`
-   → `7`, and times from `2026-11-18T14:30:00Z` to `2026-11-18T20:30:00Z` (09:30 to 15:30 ET).
-2. **Early close:** the same with `start=end=2025-11-28` → `4`, the last bar at `2025-11-28T17:30:00Z` (12:30 ET).
-3. **Extended:** `session=extended` for 2026-11-18 → 17 bars, and `jq '[.bars[] | .phase] | group_by(.) | map({(.[0]): length}) | add'` → `{"post":4,"pre":6,"regular":7}`.
-4. **DST:** `session=regular&start=2026-03-06&end=2026-03-09` → the first bar on 03-06 is `14:30Z` and on 03-09 is `13:30Z`. Both are 09:30 ET.
-5. **Bar equals its minutes:** fetch `1m&session=regular` for the same session. Sum the 10:30–11:29 ET minutes' volume and compare it with the 10:30 bar's volume. Do the same for its open, high, low and close.
-6. **Close-stamp bar excluded:** `1m&session=utc` for 2026-11-18 includes a bar at the extended close instant. `1m&session=extended` does not.
-7. **Default unchanged:** `granularity=1h&start=2026-11-18&end=2026-11-18` with no `session` returns the same bars as before the release, with `applied.session = "utc"` and no `session_date`/`phase` keys.
-8. **Refusals:** `granularity=1d&session=regular` → `422` with `jq .reason` → `"session_granularity"`. `session=regular&start=2029-01-02&end=2029-01-02` → `"calendar_horizon"`.
-9. **Calendar:** `uv run mt data ...` has no session listing today, so read it with psql. On `trading_sessions`, confirm 2021-12-31 is present, and 2025-01-09 and 2027-01-01 are absent. The cutover report shows the gap rows over the changed dates.
-10. **Tell trading-engine:** post on #38 the request from step 1, then close the issue.
+   `curl -s "$B?granularity=1h&session=regular&start=2026-11-18&end=2026-11-18" | jq '.count, [.bars[] | .timestamp]'`
+   → `7`, and `"2026-11-18T14:30:00Z"` … `"2026-11-18T20:30:00Z"` (09:30 to 15:30 ET). The last bar covers 15:30-16:00.
+2. **Early close:** the same with `start=end=2025-11-28` → `4`, the last `"2025-11-28T17:30:00Z"` (12:30 ET).
+3. **Extended:** `curl -s "$B?granularity=1h&session=extended&start=2026-11-18&end=2026-11-18" | jq '.count, ([.bars[] | .phase] | group_by(.) | map({(.[0]): length}) | add)'` → `17` and `{"post":4,"pre":6,"regular":7}` (a quiet hour can be absent: SPY trades every pre/post hour).
+4. **DST:** `curl -s "$B?granularity=1h&session=regular&start=2026-03-06&end=2026-03-09" | jq '[.bars[] | select(.timestamp | test("T1[34]:30")) | .timestamp]'` → `"2026-03-06T14:30:00Z"` and `"2026-03-09T13:30:00Z"`, both 09:30 ET.
+5. **Bar equals its minutes:**
+   `curl -s "$B?granularity=1m&session=regular&start=2026-11-18&end=2026-11-18&adjusted=false" | jq '[.bars[] | select(.timestamp >= "2026-11-18T15:30" and .timestamp < "2026-11-18T16:30")] | {open: .[0].open, high: (map(.high)|max), low: (map(.low)|min), close: .[-1].close, volume: (map(.volume)|add)}'`
+   equals `curl -s "$B?granularity=1h&session=regular&start=2026-11-18&end=2026-11-18&adjusted=false" | jq '.bars[1] | {open, high, low, close, volume}'` (the 10:30 ET bar).
+6. **Close-stamp bar excluded:** `curl -s "$B?granularity=1m&start=2026-11-18&end=2026-11-19&prints=all&adjusted=false" | jq '[.bars[] | select(.timestamp == "2026-11-19T01:00:00Z")] | length'` → `1` (SPY carries the stamp; `prints=all`, because `prints=eligible` drops it on days it is marked off-tape). `curl -s "$B?granularity=1m&session=extended&start=2026-11-18&end=2026-11-18&adjusted=false" | jq '[.bars[] | select(.timestamp == "2026-11-19T01:00:00Z")] | length'` → `0`.
+7. **Default unchanged:** `curl -s "$B?granularity=1h&start=2026-11-18&end=2026-11-18" | jq '.applied.session, (.bars[0] | keys)'` → `"utc"` and `["close","high","low","open","timestamp","volume"]`; the bars equal the pre-release response except the D5 correction (none on a session with no ex-date the next day).
+8. **Refusals:** `curl -s "$B?granularity=1d&session=regular&start=2026-11-18&end=2026-11-18" | jq .reason` → `"session_granularity"`; `curl -s "$B?granularity=1h&session=regular&start=2029-01-02&end=2029-01-02" | jq '.reason, .holidays_seeded_through'` → `"calendar_horizon"`, `"2028-12-31"`; `curl -s "$B?granularity=4h&session=extended&start=2024-01-02&end=2025-12-31" | jq '.reason, .limit'` → `"minute_ceiling"`, `195000`.
+9. **Calendar:** `psql "$MT_TIMESCALE_DB_URL" -Atc "SELECT session_date FROM trading_sessions WHERE calendar_id='NYSE' AND session_date IN ('2021-12-31','2025-01-09','2027-01-01','2020-07-02') ORDER BY 1"` → `2020-07-02` and `2021-12-31` only; `psql "$MT_TIMESCALE_DB_URL" -Atc "SELECT session_close_utc, extended_close_utc FROM trading_sessions WHERE calendar_id='NYSE' AND session_date='2025-11-28'"` → `2025-11-28 18:00:00+00|2025-11-28 22:00:00+00` (13:00 and 17:00 EST; the shell's psql may print another timezone). The cutover report (`project-documents/user/notes/cutover-174-calendar-<stamp>.md`) lists gap rows over the changed dates before and after; a re-run reports no changes.
+10. **Tell trading-engine:** post on #38 the request from step 1 with its 7-bar answer, then close the issue. Close #26; comment on #28 that its intraday half is done.
 
 ## Risk Assessment
 

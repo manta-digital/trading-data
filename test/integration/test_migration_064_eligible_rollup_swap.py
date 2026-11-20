@@ -191,7 +191,10 @@ def test_populated_current_names_serve_the_former_next_rows(
 def test_readers_count_the_same_before_and_after(both_sets_db: str) -> None:
     before = _readers(both_sets_db)
     assert before["data_status"] and before["coverage_index"]
-    _apply(both_sets_db)
+    # Through 067: slice 174's 068 changes the NYSE calendar on purpose
+    # (2025-01-09 closes), which moves the expected-session accounting.
+    ids = [m["id"] for m in MINUTE_MIGRATIONS]
+    _apply(both_sets_db, MINUTE_MIGRATIONS[: ids.index("068_nyse_session_bounds")])
     assert _readers(both_sets_db) == before
 
 
