@@ -367,11 +367,11 @@ No commit here: sections 8 and 9 commit together at the section 9 marker.
 
 ## 9. Session SQL and `get_session_bars`
 
-- [ ] **9.1 Extract the eligible OHLCV expressions**
-  - [ ] In `eligible_rollups_sql.py`, move the `FIRST`/`MAX`/`MIN`/`LAST`/`SUM ... FILTER`
+- [x] **9.1 Extract the eligible OHLCV expressions**
+  - [x] In `eligible_rollups_sql.py`, move the `FIRST`/`MAX`/`MIN`/`LAST`/`SUM ... FILTER`
     forms of `eligible_rollup_select` into a helper the session statement can call. No
     behavior change.
-  - [ ] Test: the rendered `eligible_rollup_select` text for each granularity equals the text
+  - [x] Test: the rendered `eligible_rollup_select` text for each granularity equals the text
     rendered before the change; the existing rollup and value-parity tests pass.
 
 **Commit**: `refactor: extract the eligible OHLCV expressions for reuse` (stage only this

@@ -99,3 +99,23 @@ def test_statement_order_rollups_then_coverage_then_policies() -> None:
         i for i, s in enumerate(statements) if "add_continuous_aggregate_policy" in s
     )
     assert last_create < first_policy
+
+
+def test_rollup_select_unchanged_by_the_174_extraction() -> None:
+    """Slice 174 moved the OHLCV aggregates into ``eligible_ohlcv_select``;
+    the rendered rollup text must be byte for byte what it was."""
+    import json
+    from pathlib import Path
+
+    from manta_trading.market.schema.eligible_rollups_sql import eligible_rollup_select
+
+    fixture = (
+        Path(__file__).parents[3]
+        / "fixtures"
+        / "sql"
+        / "eligible_rollup_select_pre_174.json"
+    )
+    before = json.loads(fixture.read_text())
+    assert {
+        str(g): eligible_rollup_select(g) for g in MINUTE_CAGG_GRANULARITIES
+    } == before

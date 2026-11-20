@@ -98,6 +98,27 @@ ROLLUP_COLUMNS: tuple[str, ...] = (
 """An eligible rollup's columns, in order (migration 033's)."""
 
 
+def eligible_ohlcv_select(alias: str | None = None, indent: str = " " * 12) -> str:
+    """The eligible open/high/low/close/volume aggregates over minute bars.
+
+    Each price is the bar's clamped eligible value, aggregated only over bars
+    with at least one unmarked price (slice 172). Shared by the rollups and
+    the session-bar statement (slice 174), so both aggregate minutes the same
+    way. ``alias`` qualifies the ``minute_ohlcv`` columns.
+    """
+    when = f"FILTER (WHERE {has_eligible_price(alias)})"
+    time_col = f"{alias}.time" if alias else "time"
+    volume = f"{alias}.volume" if alias else "volume"
+    lines = (
+        f"FIRST({eligible_value('open', alias)}, {time_col}) {when} AS open",
+        f"MAX({eligible_value('high', alias)}) {when} AS high",
+        f"MIN({eligible_value('low', alias)}) {when} AS low",
+        f"LAST({eligible_value('close', alias)}, {time_col}) {when} AS close",
+        f"SUM({volume}) {when} AS volume",
+    )
+    return f",\n{indent}".join(lines)
+
+
 def eligible_rollup_select(granularity: Granularity) -> str:
     """The ``SELECT`` list of an eligible rollup over ``minute_ohlcv``.
 
@@ -106,15 +127,10 @@ def eligible_rollup_select(granularity: Granularity) -> str:
     a difference against the materialized rows.
     """
     width = interval_seconds_sql(MINUTE_CAGG_BUCKET_WIDTH[granularity])
-    eligible = f"FILTER (WHERE {has_eligible_price()})"
     return f"""
             time_bucket({width}, time) AS time_bucket,
             symbol,
-            FIRST({eligible_value("open")}, time) {eligible} AS open,
-            MAX({eligible_value("high")}) {eligible} AS high,
-            MIN({eligible_value("low")}) {eligible} AS low,
-            LAST({eligible_value("close")}, time) {eligible} AS close,
-            SUM(volume) {eligible} AS volume,
+            {eligible_ohlcv_select()},
             COUNT(*) AS minute_count"""
 
 
