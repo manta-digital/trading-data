@@ -72,3 +72,22 @@ Issue [#46](https://github.com/manta-digital/trading-data/issues/46), with [#4](
   - [x] `/api/v1/bars/DJT?granularity=1d&limit=5` returns the same bars as before the release.
   - [x] Production 2026-11-19: 904 `.INDX` symbols, 0 without a calendar, 0 unmoved, 880 state rows moved. The daily pass stored VIX.INDX 1990-01-02..2026-11-19 (9,323 bars) and GSPC.INDX 1927-12-30..2026-11-18 (24,839). `start`/`end` reads return them. `limit=5` returned 4 and 3, because `daily_coverage` holds only its refresh window for backfilled history. That's issue #18, with this case recorded there. DJT's bars are unchanged.
 - [x] **4.6** Comment the results on #46 and close #46 and #4. Tell trading-engine and mt-ui that indices are served as `{code}.INDX`. #46 and #4 closed with results. trading-engine and mt-ui told (Remote Control, not confirmed read).
+
+## #83 Daily gap detection reports every session missing
+
+Issue [#83](https://github.com/manta-digital/trading-data/issues/83). `compute_missing_ranges` compared a session's open (14:30Z or 13:30Z) with daily bars stamped 00:00Z on the session date, so every daily session in a window looked missing. Production's daily gap rows (15,941, measured 2026-11-21 read-only) mostly span sessions whose bars are stored. The daily daemon does not schedule fetches from these rows, so no quota was spent on them; the rows only misreport coverage.
+
+**Decision.** Existing rows are shrunk in place to the sub-ranges that truly lack a bar, keeping each row's status and attempt count. They are not rewritten through `update_data_gaps`, which would reset terminal rows to `UNKNOWN`. Dry run on production: 35 unchanged, 6,371 deleted, 4,632 shrunk, 4,903 split; 15,941 rows become 148,793 (the real single-session holes the long ranges hid).
+
+### 1. Fix and reconcile
+
+- [x] **1.1** Daily detection compares by session date, and looks bars up by the sessions' dates so the first session's own bar is found. Tests on real session rows and real `00:00Z` stamps fail on the old code. Commit `fix: compare daily bars to sessions by date in gap detection`.
+- [x] **1.2** `reconcile_daily_gaps` (`gaps/daily_gap_reconcile.py`): delete, shrink or split each daily row, state kept, idempotent, rows with no lifecycle anchor left as found. Integration test on a throwaway database covers full, partial and no coverage, the dry run, the second run, and the unanchored symbol.
+- [x] **1.3** `scripts/cutover_083_daily_gaps.py`, on the pattern of `cutover_174_calendar.py`: holds the timers, installs, reconciles, requires a clean dry re-check, restarts serve, verifies health and overview.
+- [x] **1.4** **Commit**: `fix: shrink existing daily gap rows to the sessions that lack a bar`.
+
+### 2. Release and production
+
+- [ ] **2.1** CHANGELOG `### Fixed`, release the patch per the release skill, run `uv run python scripts/cutover_083_daily_gaps.py vX.Y.Z`; the report lands in `project-documents/user/notes/`.
+- [ ] **2.2** Production check: a read-only dry reconcile reports nothing to change, and `compute_missing_ranges(conn, "SPY", "daily", 2021-12-29Z, 2022-01-05Z)` returns `[]`.
+- [ ] **2.3** Comment the result on #83 and close it.

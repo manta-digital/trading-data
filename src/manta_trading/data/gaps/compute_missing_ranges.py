@@ -87,18 +87,18 @@ def compute_missing_ranges(
     if not sessions:
         return []
 
-    # Step 3 — stored bar timestamps
-    stored = _fetch_stored_timestamps(
-        conn, symbol, granularity, clamped_from, clamped_to
-    )
-
-    # Step 4 — set difference.  A daily bar is stamped 00:00Z on its session
-    # date, never at the session open, so daily compares by date (#83).
+    # Steps 3-4 — stored bars, then the sessions without one.  A daily bar is
+    # stamped 00:00Z on its session date, never at the session open, so daily
+    # looks bars up and compares by session date (#83); an instant window
+    # starting at the open would miss the first session's own bar.
     if granularity == _DAILY_GRANULARITY:
-        stored_dates = {ts.astimezone(UTC).date() for ts in stored}
-        session_dates = _fetch_session_dates(conn, symbol, clamped_from, clamped_to)
-        missing = [s for s in sessions if session_dates[s] not in stored_dates]
+        missing = _sessions_missing_daily(
+            conn, symbol, sessions, clamped_from, clamped_to
+        )
     else:
+        stored = _fetch_stored_timestamps(
+            conn, symbol, granularity, clamped_from, clamped_to
+        )
         missing = [s for s in sessions if s not in stored]
     if not missing:
         return []
@@ -180,6 +180,27 @@ def fetch_sessions(
             (symbol, from_ts, to_ts),
         )
         return [row[0] for row in cur.fetchall()]
+
+
+def _sessions_missing_daily(
+    conn: psycopg.Connection[object],
+    symbol: str,
+    sessions: list[datetime],
+    from_ts: datetime,
+    to_ts: datetime,
+) -> list[datetime]:
+    """Session opens (from ``sessions``) whose session date has no daily bar."""
+    session_dates = _fetch_session_dates(conn, symbol, from_ts, to_ts)
+    first_day, last_day = min(session_dates.values()), max(session_dates.values())
+    stored = _fetch_stored_timestamps(
+        conn,
+        symbol,
+        _DAILY_GRANULARITY,
+        datetime(first_day.year, first_day.month, first_day.day, tzinfo=UTC),
+        datetime(last_day.year, last_day.month, last_day.day, tzinfo=UTC),
+    )
+    stored_days = {ts.astimezone(UTC).date() for ts in stored}
+    return [s for s in sessions if session_dates[s] not in stored_days]
 
 
 def _fetch_session_dates(

@@ -75,3 +75,14 @@ def test_no_bars_reports_one_range_over_every_session(spy_db: str) -> None:
     start, end = _missing(spy_db)[0]
     assert start.astimezone(UTC).date() == SESSION_DATES[0]
     assert end.astimezone(UTC).date() == SESSION_DATES[-1]
+
+
+def test_window_starting_at_the_open_still_sees_that_sessions_bar(spy_db: str) -> None:
+    # A gap row's start is a session open (14:30Z); the bar is stamped 00:00Z
+    # the same day, before the window. The first session must still count as held.
+    with psycopg.connect(spy_db) as conn:
+        _seed_daily_bars(conn, SESSION_DATES)
+        first_open = datetime(2021, 12, 29, 14, 30, tzinfo=UTC)
+        last_open = datetime(2022, 1, 4, 14, 30, tzinfo=UTC)
+        ranges = compute_missing_ranges(conn, "SPY", "daily", first_open, last_open)
+    assert ranges == []
