@@ -88,6 +88,6 @@ Issue [#83](https://github.com/manta-digital/trading-data/issues/83). `compute_m
 
 ### 2. Release and production
 
-- [ ] **2.1** CHANGELOG `### Fixed`, release the patch per the release skill, run `uv run python scripts/cutover_083_daily_gaps.py vX.Y.Z`; the report lands in `project-documents/user/notes/`.
-- [ ] **2.2** Production check: a read-only dry reconcile reports nothing to change, and `compute_missing_ranges(conn, "SPY", "daily", 2021-12-29Z, 2022-01-05Z)` returns `[]`.
-- [ ] **2.3** Comment the result on #83 and close it.
+- [x] **2.1** CHANGELOG `### Fixed`, release the patch per the release skill, run `uv run python scripts/cutover_083_daily_gaps.py vX.Y.Z`; the report lands in `project-documents/user/notes/`. Released 0.28.1 (d347aa55): CI green, GitHub release and PyPI up. Cutover PASSED: 15,941 rows became 77,962 (overlapping parent rows produced identical sub-ranges), a dry re-check found nothing left to change.
+- [x] **2.2** Production check: a read-only dry reconcile reports nothing to change, and `compute_missing_ranges(conn, "SPY", "daily", 2021-12-29Z, 2022-01-05Z)` returns `[]`. Both hold on production 2026-11-21 (SPY returns `[]`).
+- [x] **2.3** Comment the result on #83 and close it.
