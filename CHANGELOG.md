@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-21
+
+### Fixed
+- **Daily gap detection no longer reports every session as missing** (issue #83). A daily bar is stamped 00:00Z on its session date, but detection compared it with the session's open (14:30Z or 13:30Z), so a fully held window came back as one long gap. It now compares by session date. Production's 15,941 existing daily gap rows are shrunk in place to the sessions that really lack a bar, keeping each row's status and attempt count: `scripts/cutover_083_daily_gaps.py` does this (no migration, no provider calls). Expect the row count to rise, because long ranges split into the single-session holes they hid.
+
 ## [0.28.0] - 2026-11-20
 
 ### Added
