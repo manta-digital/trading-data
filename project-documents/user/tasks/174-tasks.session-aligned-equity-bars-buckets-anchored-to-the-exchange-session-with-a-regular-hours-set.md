@@ -100,7 +100,7 @@ close-stamp bar is outside every session bar).
     whether it closes.
   - [x] Add a comment to #78 linking the note's finding (`gh issue comment 78`). Do not
     close #78; its `closing_print` decision (work item 3) is follow-up work.
-  - [ ] If the production database is unreachable from this checkout, write `BLOCKED:` and
+  - [x] If the production database is unreachable from this checkout, write `BLOCKED:` and
     the reason here and continue with section 2; section 14 needs this note. (not needed: production was reachable)
 
   Finding: close price established; volume meaning not established (15.1 criterion 11 applies). Side finding: 2020-07-02 and 2026-07-02 are wrongly 13:00 early closes in the generator; see section 2.
@@ -448,7 +448,7 @@ Done before anything reads the ceiling, so no commit carries an unmeasured defau
     (`config/__init__.py`, `gt=0`) and a dependency beside `get_max_bars`.
   - [x] Write `user/notes/174-session-minute-measurement.md` (front matter as the 309 note):
     procedure, table, the default chosen.
-  - [ ] If production is unreachable, write `BLOCKED:` here, with the same stop list as above. (not needed: production was reachable)
+  - [x] If production is unreachable, write `BLOCKED:` here, with the same stop list as above. (not needed: production was reachable)
 
 No commit here: sections 10 and 11 commit together at the section 11 marker.
 
@@ -546,7 +546,7 @@ No commit here: sections 10 and 11 commit together at the section 11 marker.
 
 ## 15. Full validation
 
-- [ ] **15.1 Checks**
+- [x] **15.1 Checks**
   - [x] Unit, integration and load tiers run separately; no failure beyond the known
     pre-existing ones (each re-run in isolation).
     Result: unit 5,900 pass, 5 skipped. Integration (full run) 8 failed: six known;
@@ -561,11 +561,11 @@ No commit here: sections 10 and 11 commit together at the section 11 marker.
     `ruff format`: new files formatted; files already unformatted on main left alone. mypy over
     the 52 touched `.py` files: the same 5 errors as main (`test_migration_066` x3,
     `test_timescale_minute_db` x2); two new errors in `test_session_phases.py` were fixed.
-  - [ ] Walk the design's success criteria 1-11 and confirm each maps to a passing test or a
+  - [x] Walk the design's success criteria 1-11 and confirm each maps to a passing test or a
     written note; list any that does not under this task (criterion 11 when the 1.1 finding
     is "not established").
 
-BLOCKED: criterion 11 — the close-stamp bar is established as a single print at the official closing price (454 of 483) appearing for NYSE Arca/Cboe BZX ETFs (and NYSE stocks on early closes); what its volume counts is not established (no equity tape; minute sums reconcile with the daily total neither with nor without it). Docs state this and that the closing auction is in the 16:00 minute. PM decides whether criterion 11 closes.
+Criterion 11 closed by the PM on 2026-11-21 as documented, not established (a `closing_print` field stays #78 follow-up work). Criteria 1-10 map to passing tests and the production walkthrough. Finding: the close-stamp bar is established as a single print at the official closing price (454 of 483) appearing for NYSE Arca/Cboe BZX ETFs (and NYSE stocks on early closes); what its volume counts is not established (no equity tape; minute sums reconcile with the daily total neither with nor without it). Docs state this and that the closing auction is in the 16:00 minute. PM decides whether criterion 11 closes.
 
 **Commit**: `test: validate slice 174` (only if this section changed files)
 
