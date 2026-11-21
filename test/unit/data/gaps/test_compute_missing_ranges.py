@@ -31,6 +31,13 @@ def _dt(y: int, m: int, d: int, h: int = 14, mi: int = 30) -> datetime:
     return datetime(y, m, d, h, mi, 0, tzinfo=UTC)
 
 
+def _bar_stamp(session_open: datetime) -> datetime:
+    """The stamp a daily bar carries: 00:00Z on the session's date."""
+    return datetime(
+        session_open.year, session_open.month, session_open.day, tzinfo=UTC
+    )
+
+
 def _make_conn(
     *,
     first_listing_date: date | None = date(2020, 1, 1),
@@ -111,6 +118,9 @@ class TestComputeMissingRanges:
         from_ts = from_ts or _dt(2020, 1, 1)
         to_ts = to_ts or _dt(2024, 12, 31)
         conn = _mock_conn_simple()
+        # `stored` names the sessions that have a bar.  Production stamps a
+        # daily bar 00:00Z on its session date, not at the session open (#83).
+        daily_stamps = {_bar_stamp(s) for s in stored or set()}
 
         with (
             patch(
@@ -122,8 +132,12 @@ class TestComputeMissingRanges:
                 return_value=sessions or [],
             ),
             patch(
+                "manta_trading.data.gaps.compute_missing_ranges._fetch_session_dates",
+                return_value={s: s.date() for s in sessions or []},
+            ),
+            patch(
                 "manta_trading.data.gaps.compute_missing_ranges._fetch_stored_timestamps",
-                return_value=stored or set(),
+                return_value=daily_stamps,
             ),
         ):
             return compute_missing_ranges(conn, "AAPL", "daily", from_ts, to_ts)
@@ -136,6 +150,21 @@ class TestComputeMissingRanges:
         sessions = [_dt(2024, 1, 2), _dt(2024, 1, 3), _dt(2024, 1, 4)]
         result = self._run(sessions=sessions, stored=set(sessions))
         assert result == []
+
+    def test_winter_open_bars_stamped_midnight_are_not_gaps(self) -> None:
+        """#83: SPY's five daily bars held, sessions open 14:30Z (winter)/13:30Z."""
+        sessions = [
+            _dt(2021, 12, 29),
+            _dt(2021, 12, 30),
+            _dt(2021, 12, 31),
+            _dt(2022, 1, 3),
+            _dt(2022, 1, 4),
+        ]
+        assert self._run(sessions=sessions, stored=set(sessions)) == []
+
+    def test_summer_open_bars_stamped_midnight_are_not_gaps(self) -> None:
+        sessions = [_dt(2024, 7, 1, 13, 30), _dt(2024, 7, 2, 13, 30)]
+        assert self._run(sessions=sessions, stored=set(sessions)) == []
 
     def test_no_sessions_returns_empty(self) -> None:
         result = self._run(sessions=[], stored=set())

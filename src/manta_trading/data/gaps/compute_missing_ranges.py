@@ -15,15 +15,17 @@ Pure read — no writes.  Caller must supply an open psycopg connection.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, date, datetime, timezone
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import psycopg
 
+_DAILY_GRANULARITY = "daily"
+
 # Table name for each granularity (string constants — not user-supplied).
 _DATA_TABLE: dict[str, str] = {
-    "daily": "daily_ohlcv",
+    _DAILY_GRANULARITY: "daily_ohlcv",
     "minute": "minute_ohlcv",
 }
 
@@ -76,7 +78,7 @@ def compute_missing_ranges(
 
     # Step 1 — lifecycle-date clamping
     clamped_from, clamped_to = clamp_to_lifecycle(conn, symbol, from_ts, to_ts)
-    if clamped_from is None:
+    if clamped_from is None or clamped_to is None:
         # No lifecycle dates available — cannot compute ranges
         return []
 
@@ -90,8 +92,14 @@ def compute_missing_ranges(
         conn, symbol, granularity, clamped_from, clamped_to
     )
 
-    # Step 4 — set difference
-    missing = [s for s in sessions if s not in stored]
+    # Step 4 — set difference.  A daily bar is stamped 00:00Z on its session
+    # date, never at the session open, so daily compares by date (#83).
+    if granularity == _DAILY_GRANULARITY:
+        stored_dates = {ts.astimezone(UTC).date() for ts in stored}
+        session_dates = _fetch_session_dates(conn, symbol, clamped_from, clamped_to)
+        missing = [s for s in sessions if session_dates[s] not in stored_dates]
+    else:
+        missing = [s for s in sessions if s not in stored]
     if not missing:
         return []
 
@@ -172,6 +180,30 @@ def fetch_sessions(
             (symbol, from_ts, to_ts),
         )
         return [row[0] for row in cur.fetchall()]
+
+
+def _fetch_session_dates(
+    conn: psycopg.Connection[object],
+    symbol: str,
+    from_ts: datetime,
+    to_ts: datetime,
+) -> dict[datetime, date]:
+    """Return {session_open_utc: session_date} for sessions in the window."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ts.session_open_utc, ts.session_date
+              FROM trading_sessions ts
+              JOIN instruments i
+                ON i.trading_calendar_id = ts.calendar_id
+             WHERE i.symbol = %s
+               AND ts.session_open_utc >= %s
+               AND ts.session_open_utc <= %s
+            """,
+            (symbol, from_ts, to_ts),
+        )
+        rows = cast("list[tuple[datetime, date]]", cur.fetchall())
+        return dict(rows)
 
 
 def fetch_session_bounds(
